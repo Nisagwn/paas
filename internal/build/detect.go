@@ -15,6 +15,10 @@ import (
 // Port is the platform contract: every app listens on $PORT, which is 8080.
 const Port = 8080
 
+// Generated images always run as a numeric non-root user (node = 1000,
+// distroless nonroot = 65532, nginx-unprivileged = 101 set by its base image),
+// so the kubelet can enforce runAsNonRoot, which it cannot do for "USER node".
+
 // Kinds of project Detect recognizes.
 const (
 	KindDockerfile = "dockerfile" // the repo brings its own Dockerfile
@@ -139,7 +143,7 @@ func detectNode(dir string) (Plan, error) {
 		if hasBuild {
 			fmt.Fprintf(&df, "RUN %s build\n", pm.run)
 		}
-		fmt.Fprintf(&df, "ENV NODE_ENV=production PORT=%d\nEXPOSE %d\nUSER node\n", Port, Port)
+		fmt.Fprintf(&df, "ENV NODE_ENV=production PORT=%d\nEXPOSE %d\nUSER 1000:1000\n", Port, Port)
 		fmt.Fprintf(&df, "CMD [%q, %q]\n", "npm", "start")
 		return Plan{Kind: KindNode, Summary: fmt.Sprintf("node server (%s, \"start\" script)", pm.name),
 			Dockerfile: df.String()}, nil
@@ -173,7 +177,7 @@ EXPOSE %d
 		return Plan{}, errors.New(`package.json has no "start" or "build" script and no server.js/index.js; ` +
 			`add a "start" script`)
 	}
-	fmt.Fprintf(&df, "ENV NODE_ENV=production PORT=%d\nEXPOSE %d\nUSER node\n", Port, Port)
+	fmt.Fprintf(&df, "ENV NODE_ENV=production PORT=%d\nEXPOSE %d\nUSER 1000:1000\n", Port, Port)
 	fmt.Fprintf(&df, "CMD [%q, %q]\n", "node", entry)
 	return Plan{Kind: KindNode, Summary: fmt.Sprintf("node server (%s, node %s)", pm.name, entry),
 		Dockerfile: df.String()}, nil
@@ -222,7 +226,7 @@ FROM gcr.io/distroless/static:nonroot
 COPY --from=build /out/app /app
 ENV PORT=%[4]d
 EXPOSE %[4]d
-USER nonroot
+USER 65532:65532
 ENTRYPOINT ["/app"]
 `, version, manifests, pkg, Port)
 	return Plan{Kind: KindGo, Summary: fmt.Sprintf("go %s (package %s)", version, pkg), Dockerfile: df}, nil

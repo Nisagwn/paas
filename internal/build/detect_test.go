@@ -45,7 +45,7 @@ func TestDetect(t *testing.T) {
 			},
 			kind: KindNode,
 			want: []string{"COPY package.json package-lock.json ./", "--mount=type=cache,target=/root/.npm npm ci",
-				"RUN npm run build", `CMD ["npm", "start"]`, "PORT=8080", "USER node"},
+				"RUN npm run build", `CMD ["npm", "start"]`, "PORT=8080", "USER 1000:1000"},
 			not: []string{"nginx"},
 		},
 		{
@@ -80,7 +80,7 @@ func TestDetect(t *testing.T) {
 			},
 			kind: KindGo,
 			want: []string{"FROM golang:1.23-alpine", "COPY go.mod go.sum ./", "-o /out/app .",
-				"distroless/static:nonroot", "ENV PORT=8080"},
+				"distroless/static:nonroot", "ENV PORT=8080", "USER 65532:65532"},
 		},
 		{
 			name: "go with a single cmd/ binary and no go.sum",
