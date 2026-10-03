@@ -1,6 +1,6 @@
 # minipaas
 
-Vercel tarzı, Git tabanlı mini PaaS. Bitirme projesi.
+Vercel tarzı, Git tabanlı PaaS.
 
 Her `git push` değişmez bir **deployment** üretir ve kendi URL'sini alır.
 `production` yalnızca bir takma addır (alias); rollback, alias'ı eski bir
