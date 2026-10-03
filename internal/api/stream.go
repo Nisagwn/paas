@@ -54,6 +54,10 @@ func (t StreamTiming) withDefaults() StreamTiming {
 
 const streamBatch = 500
 
+// oldFinish: a deployment finished longer ago than this needs no grace for
+// late log lines, even allowing for clock skew between us and the database.
+const oldFinish = 30 * time.Second
+
 // Unwrap lets http.ResponseController reach the real writer's Flush.
 func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
@@ -202,9 +206,13 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		if d.Finished() {
 			if finishAt.IsZero() {
+				// The grace period starts when this stream sees the end, not
+				// at finished_at: that timestamp comes from the database
+				// clock, which may be skewed against ours by more than the
+				// grace itself. Only long-finished deployments close at once.
 				wait := timing.FinishGrace
-				if d.FinishedAt != nil {
-					wait = min(max(timing.FinishGrace-time.Since(*d.FinishedAt), 0), timing.FinishGrace)
+				if d.FinishedAt != nil && time.Since(*d.FinishedAt) > oldFinish {
+					wait = 0
 				}
 				finishAt = time.Now().Add(wait)
 			}

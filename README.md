@@ -22,7 +22,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
-## Durum: Faz 4 tamamlandı
+## Durum: Faz 5 tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -49,7 +49,10 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 4: wildcard sertifika (cert-manager, DNS-01) Traefik'in varsayılanı; her host otomatik TLS
 - [x] Faz 4: periyodik uzlaştırma (reconcile) döngüsü: başarısız bir senkron kendiliğinden düzelir
 - [x] Faz 5: GitHub commit status'ları (`pending` → `success` / `failure`) ve PR'da güncellenen "Preview hazır" yorumu
-- [ ] Faz 5: canlı loglar (SSE), GitHub commit status / PR yorumu, web arayüzü
+- [x] Faz 5: canlı build logu (SSE; Postgres `LISTEN/NOTIFY`, bağlantı koparsa periyodik okumaya düşer)
+- [x] Faz 5: çalışma zamanı logu (pod logları, Kubernetes log API'si)
+- [x] Faz 5: web arayüzü (Go şablonları + htmx): uygulamalar, deploy geçmişi, canlı log, rollback, ortam değişkenleri
+- [ ] Faz 7: eski deploy'ları temizleme, branch silinince temizlik, çökme sonrası kurtarma, yük testleri
 
 ### Deploy nasıl çalışır
 
@@ -132,6 +135,23 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 | `PAAS_BUILD_CACHE` | `true` → `<app>:buildcache` registry cache |
 | `PAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
 | `PAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
+
+### Web arayüzü ve canlı loglar (Faz 5)
+
+Arayüz `/` adresinde: API token'ı ile bir kez giriş yapılır. Sayfalar:
+
+- **Uygulamalar:** liste, her birinin son deploy durumu, yeni uygulama formu
+- **Uygulama:** alias'lar, deploy geçmişi, tek tıkla rollback, ortam değişkeni anahtarları (değerler asla gösterilmez)
+- **Deployment** (`/deployments/{id}`): canlı build logu, bitince durum rozeti güncellenir; Kubernetes'te pod logları
+
+Güvenlik: oturum, API token'ından türetilen anahtarla HMAC imzalı, sunucuda durum tutmayan bir
+çerezdir (`HttpOnly`, `SameSite=Strict`, HTTPS'te `Secure`); token değişince tüm oturumlar düşer.
+Değişiklik yapan her form oturuma bağlı bir CSRF token'ı ve aynı-origin kontrolünden geçer.
+Sayfalar sıkı bir CSP (istek başına nonce) ile sunulur.
+
+Canlı log: yeni log satırı ve durum değişikliği Postgres'te `NOTIFY` üretir; SSE akışı önce
+geçmişi, sonra canlı satırları gönderir, deployment bitince son `status` olayıyla kapanır.
+`Last-Event-ID` ile kopan bağlantı kaldığı yerden devam eder.
 
 ### GitHub entegrasyonu (Faz 5)
 
@@ -241,6 +261,8 @@ Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 | PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
+| GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
+| GET | `/api/apps/{name}/deployments/{id}/runtime-logs?follow=1&tail=200` | Pod logları (yalnızca `kubernetes` deployer) |
 
 ## Proje yapısı
 
@@ -255,6 +277,9 @@ internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run 
 internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
 internal/deploy/      Kubernetes deployer: namespace, kota, Secret, Deployment, Service, Ingress, rollout bekleme
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
+internal/auth/        web oturumu (imzalı çerez) ve CSRF
+internal/web/         web arayüzü (html/template + htmx)
+internal/github/      GitHub commit status ve PR yorumları
 examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı
