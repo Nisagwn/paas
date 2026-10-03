@@ -5,4 +5,4 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/minipaas-ecr-auth
+ExecStart=/usr/local/sbin/paas-ecr-auth

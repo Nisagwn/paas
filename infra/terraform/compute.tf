@@ -45,9 +45,9 @@ locals {
     HOSTED_ZONE_ID      = var.hosted_zone_id
     LETSENCRYPT_EMAIL   = var.letsencrypt_email
     ACME_SERVER         = local.acme_server
-    MINIPAAS_REGISTRY   = "${local.ecr_registry}/${var.ecr_app_prefix}"
+    PAAS_REGISTRY       = "${local.ecr_registry}/${var.ecr_app_prefix}"
     CONTROL_PLANE_IMAGE = "${aws_ecr_repository.control_plane.repository_url}:${var.control_plane_image_tag}"
-    MINIPAAS_DEPLOYER   = var.control_plane_deployer
+    PAAS_DEPLOYER       = var.control_plane_deployer
   }
 
   k8s_dir   = "${path.module}/../k8s"
@@ -69,29 +69,29 @@ locals {
   write_files = concat(
     [
       {
-        path        = "/etc/minipaas/bootstrap.env"
+        path        = "/etc/paas/bootstrap.env"
         permissions = "0644"
         content     = join("", [for k, v in local.bootstrap_env : "${k}='${v}'\n"])
       },
       {
-        path        = "/usr/local/sbin/minipaas-bootstrap"
+        path        = "/usr/local/sbin/paas-bootstrap"
         permissions = "0755"
         content     = file("${path.module}/cloud-init/bootstrap.sh")
       },
       {
-        path        = "/usr/local/sbin/minipaas-ecr-auth"
+        path        = "/usr/local/sbin/paas-ecr-auth"
         permissions = "0755"
         content     = file("${path.module}/cloud-init/ecr-auth.sh")
       },
       {
-        path        = "/etc/systemd/system/minipaas-ecr-auth.service"
+        path        = "/etc/systemd/system/paas-ecr-auth.service"
         permissions = "0644"
-        content     = file("${path.module}/cloud-init/minipaas-ecr-auth.service")
+        content     = file("${path.module}/cloud-init/paas-ecr-auth.service")
       },
       {
-        path        = "/etc/systemd/system/minipaas-ecr-auth.timer"
+        path        = "/etc/systemd/system/paas-ecr-auth.timer"
         permissions = "0644"
-        content     = file("${path.module}/cloud-init/minipaas-ecr-auth.timer")
+        content     = file("${path.module}/cloud-init/paas-ecr-auth.timer")
       },
       {
         path        = "/var/lib/rancher/credentialprovider/config.yaml"
@@ -100,7 +100,7 @@ locals {
       },
     ],
     [for f in local.manifests : {
-      path        = "/opt/minipaas/manifests/${f}"
+      path        = "/opt/paas/manifests/${f}"
       permissions = "0644"
       content     = templatefile("${local.k8s_dir}/${f}", local.k8s_vars)
     }],

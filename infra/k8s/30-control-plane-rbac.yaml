@@ -7,17 +7,17 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: minipaas
-  namespace: minipaas
+  name: paas
+  namespace: paas
   labels:
-    app.kubernetes.io/name: minipaas
+    app.kubernetes.io/name: paas
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: minipaas-control-plane
+  name: paas-control-plane
   labels:
-    app.kubernetes.io/name: minipaas
+    app.kubernetes.io/name: paas
 rules:
   - apiGroups: [""]
     resources: [namespaces]
@@ -46,14 +46,14 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: minipaas-control-plane
+  name: paas-control-plane
   labels:
-    app.kubernetes.io/name: minipaas
+    app.kubernetes.io/name: paas
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: minipaas-control-plane
+  name: paas-control-plane
 subjects:
   - kind: ServiceAccount
-    name: minipaas
-    namespace: minipaas
+    name: paas
+    namespace: paas

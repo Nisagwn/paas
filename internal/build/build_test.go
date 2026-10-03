@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // gitRepo creates <base>/<owner>/<repo> with two commits and returns the
@@ -132,7 +132,7 @@ func TestBuilderBuild(t *testing.T) {
 		t.Errorf("expected the generated static Dockerfile, got:\n%s", eng.dockerfile)
 	}
 	if eng.spec.Platform != "linux/arm64" || eng.spec.CacheRef != "localhost:5000/blog:buildcache" ||
-		eng.spec.BuildArgs["MINIPAAS_COMMIT_SHA"] != first {
+		eng.spec.BuildArgs["PAAS_COMMIT_SHA"] != first {
 		t.Errorf("spec = %+v", eng.spec)
 	}
 	for _, want := range []string{"==> fetching nisagwn/blog@" + first[:7], "==> detected: static site",

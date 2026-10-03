@@ -1,4 +1,4 @@
-module github.com/nisagwn/minipaas
+module github.com/nisagwn/paas
 
 go 1.24.0
 

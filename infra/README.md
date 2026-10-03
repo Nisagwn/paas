@@ -1,4 +1,4 @@
-# minipaas altyapısı (Faz 6)
+# paas altyapısı (Faz 6)
 
 Git tabanlı PaaS'ın AWS üzerindeki altyapısı: `terraform apply` ile boş bir AWS
 hesabından çalışan bir platforma.
@@ -19,7 +19,7 @@ infra/
 │       ├── cloud-config.yaml.tftpl     cloud-init (templatefile)
 │       ├── bootstrap.sh                k3s → Helm → cert-manager → secret'lar → manifest'ler
 │       ├── ecr-auth.sh                 buildctl için ECR config.json yenileyici
-│       ├── minipaas-ecr-auth.{service,timer}
+│       ├── paas-ecr-auth.{service,timer}
 │       └── credential-provider.yaml    kubelet ECR credential provider
 └── k8s/                        küme manifest'leri (${PLACEHOLDER}'lı)
     ├── 00-namespace.yaml
@@ -43,13 +43,13 @@ infra/
 │  kube-system   Traefik (:80 → :443 yönlendirme, :443 TLS)                 │
 │                └─ varsayılan sertifika: wildcard-tls (<domain>, *.<domain>)│
 │  cert-manager  controller (hostNetwork) ── DNS-01 ──► Route 53            │
-│  minipaas      minipaas (API + webhook + worker'lar)                      │
+│  paas      paas (API + webhook + worker'lar)                      │
 │                  ├─ buildctl ──tcp:1234──► buildkitd (rootless) ──push──► ECR
 │                  ├─ Postgres StatefulSet (local-path PVC)                 │
 │                  └─ Kubernetes API ──► app-<ad> namespace'leri            │
 │  app-*         kullanıcı uygulamaları (kubelet imajları ECR'den çeker)    │
 │                                                                           │
-│  host: kubelet ecr-credential-provider · minipaas-ecr-auth.timer (6 sa)   │
+│  host: kubelet ecr-credential-provider · paas-ecr-auth.timer (6 sa)   │
 └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -82,20 +82,20 @@ ve her yenilemede k3s restart ister).
 
 **buildctl'in ECR'ye push etmesi — systemd timer + Secret.** buildctl, kayıt
 kimliklerini istemci tarafında `$DOCKER_CONFIG/config.json`'dan okuyup oturum
-üzerinden buildkitd'ye iletir. Host'taki `minipaas-ecr-auth.timer` her 6 saatte
+üzerinden buildkitd'ye iletir. Host'taki `paas-ecr-auth.timer` her 6 saatte
 bir (token ömrü 12 saat) `aws ecr get-login-password` ile `config.json` üretir ve
-`minipaas/ecr-docker-config` Secret'ına yazar. Kontrol düzlemi bu Secret'ı
+`paas/ecr-docker-config` Secret'ına yazar. Kontrol düzlemi bu Secret'ı
 `subPath` olmadan `/docker-config`'e bağlar (`DOCKER_CONFIG=/docker-config`), böylece
 yenilemeler yeniden başlatma olmadan pod'a yansır. Kontrol düzlemi imajına ek ikili
 (ör. `docker-credential-ecr-login`) gerekmez, pod'un AWS kimliğine ihtiyacı olmaz.
 buildkitd kayıt sırrı tutmaz.
 
 **Uygulama başına ECR reposu — create-on-push.** Builder imajları
-`<hesap>.dkr.ecr.<bölge>.amazonaws.com/minipaas/<app>:<sha>` adresine gönderir.
-`aws_ecr_repository_creation_template` (`CREATE_ON_PUSH`, önek `minipaas`) sayesinde
-`minipaas/<app>` reposu ilk push'ta, şablondaki yaşam döngüsü kuralıyla (son 30
+`<hesap>.dkr.ecr.<bölge>.amazonaws.com/paas/<app>:<sha>` adresine gönderir.
+`aws_ecr_repository_creation_template` (`CREATE_ON_PUSH`, önek `paas`) sayesinde
+`paas/<app>` reposu ilk push'ta, şablondaki yaşam döngüsü kuralıyla (son 30
 imaj) otomatik oluşur. Kontrol düzlemi ECR API'sini hiç çağırmaz. Instance role,
-yalnızca `repository/minipaas/*` üzerinde push/pull + `CreateRepository` yetkisine
+yalnızca `repository/paas/*` üzerinde push/pull + `CreateRepository` yetkisine
 sahiptir.
 
 **Wildcard TLS.** cert-manager, Route 53 DNS-01 ile `<domain>` ve `*.<domain>`
@@ -145,7 +145,7 @@ terraform apply tfplan
 arka planda 5–10 dakika daha sürer. İzlemek için:
 
 ```bash
-$(terraform output -raw ssh) sudo tail -f /var/log/minipaas-bootstrap.log
+$(terraform output -raw ssh) sudo tail -f /var/log/paas-bootstrap.log
 ```
 
 İlk kurulumda `letsencrypt_environment = "staging"` önerilir (Let's Encrypt rate
@@ -157,7 +157,7 @@ yeniden uygulayın (bkz. "Gün-2 değişiklikleri") ve sertifikayı yenileyin:
 
 ```bash
 eval "$(terraform output -raw kubeconfig_command)"
-export KUBECONFIG=$PWD/kubeconfig-minipaas.yaml
+export KUBECONFIG=$PWD/kubeconfig-paas.yaml
 kubectl get pods -A
 kubectl -n kube-system get certificate wildcard     # READY=True olmalı
 ```
@@ -175,27 +175,27 @@ aws ecr get-login-password --region eu-central-1 \
   | docker login --username AWS --password-stdin "$REGISTRY"
 
 docker buildx build --platform linux/arm64 -t "$REPO:latest" --push .
-kubectl -n minipaas rollout restart deployment/minipaas
+kubectl -n paas rollout restart deployment/paas
 ```
 
-İmaj gönderilene kadar `minipaas` pod'u `ImagePullBackOff` durumunda bekler; bu
+İmaj gönderilene kadar `paas` pod'u `ImagePullBackOff` durumunda bekler; bu
 beklenen bir durumdur, imaj gelince kendiliğinden toparlanır. Sabit sürüm için
 `control_plane_image_tag` değişkenini (ör. git SHA) kullanın.
 
-> `MINIPAAS_DEPLOYER=kubernetes` Faz 3'teki Kubernetes deployer'ını gerektirir.
+> `PAAS_DEPLOYER=kubernetes` Faz 3'teki Kubernetes deployer'ını gerektirir.
 > O sürümden eski bir imajla `control_plane_deployer = "dryrun"` kullanın.
 
 ## Secret'lar
 
 ```bash
 # API token
-kubectl -n minipaas get secret minipaas -o go-template='{{index .data "api-token" | base64decode}}'
+kubectl -n paas get secret paas -o go-template='{{index .data "api-token" | base64decode}}'
 # GitHub webhook secret
-kubectl -n minipaas get secret minipaas -o go-template='{{index .data "github-webhook-secret" | base64decode}}'
+kubectl -n paas get secret paas -o go-template='{{index .data "github-webhook-secret" | base64decode}}'
 
 # Özel repolar için GitHub token'ı (fine-grained, Contents: read)
-kubectl -n minipaas patch secret minipaas -p '{"stringData":{"github-token":"github_pat_..."}}'
-kubectl -n minipaas rollout restart deployment/minipaas
+kubectl -n paas patch secret paas -p '{"stringData":{"github-token":"github_pat_..."}}'
+kubectl -n paas rollout restart deployment/paas
 ```
 
 ## GitHub webhook'u
@@ -211,7 +211,7 @@ Repo → Settings → Webhooks → Add webhook:
 Uygulamayı kaydetmek:
 
 ```bash
-TOKEN=$(kubectl -n minipaas get secret minipaas -o go-template='{{index .data "api-token" | base64decode}}')
+TOKEN=$(kubectl -n paas get secret paas -o go-template='{{index .data "api-token" | base64decode}}')
 curl -s -H "Authorization: Bearer $TOKEN" \
   -d '{"name":"blog","repo":"<kullanıcı>/blog"}' https://<domain>/api/apps
 ```
@@ -226,12 +226,12 @@ render edilir:
 ```bash
 cd infra/terraform
 eval "$(terraform output -raw k8s_env)"
-VARS='${DOMAIN} ${AWS_REGION} ${HOSTED_ZONE_ID} ${LETSENCRYPT_EMAIL} ${ACME_SERVER} ${MINIPAAS_REGISTRY} ${CONTROL_PLANE_IMAGE} ${MINIPAAS_DEPLOYER}'
+VARS='${DOMAIN} ${AWS_REGION} ${HOSTED_ZONE_ID} ${LETSENCRYPT_EMAIL} ${ACME_SERVER} ${PAAS_REGISTRY} ${CONTROL_PLANE_IMAGE} ${PAAS_DEPLOYER}'
 for f in ../k8s/*.yaml; do envsubst "$VARS" <"$f"; echo '---'; done | kubectl apply -f -
 ```
 
 `cert-manager` için `helm upgrade` yaparsanız controller'ın `hostNetwork` yaması
-silinir; node'da `sudo /usr/local/sbin/minipaas-bootstrap` komutunu tekrar
+silinir; node'da `sudo /usr/local/sbin/paas-bootstrap` komutunu tekrar
 çalıştırın (betik idempotenttir).
 
 ## Maliyet tahmini (eu-central-1, on-demand, aylık ~730 saat)
@@ -260,7 +260,7 @@ onları silin, sonra altyapıyı kaldırın:
 ```bash
 REGION=eu-central-1
 for r in $(aws ecr describe-repositories --region $REGION \
-    --query "repositories[?starts_with(repositoryName, 'minipaas/')].repositoryName" --output text); do
+    --query "repositories[?starts_with(repositoryName, 'paas/')].repositoryName" --output text); do
   aws ecr delete-repository --region $REGION --force --repository-name "$r"
 done
 
@@ -273,7 +273,7 @@ kayıtlarını ve kontrol düzlemi ECR reposunu (`force_delete`) siler. Gerekirs
 yedek alın:
 
 ```bash
-kubectl -n minipaas exec postgres-0 -- pg_dump -U minipaas minipaas > minipaas.sql
+kubectl -n paas exec postgres-0 -- pg_dump -U paas paas > paas.sql
 ```
 
 ## Bilinen kısıtlar ve sonraki adımlar
@@ -281,11 +281,11 @@ kubectl -n minipaas exec postgres-0 -- pg_dump -U minipaas minipaas > minipaas.s
 - **Durum node'un kök diskinde.** Postgres ve BuildKit önbelleği k3s `local-path`
   volume'lerinde. Node kaybı veri kaybıdır; EBS snapshot (DLM) veya RDS'e geçiş ve
   çok düğümlü kurulum için ayrı bir veri diski planlanmalı.
-- **BuildKit registry cache ECR'de kapalı** (`MINIPAAS_BUILD_CACHE=false`). ECR,
+- **BuildKit registry cache ECR'de kapalı** (`PAAS_BUILD_CACHE=false`). ECR,
   cache export için `image-manifest=true,oci-mediatypes=true` ister; builder bu
   seçenekleri eklediğinde açılabilir. Yerel önbellek (PVC) çalışmaya devam eder.
 - **Geniş ClusterRole.** Kontrol düzlemi tüm namespace'lerde Secret/Deployment
   yönetebilir. İleride admission policy ile `app-*` namespace'lerine daraltılabilir.
 - **Uygulama izolasyonu.** `app-*` namespace'leri için default-deny NetworkPolicy
-  deployer'ın (Faz 3) sorumluluğundadır; altyapı yalnızca `minipaas` namespace'ini
+  deployer'ın (Faz 3) sorumluluğundadır; altyapı yalnızca `paas` namespace'ini
   korur.

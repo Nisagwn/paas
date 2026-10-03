@@ -1,4 +1,4 @@
-// Command minipaas runs the control plane: HTTP API, GitHub webhook receiver
+// Command paas runs the control plane: HTTP API, GitHub webhook receiver
 // and deployment worker in one process.
 package main
 
@@ -14,13 +14,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/api"
-	"github.com/nisagwn/minipaas/internal/build"
-	"github.com/nisagwn/minipaas/internal/config"
-	"github.com/nisagwn/minipaas/internal/deploy"
-	"github.com/nisagwn/minipaas/internal/routing"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/build"
+	"github.com/nisagwn/paas/internal/config"
+	"github.com/nisagwn/paas/internal/deploy"
+	"github.com/nisagwn/paas/internal/routing"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 func main() {
@@ -138,7 +138,7 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.A
 		}
 		p.Builder = b
 	default:
-		return nil, nil, fmt.Errorf("unknown MINIPAAS_BUILDER %q (dryrun, buildkit, docker)", cfg.Builder)
+		return nil, nil, fmt.Errorf("unknown PAAS_BUILDER %q (dryrun, buildkit, docker)", cfg.Builder)
 	}
 
 	switch cfg.Deployer {
@@ -165,7 +165,7 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.A
 		p.Deployer = d
 		applier = d
 	default:
-		return nil, nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (dryrun, kubernetes)", cfg.Deployer)
+		return nil, nil, fmt.Errorf("unknown PAAS_DEPLOYER %q (dryrun, kubernetes)", cfg.Deployer)
 	}
 	return p, applier, nil
 }

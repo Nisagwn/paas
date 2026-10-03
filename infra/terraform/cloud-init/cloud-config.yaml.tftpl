@@ -13,6 +13,6 @@ write_files:
 ${yamlencode(write_files)}
 
 runcmd:
-  # Log goes to /var/log/minipaas-bootstrap.log; re-runnable by hand:
-  #   sudo /usr/local/sbin/minipaas-bootstrap
-  - [bash, -c, "/usr/local/sbin/minipaas-bootstrap 2>&1 | tee -a /var/log/minipaas-bootstrap.log"]
+  # Log goes to /var/log/paas-bootstrap.log; re-runnable by hand:
+  #   sudo /usr/local/sbin/paas-bootstrap
+  - [bash, -c, "/usr/local/sbin/paas-bootstrap 2>&1 | tee -a /var/log/paas-bootstrap.log"]

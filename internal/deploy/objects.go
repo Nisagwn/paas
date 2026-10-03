@@ -20,12 +20,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // policyName names the per-namespace ResourceQuota and LimitRange.
-const policyName = "minipaas"
+const policyName = "paas"
 
 func ptr[T any](v T) *T { return &v }
 
@@ -37,7 +37,7 @@ type resourceClient[T any] interface {
 }
 
 // apply creates want or, if the object exists, lets merge copy the fields
-// minipaas owns onto the live object and updates it when merge reports a
+// paas owns onto the live object and updates it when merge reports a
 // change. Re-running a deployment after a crash, or two deployments of the
 // same app racing on the namespace, therefore never fails.
 func apply[T any](ctx context.Context, c resourceClient[T], name string, want T, merge func(have T) bool) (T, error) {
@@ -113,7 +113,7 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 		return fmt.Errorf("resource quota: %w", err)
 	}
 
-	// Defaults for containers that do not set their own (minipaas always
+	// Defaults for containers that do not set their own (paas always
 	// does; this covers anything else run in the namespace).
 	limits := &corev1.LimitRange{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns, Labels: lbl},
@@ -360,7 +360,7 @@ func (k *Kubernetes) ensureService(ctx context.Context, d store.Deployment, dep 
 				equality.Semantic.DeepEqual(have.Spec.Ports, want.Spec.Ports) {
 				return false
 			}
-			// Keep the allocated ClusterIP: only the fields minipaas owns change.
+			// Keep the allocated ClusterIP: only the fields paas owns change.
 			have.Spec.Selector, have.Spec.Ports = want.Spec.Selector, want.Spec.Ports
 			return true
 		})

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Node bootstrap, run once by cloud-init (and safe to re-run by hand):
 #   k3s (+ bundled Traefik) → Helm → cert-manager → secrets → ECR auth →
-#   manifests in /opt/minipaas/manifests.
-# Settings come from /etc/minipaas/bootstrap.env (written by Terraform).
+#   manifests in /opt/paas/manifests.
+# Settings come from /etc/paas/bootstrap.env (written by Terraform).
 set -euo pipefail
 
 # shellcheck disable=SC1091
-. /etc/minipaas/bootstrap.env
+. /etc/paas/bootstrap.env
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-MANIFESTS=/opt/minipaas/manifests
+MANIFESTS=/opt/paas/manifests
 ARCH=arm64
 
-log() { echo "[minipaas-bootstrap $(date -u +%H:%M:%S)] $*"; }
+log() { echo "[paas-bootstrap $(date -u +%H:%M:%S)] $*"; }
 
 # retry N cmd...: retries a command with a 5 s pause.
 retry() {
@@ -29,7 +29,7 @@ retry() {
 # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, which
 # rootlesskit (moby/buildkit:*-rootless) needs.
 log "sysctl: unprivileged user namespaces"
-cat >/etc/sysctl.d/90-minipaas.conf <<'EOF'
+cat >/etc/sysctl.d/90-paas.conf <<'EOF'
 kernel.apparmor_restrict_unprivileged_userns = 0
 # Traefik, buildkitd and many pods watch files.
 fs.inotify.max_user_instances = 1024
@@ -37,7 +37,7 @@ fs.inotify.max_user_watches = 524288
 EOF
 sysctl --system >/dev/null
 
-# --- 2. AWS CLI v2 (used by minipaas-ecr-auth) ------------------------------
+# --- 2. AWS CLI v2 (used by paas-ecr-auth) ------------------------------
 if ! command -v aws >/dev/null; then
   log "installing AWS CLI v2"
   tmp=$(mktemp -d)
@@ -110,19 +110,19 @@ kubectl wait --for=condition=Established --timeout=120s \
 # --- 7. Namespace + secrets (generated here, never in Terraform state) -------
 kubectl apply -f "${MANIFESTS}/00-namespace.yaml"
 
-if ! kubectl -n minipaas get secret postgres >/dev/null 2>&1; then
+if ! kubectl -n paas get secret postgres >/dev/null 2>&1; then
   log "generating Postgres credentials"
-  kubectl -n minipaas create secret generic postgres \
-    --from-literal=username=minipaas \
+  kubectl -n paas create secret generic postgres \
+    --from-literal=username=paas \
     --from-literal=password="$(openssl rand -hex 24)" \
-    --from-literal=database=minipaas
+    --from-literal=database=paas
 fi
 
-if ! kubectl -n minipaas get secret minipaas >/dev/null 2>&1; then
+if ! kubectl -n paas get secret paas >/dev/null 2>&1; then
   log "generating control plane secrets"
-  pg_pass=$(kubectl -n minipaas get secret postgres -o jsonpath='{.data.password}' | base64 -d)
-  kubectl -n minipaas create secret generic minipaas \
-    --from-literal=database-url="postgres://minipaas:${pg_pass}@postgres.minipaas.svc.cluster.local:5432/minipaas?sslmode=disable" \
+  pg_pass=$(kubectl -n paas get secret postgres -o jsonpath='{.data.password}' | base64 -d)
+  kubectl -n paas create secret generic paas \
+    --from-literal=database-url="postgres://paas:${pg_pass}@postgres.paas.svc.cluster.local:5432/paas?sslmode=disable" \
     --from-literal=api-token="$(openssl rand -hex 32)" \
     --from-literal=github-webhook-secret="$(openssl rand -hex 32)"
 fi
@@ -130,8 +130,8 @@ fi
 # --- 8. ECR credentials for buildctl (refreshed every 6 h) -------------------
 log "ECR auth for buildctl"
 systemctl daemon-reload
-systemctl enable --now minipaas-ecr-auth.timer
-retry 12 /usr/local/sbin/minipaas-ecr-auth
+systemctl enable --now paas-ecr-auth.timer
+retry 12 /usr/local/sbin/paas-ecr-auth
 
 # --- 9. Platform manifests ----------------------------------------------------
 log "applying manifests"

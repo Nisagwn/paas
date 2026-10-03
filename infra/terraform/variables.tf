@@ -1,7 +1,7 @@
 variable "name" {
   description = "Name prefix for every AWS resource."
   type        = string
-  default     = "minipaas"
+  default     = "paas"
 }
 
 variable "region" {
@@ -95,7 +95,7 @@ variable "ecr_credential_provider_version" {
 variable "ecr_app_prefix" {
   description = "ECR namespace for app images. Repositories <prefix>/<app> are created on first push from a repository creation template."
   type        = string
-  default     = "minipaas"
+  default     = "paas"
 }
 
 variable "ecr_keep_images" {
@@ -111,7 +111,7 @@ variable "control_plane_image_tag" {
 }
 
 variable "control_plane_deployer" {
-  description = "MINIPAAS_DEPLOYER for the control plane. \"kubernetes\" needs the Faz 3 deployer; use \"dryrun\" with older images."
+  description = "PAAS_DEPLOYER for the control plane. \"kubernetes\" needs the Faz 3 deployer; use \"dryrun\" with older images."
   type        = string
   default     = "kubernetes"
 }

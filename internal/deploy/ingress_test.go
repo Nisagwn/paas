@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 func backend(ing *networkingv1.Ingress) string {

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/testdb"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/testdb"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 // A pipeline that hangs past the timeout must leave the deployment "failed",

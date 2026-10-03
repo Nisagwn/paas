@@ -22,24 +22,24 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 // Port is the platform contract (build.Port): every app listens on $PORT.
 const Port = 8080
 
-// Labels and annotations set on every object minipaas creates.
+// Labels and annotations set on every object paas creates.
 const (
 	LabelManagedBy    = "app.kubernetes.io/managed-by"
 	LabelApp          = "app"
-	LabelDeploymentID = "minipaas/deployment-id"
-	LabelCommit       = "minipaas/commit-sha"
-	LabelBranch       = "minipaas/branch"
-	AnnotBranch       = "minipaas/branch"   // the unslugged branch name
-	AnnotEnvHash      = "minipaas/env-hash" // rolls pods when the env snapshot changes
-	ManagedBy         = "minipaas"
+	LabelDeploymentID = "paas/deployment-id"
+	LabelCommit       = "paas/commit-sha"
+	LabelBranch       = "paas/branch"
+	AnnotBranch       = "paas/branch"   // the unslugged branch name
+	AnnotEnvHash      = "paas/env-hash" // rolls pods when the env snapshot changes
+	ManagedBy         = "paas"
 )
 
 // EnvSource provides an app's environment variables (store.Store).
@@ -210,9 +210,9 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 func envVars(d store.Deployment) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: "PORT", Value: fmt.Sprint(Port)},
-		{Name: "MINIPAAS_APP", Value: d.AppName},
-		{Name: "MINIPAAS_COMMIT_SHA", Value: d.CommitSHA},
-		{Name: "MINIPAAS_BRANCH", Value: d.Branch},
+		{Name: "PAAS_APP", Value: d.AppName},
+		{Name: "PAAS_COMMIT_SHA", Value: d.CommitSHA},
+		{Name: "PAAS_BRANCH", Value: d.Branch},
 	}
 }
 

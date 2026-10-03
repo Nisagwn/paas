@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 // Builder implements worker.Builder.
@@ -66,7 +66,7 @@ func (b *Builder) ImageName(app, sha string) string {
 }
 
 func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logger) (string, error) {
-	work, err := os.MkdirTemp(b.WorkDir, fmt.Sprintf("minipaas-%d-", d.ID))
+	work, err := os.MkdirTemp(b.WorkDir, fmt.Sprintf("paas-%d-", d.ID))
 	if err != nil {
 		return "", err
 	}
@@ -95,7 +95,7 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	dockerfile := filepath.Join(src, "Dockerfile")
 	if plan.Dockerfile != "" {
 		// Kept outside the build context so it cannot clash with repo files.
-		dockerfile = filepath.Join(work, "minipaas.Dockerfile")
+		dockerfile = filepath.Join(work, "paas.Dockerfile")
 		if err := os.WriteFile(dockerfile, []byte(plan.Dockerfile), 0o644); err != nil {
 			return "", err
 		}
@@ -113,9 +113,9 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 		Image:      image,
 		Platform:   b.Platform,
 		BuildArgs: map[string]string{
-			"MINIPAAS_APP":        d.AppName,
-			"MINIPAAS_COMMIT_SHA": d.CommitSHA,
-			"MINIPAAS_BRANCH":     d.Branch,
+			"PAAS_APP":        d.AppName,
+			"PAAS_COMMIT_SHA": d.CommitSHA,
+			"PAAS_BRANCH":     d.Branch,
 		},
 	}
 	if b.Cache {

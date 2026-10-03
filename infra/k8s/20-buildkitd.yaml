@@ -1,5 +1,5 @@
 # Rootless BuildKit daemon. The control plane drives it with buildctl over
-# tcp://buildkitd.minipaas:1234 and passes ECR credentials through the
+# tcp://buildkitd.paas:1234 and passes ECR credentials through the
 # buildctl session, so buildkitd itself holds no registry secrets.
 # Plain TCP (no mTLS) is acceptable only because the NetworkPolicy in
 # 50-networkpolicy.yaml lets nothing but the control plane connect.
@@ -7,7 +7,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: buildkitd
-  namespace: minipaas
+  namespace: paas
   labels:
     app.kubernetes.io/name: buildkitd
 spec:
@@ -22,7 +22,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: buildkitd-cache
-  namespace: minipaas
+  namespace: paas
 spec:
   accessModes: ["ReadWriteOnce"]
   storageClassName: local-path
@@ -34,10 +34,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: buildkitd
-  namespace: minipaas
+  namespace: paas
   labels:
     app.kubernetes.io/name: buildkitd
-    app.kubernetes.io/part-of: minipaas
+    app.kubernetes.io/part-of: paas
 spec:
   replicas: 1
   strategy:
@@ -49,7 +49,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: buildkitd
-        app.kubernetes.io/part-of: minipaas
+        app.kubernetes.io/part-of: paas
     spec:
       automountServiceAccountToken: false
       securityContext:

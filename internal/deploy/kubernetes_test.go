@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 const (
@@ -98,17 +98,17 @@ func TestDeployCreatesObjects(t *testing.T) {
 	ctx := context.Background()
 
 	n, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
-	if err != nil || n.Labels[LabelManagedBy] != "minipaas" {
+	if err != nil || n.Labels[LabelManagedBy] != "paas" {
 		t.Fatalf("namespace: %v %v", n.Labels, err)
 	}
-	q, err := cs.CoreV1().ResourceQuotas(ns).Get(ctx, "minipaas", metav1.GetOptions{})
+	q, err := cs.CoreV1().ResourceQuotas(ns).Get(ctx, "paas", metav1.GetOptions{})
 	if err != nil || q.Spec.Hard.Pods().Value() != 20 || q.Spec.Hard.Name(corev1.ResourceLimitsMemory, "").String() != "4Gi" {
 		t.Fatalf("quota: %v %v", q.Spec.Hard, err)
 	}
-	if _, err := cs.CoreV1().LimitRanges(ns).Get(ctx, "minipaas", metav1.GetOptions{}); err != nil {
+	if _, err := cs.CoreV1().LimitRanges(ns).Get(ctx, "paas", metav1.GetOptions{}); err != nil {
 		t.Fatalf("limit range: %v", err)
 	}
-	np, err := cs.NetworkingV1().NetworkPolicies(ns).Get(ctx, "minipaas", metav1.GetOptions{})
+	np, err := cs.NetworkingV1().NetworkPolicies(ns).Get(ctx, "paas", metav1.GetOptions{})
 	if err != nil || len(np.Spec.Ingress) != 1 ||
 		np.Spec.Ingress[0].From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "kube-system" {
 		t.Fatalf("network policy: %+v %v", np, err)
@@ -128,7 +128,7 @@ func TestDeployCreatesObjects(t *testing.T) {
 	}
 	want := map[string]string{
 		"app": "blog", LabelDeploymentID: "42", LabelCommit: sha[:40],
-		LabelBranch: "feature-dark-mode", LabelManagedBy: "minipaas",
+		LabelBranch: "feature-dark-mode", LabelManagedBy: "paas",
 	}
 	for k, v := range want {
 		if d.Labels[k] != v || d.Spec.Template.Labels[k] != v {
@@ -147,8 +147,8 @@ func TestDeployCreatesObjects(t *testing.T) {
 	for _, e := range c.Env {
 		env[e.Name] = e.Value
 	}
-	if env["PORT"] != "8080" || env["MINIPAAS_COMMIT_SHA"] != sha[:40] || env["MINIPAAS_APP"] != "blog" ||
-		env["MINIPAAS_BRANCH"] != "feature/Dark-Mode" {
+	if env["PORT"] != "8080" || env["PAAS_COMMIT_SHA"] != sha[:40] || env["PAAS_APP"] != "blog" ||
+		env["PAAS_BRANCH"] != "feature/Dark-Mode" {
 		t.Errorf("env = %v", env)
 	}
 	if len(c.EnvFrom) != 1 || c.EnvFrom[0].SecretRef.Name != name+"-env" {
@@ -317,7 +317,7 @@ func TestDeployQuotaExceeded(t *testing.T) {
 			if err == nil {
 				d.Status.Conditions = []appsv1.DeploymentCondition{{
 					Type: appsv1.DeploymentReplicaFailure, Status: corev1.ConditionTrue, Reason: "FailedCreate",
-					Message: `pods "d-a3f9c1d-x" is forbidden: exceeded quota: minipaas`,
+					Message: `pods "d-a3f9c1d-x" is forbidden: exceeded quota: paas`,
 				}}
 				cs.AppsV1().Deployments(ns).UpdateStatus(ctx, d, metav1.UpdateOptions{})
 				return

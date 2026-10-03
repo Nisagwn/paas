@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: minipaas
+  name: paas
   labels:
-    app.kubernetes.io/part-of: minipaas
+    app.kubernetes.io/part-of: paas
     # buildkitd needs Unconfined seccomp/AppArmor; everything else here is
     # restricted-compatible.
     pod-security.kubernetes.io/enforce: privileged

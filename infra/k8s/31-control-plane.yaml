@@ -1,29 +1,29 @@
-# minipaas control plane: API + GitHub webhook + build/deploy workers.
+# paas control plane: API + GitHub webhook + build/deploy workers.
 # Secrets used here are created on the node, not stored in this repo:
-#   minipaas/minipaas          database-url, api-token, github-webhook-secret
+#   paas/paas          database-url, api-token, github-webhook-secret
 #                              (+ optional github-token for private repos)
-#   minipaas/ecr-docker-config config.json for buildctl, refreshed every 6 h
-#                              by the minipaas-ecr-auth systemd timer
+#   paas/ecr-docker-config config.json for buildctl, refreshed every 6 h
+#                              by the paas-ecr-auth systemd timer
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: minipaas
-  namespace: minipaas
+  name: paas
+  namespace: paas
   labels:
-    app.kubernetes.io/name: minipaas
-    app.kubernetes.io/part-of: minipaas
+    app.kubernetes.io/name: paas
+    app.kubernetes.io/part-of: paas
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: minipaas
+      app.kubernetes.io/name: paas
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: minipaas
-        app.kubernetes.io/part-of: minipaas
+        app.kubernetes.io/name: paas
+        app.kubernetes.io/part-of: paas
     spec:
-      serviceAccountName: minipaas
+      serviceAccountName: paas
       securityContext:
         runAsUser: 65532 # matches the Dockerfile
         runAsGroup: 65532
@@ -32,63 +32,63 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: minipaas
+        - name: paas
           image: ${CONTROL_PLANE_IMAGE}
           imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
           env:
-            - name: MINIPAAS_ADDR
+            - name: PAAS_ADDR
               value: ":8080"
-            - name: MINIPAAS_DOMAIN
+            - name: PAAS_DOMAIN
               value: "${DOMAIN}"
-            - name: MINIPAAS_WORKERS
+            - name: PAAS_WORKERS
               value: "2"
-            - name: MINIPAAS_BUILDER
+            - name: PAAS_BUILDER
               value: buildkit
-            - name: MINIPAAS_BUILDKIT_ADDR
-              value: tcp://buildkitd.minipaas:1234
-            - name: MINIPAAS_REGISTRY
-              value: "${MINIPAAS_REGISTRY}"
-            - name: MINIPAAS_REGISTRY_INSECURE
+            - name: PAAS_BUILDKIT_ADDR
+              value: tcp://buildkitd.paas:1234
+            - name: PAAS_REGISTRY
+              value: "${PAAS_REGISTRY}"
+            - name: PAAS_REGISTRY_INSECURE
               value: "false"
-            - name: MINIPAAS_BUILD_PLATFORM
+            - name: PAAS_BUILD_PLATFORM
               value: linux/arm64
             # Off until the registry cache export sets image-manifest=true,
             # which ECR requires (see infra/README.md, open issues).
-            - name: MINIPAAS_BUILD_CACHE
+            - name: PAAS_BUILD_CACHE
               value: "false"
-            - name: MINIPAAS_DEPLOYER
-              value: "${MINIPAAS_DEPLOYER}"
-            - name: MINIPAAS_DEPLOY_TIMEOUT
+            - name: PAAS_DEPLOYER
+              value: "${PAAS_DEPLOYER}"
+            - name: PAAS_DEPLOY_TIMEOUT
               value: 15m
             # Per-app resources keep their defaults (internal/config): 25m/500m CPU,
             # 64Mi/256Mi memory per pod; quota 1 CPU requests, 4Gi memory, 20 pods.
-            - name: MINIPAAS_ROLLOUT_TIMEOUT
+            - name: PAAS_ROLLOUT_TIMEOUT
               value: 3m
-            - name: MINIPAAS_APP_RUN_AS_NON_ROOT
+            - name: PAAS_APP_RUN_AS_NON_ROOT
               value: "true"
             # App routes: plain Ingress objects served by k3s's Traefik, TLS
             # from the default wildcard certificate (40-tls.yaml).
-            - name: MINIPAAS_INGRESS_CLASS
+            - name: PAAS_INGRESS_CLASS
               value: traefik
-            - name: MINIPAAS_INGRESS_TLS
+            - name: PAAS_INGRESS_TLS
               value: "true"
-            - name: MINIPAAS_ROUTE_SYNC_INTERVAL
+            - name: PAAS_ROUTE_SYNC_INTERVAL
               value: 1m
-            - name: MINIPAAS_DATABASE_URL
+            - name: PAAS_DATABASE_URL
               valueFrom:
-                secretKeyRef: { name: minipaas, key: database-url }
-            - name: MINIPAAS_API_TOKEN
+                secretKeyRef: { name: paas, key: database-url }
+            - name: PAAS_API_TOKEN
               valueFrom:
-                secretKeyRef: { name: minipaas, key: api-token }
-            - name: MINIPAAS_GITHUB_WEBHOOK_SECRET
+                secretKeyRef: { name: paas, key: api-token }
+            - name: PAAS_GITHUB_WEBHOOK_SECRET
               valueFrom:
-                secretKeyRef: { name: minipaas, key: github-webhook-secret }
-            - name: MINIPAAS_GITHUB_TOKEN
+                secretKeyRef: { name: paas, key: github-webhook-secret }
+            - name: PAAS_GITHUB_TOKEN
               valueFrom:
-                secretKeyRef: { name: minipaas, key: github-token, optional: true }
+                secretKeyRef: { name: paas, key: github-token, optional: true }
             # buildctl (docker/cli config loader) reads $DOCKER_CONFIG/config.json.
             - name: DOCKER_CONFIG
               value: /docker-config
@@ -130,13 +130,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: minipaas
-  namespace: minipaas
+  name: paas
+  namespace: paas
   labels:
-    app.kubernetes.io/name: minipaas
+    app.kubernetes.io/name: paas
 spec:
   selector:
-    app.kubernetes.io/name: minipaas
+    app.kubernetes.io/name: paas
   ports:
     - name: http
       port: 80
@@ -148,14 +148,14 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: minipaas
-  namespace: minipaas
+  name: paas
+  namespace: paas
 spec:
   entryPoints: [websecure]
   routes:
     - kind: Rule
       match: Host(`${DOMAIN}`)
       services:
-        - name: minipaas
+        - name: paas
           port: 80
   tls: {}

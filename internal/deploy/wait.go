@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 // fatalReasons are container waiting reasons that will not fix themselves,
@@ -148,7 +148,7 @@ func (r *rollout) fail(ctx context.Context, p *corev1.Pod, cs corev1.ContainerSt
 	}
 	if w.Reason == "CreateContainerConfigError" && strings.Contains(w.Message, "runAsNonRoot") {
 		msg += " (hint: the image must run as a numeric non-root USER, e.g. \"USER 1000:1000\"; " +
-			"or set MINIPAAS_APP_RUN_AS_NON_ROOT=false)"
+			"or set PAAS_APP_RUN_AS_NON_ROOT=false)"
 	}
 	if w.Reason == "CrashLoopBackOff" {
 		if t := cs.LastTerminationState.Terminated; t != nil {

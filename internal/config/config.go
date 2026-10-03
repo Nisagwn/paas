@@ -68,88 +68,88 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Addr:                getenv("MINIPAAS_ADDR", ":8080"),
-		DatabaseURL:         os.Getenv("MINIPAAS_DATABASE_URL"),
-		Domain:              strings.ToLower(getenv("MINIPAAS_DOMAIN", "localtest.me")),
-		APIToken:            os.Getenv("MINIPAAS_API_TOKEN"),
-		GitHubWebhookSecret: os.Getenv("MINIPAAS_GITHUB_WEBHOOK_SECRET"),
-		Builder:             getenv("MINIPAAS_BUILDER", "dryrun"),
-		Deployer:            getenv("MINIPAAS_DEPLOYER", "dryrun"),
-		Registry:            os.Getenv("MINIPAAS_REGISTRY"),
-		RegistryInsecure:    os.Getenv("MINIPAAS_REGISTRY_INSECURE") == "true",
-		BuildKitAddr:        getenv("MINIPAAS_BUILDKIT_ADDR", "tcp://127.0.0.1:1234"),
-		BuildPlatform:       os.Getenv("MINIPAAS_BUILD_PLATFORM"),
-		BuildCache:          os.Getenv("MINIPAAS_BUILD_CACHE") == "true",
-		GitBaseURL:          getenv("MINIPAAS_GIT_BASE_URL", "https://github.com"),
-		GitHubToken:         os.Getenv("MINIPAAS_GITHUB_TOKEN"),
-		Kubeconfig:          os.Getenv("MINIPAAS_KUBECONFIG"),
-		AppCPURequest:       getenv("MINIPAAS_APP_CPU_REQUEST", "25m"),
-		AppCPULimit:         getenv("MINIPAAS_APP_CPU_LIMIT", "500m"),
-		AppMemoryRequest:    getenv("MINIPAAS_APP_MEMORY_REQUEST", "64Mi"),
-		AppMemoryLimit:      getenv("MINIPAAS_APP_MEMORY_LIMIT", "256Mi"),
-		AppQuotaCPU:         getenv("MINIPAAS_APP_QUOTA_CPU", "1"),
-		AppQuotaMemory:      getenv("MINIPAAS_APP_QUOTA_MEMORY", "4Gi"),
+		Addr:                getenv("PAAS_ADDR", ":8080"),
+		DatabaseURL:         os.Getenv("PAAS_DATABASE_URL"),
+		Domain:              strings.ToLower(getenv("PAAS_DOMAIN", "localtest.me")),
+		APIToken:            os.Getenv("PAAS_API_TOKEN"),
+		GitHubWebhookSecret: os.Getenv("PAAS_GITHUB_WEBHOOK_SECRET"),
+		Builder:             getenv("PAAS_BUILDER", "dryrun"),
+		Deployer:            getenv("PAAS_DEPLOYER", "dryrun"),
+		Registry:            os.Getenv("PAAS_REGISTRY"),
+		RegistryInsecure:    os.Getenv("PAAS_REGISTRY_INSECURE") == "true",
+		BuildKitAddr:        getenv("PAAS_BUILDKIT_ADDR", "tcp://127.0.0.1:1234"),
+		BuildPlatform:       os.Getenv("PAAS_BUILD_PLATFORM"),
+		BuildCache:          os.Getenv("PAAS_BUILD_CACHE") == "true",
+		GitBaseURL:          getenv("PAAS_GIT_BASE_URL", "https://github.com"),
+		GitHubToken:         os.Getenv("PAAS_GITHUB_TOKEN"),
+		Kubeconfig:          os.Getenv("PAAS_KUBECONFIG"),
+		AppCPURequest:       getenv("PAAS_APP_CPU_REQUEST", "25m"),
+		AppCPULimit:         getenv("PAAS_APP_CPU_LIMIT", "500m"),
+		AppMemoryRequest:    getenv("PAAS_APP_MEMORY_REQUEST", "64Mi"),
+		AppMemoryLimit:      getenv("PAAS_APP_MEMORY_LIMIT", "256Mi"),
+		AppQuotaCPU:         getenv("PAAS_APP_QUOTA_CPU", "1"),
+		AppQuotaMemory:      getenv("PAAS_APP_QUOTA_MEMORY", "4Gi"),
 		AppQuotaPods:        20,
-		AppRunAsNonRoot:     os.Getenv("MINIPAAS_APP_RUN_AS_NON_ROOT") != "false",
+		AppRunAsNonRoot:     os.Getenv("PAAS_APP_RUN_AS_NON_ROOT") != "false",
 		RolloutTimeout:      3 * time.Minute,
-		IngressClass:        getenv("MINIPAAS_INGRESS_CLASS", "traefik"),
-		IngressTLS:          os.Getenv("MINIPAAS_INGRESS_TLS") != "false",
+		IngressClass:        getenv("PAAS_INGRESS_CLASS", "traefik"),
+		IngressTLS:          os.Getenv("PAAS_INGRESS_TLS") != "false",
 		RouteSyncInterval:   time.Minute,
 		PollInterval:        2 * time.Second,
 		Workers:             2,
 		DeployTimeout:       15 * time.Minute,
 	}
-	if v := os.Getenv("MINIPAAS_DEPLOY_TIMEOUT"); v != "" {
+	if v := os.Getenv("PAAS_DEPLOY_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return c, fmt.Errorf("MINIPAAS_DEPLOY_TIMEOUT: %w", err)
+			return c, fmt.Errorf("PAAS_DEPLOY_TIMEOUT: %w", err)
 		}
 		c.DeployTimeout = d
 	}
-	if v := os.Getenv("MINIPAAS_ROLLOUT_TIMEOUT"); v != "" {
+	if v := os.Getenv("PAAS_ROLLOUT_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
-			return c, errors.New("MINIPAAS_ROLLOUT_TIMEOUT must be a positive duration")
+			return c, errors.New("PAAS_ROLLOUT_TIMEOUT must be a positive duration")
 		}
 		c.RolloutTimeout = d
 	}
-	if v := os.Getenv("MINIPAAS_ROUTE_SYNC_INTERVAL"); v != "" {
+	if v := os.Getenv("PAAS_ROUTE_SYNC_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
-			return c, errors.New("MINIPAAS_ROUTE_SYNC_INTERVAL must be a positive duration")
+			return c, errors.New("PAAS_ROUTE_SYNC_INTERVAL must be a positive duration")
 		}
 		c.RouteSyncInterval = d
 	}
-	if v := os.Getenv("MINIPAAS_POLL_INTERVAL"); v != "" {
+	if v := os.Getenv("PAAS_POLL_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			return c, fmt.Errorf("MINIPAAS_POLL_INTERVAL: %w", err)
+			return c, fmt.Errorf("PAAS_POLL_INTERVAL: %w", err)
 		}
 		c.PollInterval = d
 	}
-	if v := os.Getenv("MINIPAAS_APP_QUOTA_PODS"); v != "" {
+	if v := os.Getenv("PAAS_APP_QUOTA_PODS"); v != "" {
 		if _, err := fmt.Sscanf(v, "%d", &c.AppQuotaPods); err != nil || c.AppQuotaPods < 1 {
-			return c, errors.New("MINIPAAS_APP_QUOTA_PODS must be a positive integer")
+			return c, errors.New("PAAS_APP_QUOTA_PODS must be a positive integer")
 		}
 	}
-	if v := os.Getenv("MINIPAAS_WORKERS"); v != "" {
+	if v := os.Getenv("PAAS_WORKERS"); v != "" {
 		if _, err := fmt.Sscanf(v, "%d", &c.Workers); err != nil || c.Workers < 1 {
-			return c, errors.New("MINIPAAS_WORKERS must be a positive integer")
+			return c, errors.New("PAAS_WORKERS must be a positive integer")
 		}
 	}
 
 	var missing []string
 	if c.DatabaseURL == "" {
-		missing = append(missing, "MINIPAAS_DATABASE_URL")
+		missing = append(missing, "PAAS_DATABASE_URL")
 	}
 	if c.APIToken == "" {
-		missing = append(missing, "MINIPAAS_API_TOKEN")
+		missing = append(missing, "PAAS_API_TOKEN")
 	}
 	if c.GitHubWebhookSecret == "" {
-		missing = append(missing, "MINIPAAS_GITHUB_WEBHOOK_SECRET")
+		missing = append(missing, "PAAS_GITHUB_WEBHOOK_SECRET")
 	}
 	if c.Builder != "dryrun" && c.Registry == "" {
-		missing = append(missing, "MINIPAAS_REGISTRY")
+		missing = append(missing, "PAAS_REGISTRY")
 	}
 	if len(missing) > 0 {
 		return c, fmt.Errorf("missing required env vars: %s", strings.Join(missing, ", "))

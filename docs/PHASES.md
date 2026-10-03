@@ -1,4 +1,4 @@
-# minipaas — Faz Planı
+# paas — Faz Planı
 
 Vercel tarzı, Git tabanlı PaaS. Her commit değişmez bir deploy olur ve kendi
 URL'sini alır; production yalnızca bir takma addır (alias). Rollback, alias'ı eski

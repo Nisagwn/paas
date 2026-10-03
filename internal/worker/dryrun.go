@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // DryRunPipeline walks through the pipeline stages without building or

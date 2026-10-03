@@ -11,11 +11,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nisagwn/minipaas/internal/api"
-	"github.com/nisagwn/minipaas/internal/routing"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/testdb"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/routing"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/testdb"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 // recordingApplier stands in for the ingress layer: it remembers, per app,

@@ -10,7 +10,7 @@ output "ssh" {
 
 output "kubeconfig_command" {
   description = "Fetch a kubeconfig that talks to the node's public IP (6443 is open to admin_cidrs only)."
-  value       = "ssh ubuntu@${aws_eip.node.public_ip} sudo cat /etc/rancher/k3s/k3s.yaml | sed 's/127.0.0.1/${aws_eip.node.public_ip}/' > kubeconfig-minipaas.yaml"
+  value       = "ssh ubuntu@${aws_eip.node.public_ip} sudo cat /etc/rancher/k3s/k3s.yaml | sed 's/127.0.0.1/${aws_eip.node.public_ip}/' > kubeconfig-paas.yaml"
 }
 
 output "api_url" {
@@ -28,9 +28,9 @@ output "ecr_registry" {
   value       = local.ecr_registry
 }
 
-output "minipaas_registry" {
-  description = "MINIPAAS_REGISTRY: app images go to <this>/<app>:<sha>."
-  value       = local.k8s_vars.MINIPAAS_REGISTRY
+output "paas_registry" {
+  description = "PAAS_REGISTRY: app images go to <this>/<app>:<sha>."
+  value       = local.k8s_vars.PAAS_REGISTRY
 }
 
 output "control_plane_repository_url" {

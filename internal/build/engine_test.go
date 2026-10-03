@@ -11,7 +11,7 @@ import (
 func TestBuildKitArgs(t *testing.T) {
 	s := Spec{
 		ContextDir: filepath.FromSlash("/w/src"),
-		Dockerfile: filepath.FromSlash("/w/minipaas.Dockerfile"),
+		Dockerfile: filepath.FromSlash("/w/paas.Dockerfile"),
 		Image:      "localhost:5000/blog:abc",
 		Platform:   "linux/arm64",
 		CacheRef:   "localhost:5000/blog:buildcache",
@@ -23,7 +23,7 @@ func TestBuildKitArgs(t *testing.T) {
 		"--frontend", "dockerfile.v0",
 		"--local", "context=" + s.ContextDir,
 		"--local", "dockerfile=" + filepath.Dir(s.Dockerfile),
-		"--opt", "filename=minipaas.Dockerfile",
+		"--opt", "filename=paas.Dockerfile",
 		"--output", "type=image,name=localhost:5000/blog:abc,push=true,registry.insecure=true",
 		"--progress", "plain",
 		"--metadata-file", "meta.json",

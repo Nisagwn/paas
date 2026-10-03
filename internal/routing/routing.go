@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // Applier makes the ingress layer match an app's aliases (deploy.Kubernetes).

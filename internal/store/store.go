@@ -106,7 +106,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	defer conn.Close()
 
-	const lockID = 727274 // arbitrary, unique to minipaas
+	const lockID = 727274 // arbitrary, unique to paas
 	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, lockID); err != nil {
 		return err
 	}

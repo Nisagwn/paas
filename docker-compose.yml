@@ -1,17 +1,19 @@
+name: paas
+
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: minipaas
-      POSTGRES_PASSWORD: minipaas
-      POSTGRES_DB: minipaas
+      POSTGRES_USER: paas
+      POSTGRES_PASSWORD: paas
+      POSTGRES_DB: paas
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U minipaas"]
+      test: ["CMD-SHELL", "pg_isready -U paas"]
       interval: 2s
       retries: 15
 
@@ -30,7 +32,7 @@ services:
       interval: 2s
       retries: 15
 
-  # Standalone BuildKit daemon for MINIPAAS_BUILDER=buildkit (needs buildctl
+  # Standalone BuildKit daemon for PAAS_BUILDER=buildkit (needs buildctl
   # on the host). Sharing the registry's network namespace means
   # "localhost:5000" is the registry both for the host and for buildkitd.
   # Optional: `docker compose --profile buildkit up -d buildkitd`.

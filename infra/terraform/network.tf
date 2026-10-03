@@ -44,7 +44,7 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_security_group" "node" {
   name        = "${var.name}-node"
-  description = "minipaas k3s node: HTTP/HTTPS from anywhere, SSH and Kubernetes API from admin CIDRs only"
+  description = "paas k3s node: HTTP/HTTPS from anywhere, SSH and Kubernetes API from admin CIDRs only"
   vpc_id      = aws_vpc.main.id
 
   tags = { Name = "${var.name}-node" }

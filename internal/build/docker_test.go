@@ -15,12 +15,12 @@ import (
 // TestDockerBuildExamples really builds every app in examples/, pushes it to
 // the local registry, runs it and checks that it answers on the platform
 // port. It needs Docker and `make registry`, so it only runs when
-// MINIPAAS_TEST_DOCKER_BUILD=1 (see `make test-build`).
+// PAAS_TEST_DOCKER_BUILD=1 (see `make test-build`).
 func TestDockerBuildExamples(t *testing.T) {
-	if os.Getenv("MINIPAAS_TEST_DOCKER_BUILD") == "" {
-		t.Skip("set MINIPAAS_TEST_DOCKER_BUILD=1 to run real image builds")
+	if os.Getenv("PAAS_TEST_DOCKER_BUILD") == "" {
+		t.Skip("set PAAS_TEST_DOCKER_BUILD=1 to run real image builds")
 	}
-	registry := os.Getenv("MINIPAAS_REGISTRY")
+	registry := os.Getenv("PAAS_REGISTRY")
 	if registry == "" {
 		registry = "localhost:5000"
 	}

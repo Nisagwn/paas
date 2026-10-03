@@ -6,7 +6,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: postgres
-  namespace: minipaas
+  namespace: paas
 spec:
   podSelector:
     matchLabels:
@@ -16,7 +16,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: minipaas
+              app.kubernetes.io/name: paas
       ports:
         - port: 5432
           protocol: TCP
@@ -25,7 +25,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: buildkitd
-  namespace: minipaas
+  namespace: paas
 spec:
   podSelector:
     matchLabels:
@@ -35,7 +35,7 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: minipaas
+              app.kubernetes.io/name: paas
       ports:
         - port: 1234
           protocol: TCP

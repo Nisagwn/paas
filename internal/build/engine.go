@@ -128,7 +128,7 @@ func (Docker) args(s Spec, metadata string) []string {
 }
 
 func metadataFile() (string, func(), error) {
-	f, err := os.CreateTemp("", "minipaas-build-meta-*.json")
+	f, err := os.CreateTemp("", "paas-build-meta-*.json")
 	if err != nil {
 		return "", nil, err
 	}

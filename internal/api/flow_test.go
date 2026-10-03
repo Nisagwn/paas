@@ -13,11 +13,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nisagwn/minipaas/internal/api"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/testdb"
-	"github.com/nisagwn/minipaas/internal/webhook"
-	"github.com/nisagwn/minipaas/internal/worker"
+	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/testdb"
+	"github.com/nisagwn/paas/internal/webhook"
+	"github.com/nisagwn/paas/internal/worker"
 )
 
 const (
@@ -273,7 +273,7 @@ func TestAppEnvAPI(t *testing.T) {
 	}
 
 	for _, bad := range []map[string]any{
-		{"1X": "v"}, {"A-B": "v"}, {"PORT": "9000"}, {"MINIPAAS_APP": "x"},
+		{"1X": "v"}, {"A-B": "v"}, {"PORT": "9000"}, {"PAAS_APP": "x"},
 		{"BIG": strings.Repeat("x", 33<<10)},
 	} {
 		if code := e.do("PUT", "/api/apps/blog/env", bad, nil); code != 400 {

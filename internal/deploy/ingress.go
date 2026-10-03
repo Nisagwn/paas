@@ -11,8 +11,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // Routing uses plain networking.k8s.io/v1 Ingress objects. Traefik (bundled
@@ -20,8 +20,8 @@ import (
 // TLS: an Ingress lists its host under spec.tls without a secretName, so
 // Traefik answers with its default certificate, the wildcard *.domain.
 const (
-	LabelRoute     = "minipaas/route" // "deployment" or "alias"
-	LabelAliasKind = "minipaas/alias-kind"
+	LabelRoute     = "paas/route" // "deployment" or "alias"
+	LabelAliasKind = "paas/alias-kind"
 	RouteDeploy    = "deployment"
 	RouteAlias     = "alias"
 

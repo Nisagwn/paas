@@ -40,7 +40,7 @@ resource "aws_ecr_lifecycle_policy" "control_plane" {
 # Those repositories are NOT in Terraform state; see README "Teardown".
 resource "aws_ecr_repository_creation_template" "apps" {
   prefix               = var.ecr_app_prefix
-  description          = "minipaas app images (created on push)"
+  description          = "paas app images (created on push)"
   applied_for          = ["CREATE_ON_PUSH"]
   image_tag_mutability = "MUTABLE" # :buildcache is overwritten on every build
   lifecycle_policy     = local.ecr_lifecycle_policy

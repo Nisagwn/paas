@@ -1,7 +1,7 @@
 # The node's instance role is the only AWS identity in the cluster. It is used
 # by processes that run in the host network namespace:
 #   - kubelet's ecr-credential-provider (pulls app and control-plane images)
-#   - the minipaas-ecr-auth systemd timer (docker config.json for buildctl)
+#   - the paas-ecr-auth systemd timer (docker config.json for buildctl)
 #   - the cert-manager controller (hostNetwork; Route 53 DNS-01)
 # IMDS is IMDSv2-only with a hop limit of 1 (see compute.tf), so pods on the
 # pod network (= every user app) cannot obtain these credentials.

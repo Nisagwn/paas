@@ -1,4 +1,4 @@
-# minipaas
+# paas
 
 Vercel tarzı, Git tabanlı PaaS.
 
@@ -52,12 +52,12 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
 ### Deploy nasıl çalışır
 
-`MINIPAAS_DEPLOYER=kubernetes` iken worker, build'in ürettiği digest'li imajı kümeye koyar:
+`PAAS_DEPLOYER=kubernetes` iken worker, build'in ürettiği digest'li imajı kümeye koyar:
 
 ```
-namespace app-<app>          (managed-by=minipaas, ResourceQuota + LimitRange + NetworkPolicy "minipaas")
+namespace app-<app>          (managed-by=paas, ResourceQuota + LimitRange + NetworkPolicy "paas")
 ├── Secret     d-<sha7>-env  değişmez; deploy anındaki ortam değişkenleri
-├── Deployment d-<sha7>      1 replika, PORT=8080, MINIPAAS_APP/COMMIT_SHA/BRANCH, envFrom secret
+├── Deployment d-<sha7>      1 replika, PORT=8080, PAAS_APP/COMMIT_SHA/BRANCH, envFrom secret
 ├── Service    d-<sha7>      ClusterIP :80 → :8080
 ├── Ingress    d-<sha7>      <sha7>-<app>.<domain> → Service d-<sha7>
 └── Ingress    alias-<etiket> <app>.<domain> (production), <branch>-<app>.<domain> (preview)
@@ -70,7 +70,7 @@ Alias'ların nereyi gösterdiğinin tek doğru kaynağı Postgres'teki `aliases`
 
 1. Deploy hazır olunca `MarkReady` alias'ları ileri taşır → senkron
 2. `POST /api/apps/{name}/rollback` production alias'ını geri çevirir → senkron
-3. Her `MINIPAAS_ROUTE_SYNC_INTERVAL`'da (varsayılan 1 dk) tüm uygulamalar uzlaştırılır
+3. Her `PAAS_ROUTE_SYNC_INTERVAL`'da (varsayılan 1 dk) tüm uygulamalar uzlaştırılır
 
 Senkron idempotenttir: aynı durum tekrar uygulanınca kümeye hiçbir yazma yapılmaz;
 veritabanında olmayan alias `Ingress`'leri silinir. Aynı uygulamanın senkronları sıraya
@@ -84,11 +84,11 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 
 | Değişken | Açıklama |
 |---|---|
-| `MINIPAAS_INGRESS_CLASS` | varsayılan `traefik`; boş = kümenin varsayılan sınıfı |
-| `MINIPAAS_INGRESS_TLS` | `true` (varsayılan) → `websecure` + TLS; `false` → düz HTTP (yerel küme) |
-| `MINIPAAS_ROUTE_SYNC_INTERVAL` | uzlaştırma aralığı, varsayılan `1m` |
+| `PAAS_INGRESS_CLASS` | varsayılan `traefik`; boş = kümenin varsayılan sınıfı |
+| `PAAS_INGRESS_TLS` | `true` (varsayılan) → `websecure` + TLS; `false` → düz HTTP (yerel küme) |
+| `PAAS_ROUTE_SYNC_INTERVAL` | uzlaştırma aralığı, varsayılan `1m` |
 
-- Etiketler: `app=<app>`, `minipaas/deployment-id`, `minipaas/commit-sha`, `minipaas/branch` (slug; tam adı annotation'da).
+- Etiketler: `app=<app>`, `paas/deployment-id`, `paas/commit-sha`, `paas/branch` (slug; tam adı annotation'da).
 - Pod güvenliği: `runAsNonRoot` (sabit `runAsUser` yok, imajın sayısal `USER`'ı kullanılır),
   `allowPrivilegeEscalation: false`, tüm capability'ler düşürülür, `RuntimeDefault` seccomp,
   service account token'ı bağlanmaz.
@@ -98,15 +98,15 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 
 | Değişken | Açıklama |
 |---|---|
-| `MINIPAAS_DEPLOYER` | `dryrun` · `kubernetes` |
-| `MINIPAAS_KUBECONFIG` | boş = pod içindeyse in-cluster, değilse `$KUBECONFIG` / `~/.kube/config` |
-| `MINIPAAS_ROLLOUT_TIMEOUT` | hazır olma bekleme süresi (varsayılan `3m`) |
-| `MINIPAAS_APP_CPU_REQUEST` / `_LIMIT` | container başına CPU (varsayılan `25m` / `500m`) |
-| `MINIPAAS_APP_MEMORY_REQUEST` / `_LIMIT` | container başına bellek (varsayılan `64Mi` / `256Mi`) |
-| `MINIPAAS_APP_QUOTA_CPU` | app namespace'i için `requests.cpu` kotası (varsayılan `1`) |
-| `MINIPAAS_APP_QUOTA_MEMORY` | `requests.memory` + `limits.memory` kotası (varsayılan `4Gi`) |
-| `MINIPAAS_APP_QUOTA_PODS` | pod kotası (varsayılan `20`) |
-| `MINIPAAS_APP_RUN_AS_NON_ROOT` | varsayılan `true`; repodaki Dockerfile isimli `USER` (ör. `USER node`) kullanıyorsa kubelet reddeder |
+| `PAAS_DEPLOYER` | `dryrun` · `kubernetes` |
+| `PAAS_KUBECONFIG` | boş = pod içindeyse in-cluster, değilse `$KUBECONFIG` / `~/.kube/config` |
+| `PAAS_ROLLOUT_TIMEOUT` | hazır olma bekleme süresi (varsayılan `3m`) |
+| `PAAS_APP_CPU_REQUEST` / `_LIMIT` | container başına CPU (varsayılan `25m` / `500m`) |
+| `PAAS_APP_MEMORY_REQUEST` / `_LIMIT` | container başına bellek (varsayılan `64Mi` / `256Mi`) |
+| `PAAS_APP_QUOTA_CPU` | app namespace'i için `requests.cpu` kotası (varsayılan `1`) |
+| `PAAS_APP_QUOTA_MEMORY` | `requests.memory` + `limits.memory` kotası (varsayılan `4Gi`) |
+| `PAAS_APP_QUOTA_PODS` | pod kotası (varsayılan `20`) |
+| `PAAS_APP_RUN_AS_NON_ROOT` | varsayılan `true`; repodaki Dockerfile isimli `USER` (ör. `USER node`) kullanıyorsa kubelet reddeder |
 
 > Her commit ayrı bir Deployment olarak çalışmaya devam eder; kota dolunca yeni deploy'lar
 > "exceeded quota" hatasıyla `failed` olur. Eski preview'lerin temizlenmesi Faz 7'de.
@@ -117,20 +117,20 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 2. Algılama: repoda `Dockerfile` varsa o kullanılır; yoksa `package.json` → Node, `go.mod` → Go,
    `index.html` / `public/index.html` → nginx ile statik site. Örnekler: [examples/](examples/)
 3. Üretilen Dockerfile build logunda aynen görünür.
-4. İmaj `MINIPAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
+4. İmaj `PAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
 
 **Platform sözleşmesi:** uygulama `$PORT` (8080) üzerinden dinler.
 
 | Değişken | Açıklama |
 |---|---|
-| `MINIPAAS_BUILDER` | `dryrun` · `docker` (yerel, Docker Desktop) · `buildkit` (kümede, `buildctl`) |
-| `MINIPAAS_REGISTRY` | ör. `localhost:5000`, `ghcr.io/nisagwn`, ECR adresi |
-| `MINIPAAS_REGISTRY_INSECURE` | düz HTTP registry (yalnızca yerel) |
-| `MINIPAAS_BUILDKIT_ADDR` | `buildkitd` adresi, ör. `tcp://buildkitd:1234` |
-| `MINIPAAS_BUILD_PLATFORM` | boş = builder'ın kendi platformu; küme `linux/arm64` |
-| `MINIPAAS_BUILD_CACHE` | `true` → `<app>:buildcache` registry cache |
-| `MINIPAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
-| `MINIPAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
+| `PAAS_BUILDER` | `dryrun` · `docker` (yerel, Docker Desktop) · `buildkit` (kümede, `buildctl`) |
+| `PAAS_REGISTRY` | ör. `localhost:5000`, `ghcr.io/nisagwn`, ECR adresi |
+| `PAAS_REGISTRY_INSECURE` | düz HTTP registry (yalnızca yerel) |
+| `PAAS_BUILDKIT_ADDR` | `buildkitd` adresi, ör. `tcp://buildkitd:1234` |
+| `PAAS_BUILD_PLATFORM` | boş = builder'ın kendi platformu; küme `linux/arm64` |
+| `PAAS_BUILD_CACHE` | `true` → `<app>:buildcache` registry cache |
+| `PAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
+| `PAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
 
 ## Yerel geliştirme
 
@@ -144,14 +144,14 @@ make test-build  # examples/ altındaki uygulamaları gerçekten build edip çal
 make run         # API + worker + yerel registry  →  http://localhost:8080
 ```
 
-Gerçek build için `.env` içinde `MINIPAAS_BUILDER=docker` yap. `buildkit` modunu yerelde
+Gerçek build için `.env` içinde `PAAS_BUILDER=docker` yap. `buildkit` modunu yerelde
 denemek için `make buildkitd` (host'ta `buildctl` gerekir).
 
 Başka bir terminalde:
 
 ```bash
 source .env
-H="Authorization: Bearer $MINIPAAS_API_TOKEN"
+H="Authorization: Bearer $PAAS_API_TOKEN"
 
 # 1. Uygulama oluştur
 curl -s -H "$H" -d '{"name":"blog","repo":"nisagwn/blog"}' localhost:8080/api/apps
@@ -180,12 +180,12 @@ curl -s -H "$H" localhost:8080/api/apps/blog/env
 Repo → Settings → Webhooks → Add webhook:
 - **Payload URL:** `https://<sunucun>/webhooks/github` (yerelde test için ngrok veya Cloudflare Tunnel)
 - **Content type:** `application/json`
-- **Secret:** `MINIPAAS_GITHUB_WEBHOOK_SECRET` ile aynı
+- **Secret:** `PAAS_GITHUB_WEBHOOK_SECRET` ile aynı
 - **Events:** Just the push event
 
 ## API
 
-Tüm `/api/*` uçları `Authorization: Bearer <MINIPAAS_API_TOKEN>` ister.
+Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 
 | Yöntem | Yol | Açıklama |
 |---|---|---|
@@ -197,14 +197,14 @@ Tüm `/api/*` uçları `Authorization: Bearer <MINIPAAS_API_TOKEN>` ister.
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |
 | GET | `/api/apps/{name}/env` | `{"keys":[…]}` — değerler API'den asla okunmaz |
-| PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `MINIPAAS_*` platforma ait |
+| PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 
 ## Proje yapısı
 
 ```
-cmd/minipaas/         giriş noktası: API + worker tek süreçte, graceful shutdown
+cmd/paas/         giriş noktası: API + worker tek süreçte, graceful shutdown
 internal/config/      ortam değişkenleri
 internal/store/       PostgreSQL erişimi, migration'lar, kuyruk
 internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
@@ -234,7 +234,7 @@ internal/testdb/      testler için temiz veritabanı
   Yalnızca `internal/deploy` ona bağımlı.
 - **Deploy idempotent:** Her nesne "varsa güncelle, yoksa oluştur"; worker deploy ortasında
   çökerse aynı deployment tekrar çalıştırılabilir. Değişmez `Secret`'ın verisi farklıysa silinip
-  yeniden oluşturulur ve pod şablonundaki `minipaas/env-hash` rollout'u tetikler.
+  yeniden oluşturulur ve pod şablonundaki `paas/env-hash` rollout'u tetikler.
 - **Polling, watch değil:** Rollout her 2 sn'de bir okunur; bağlantı kopmalarına dayanıklı,
   fake clientset ile test edilmesi kolay. Kalıcı hatalarda (`ImagePullBackOff`,
   `CrashLoopBackOff`, `CreateContainerConfigError`, kota aşımı) zaman aşımı beklenmez.

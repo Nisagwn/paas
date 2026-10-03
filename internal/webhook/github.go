@@ -43,7 +43,7 @@ func Sign(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
 }
 
-// PushEvent holds the fields of a GitHub "push" payload that minipaas needs.
+// PushEvent holds the fields of a GitHub "push" payload that paas needs.
 type PushEvent struct {
 	Ref        string `json:"ref"`
 	After      string `json:"after"`

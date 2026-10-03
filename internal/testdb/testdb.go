@@ -1,6 +1,6 @@
 // Package testdb gives tests a freshly migrated PostgreSQL database.
 //
-// Tests that need it are skipped unless MINIPAAS_TEST_DATABASE_URL is set,
+// Tests that need it are skipped unless PAAS_TEST_DATABASE_URL is set,
 // so `go test ./...` still works on a machine without Postgres.
 package testdb
 
@@ -10,14 +10,14 @@ import (
 	"os"
 	"testing"
 
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 func Open(t *testing.T) *store.Store {
 	t.Helper()
-	url := os.Getenv("MINIPAAS_TEST_DATABASE_URL")
+	url := os.Getenv("PAAS_TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("MINIPAAS_TEST_DATABASE_URL not set; skipping database test")
+		t.Skip("PAAS_TEST_DATABASE_URL not set; skipping database test")
 	}
 	ctx := context.Background()
 

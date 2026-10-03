@@ -15,7 +15,7 @@ terraform {
   # State is local by default. For anything shared, use an S3 backend, e.g.:
   # backend "s3" {
   #   bucket       = "my-tfstate"
-  #   key          = "minipaas/terraform.tfstate"
+  #   key          = "paas/terraform.tfstate"
   #   region       = "eu-central-1"
   #   use_lockfile = true
   # }

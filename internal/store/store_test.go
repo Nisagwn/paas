@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/testdb"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/testdb"
 )
 
 func sha(n int) string { return fmt.Sprintf("%040x", n) }

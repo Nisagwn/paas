@@ -1,4 +1,4 @@
-// Package api exposes the minipaas control-plane HTTP API.
+// Package api exposes the paas control-plane HTTP API.
 package api
 
 import (
@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
-	"github.com/nisagwn/minipaas/internal/webhook"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/webhook"
 )
 
 const maxWebhookBody = 5 << 20 // GitHub caps payloads at 25 MB; pushes are far smaller.
@@ -342,7 +342,7 @@ func (s *Server) putEnv(w http.ResponseWriter, r *http.Request) {
 		case !envKeyRe.MatchString(k):
 			writeError(w, http.StatusBadRequest, "invalid variable name "+strconv.Quote(k))
 			return
-		case k == "PORT" || strings.HasPrefix(k, "MINIPAAS_"):
+		case k == "PORT" || strings.HasPrefix(k, "PAAS_"):
 			writeError(w, http.StatusBadRequest, k+" is set by the platform")
 			return
 		case v != nil && len(*v) > maxEnvValue:

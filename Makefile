@@ -9,14 +9,14 @@ db:            ## start PostgreSQL in Docker
 registry:      ## start the local image registry (localhost:5000)
 	docker compose up -d --wait registry
 
-buildkitd: registry  ## start a standalone buildkitd (for MINIPAAS_BUILDER=buildkit)
+buildkitd: registry  ## start a standalone buildkitd (for PAAS_BUILDER=buildkit)
 	docker compose --profile buildkit up -d buildkitd
 
 run: db registry  ## run the control plane locally
-	go run ./cmd/minipaas
+	go run ./cmd/paas
 
 build:
-	CGO_ENABLED=0 go build -o bin/minipaas ./cmd/minipaas
+	CGO_ENABLED=0 go build -o bin/paas ./cmd/paas
 
 vet:
 	go vet ./...
@@ -30,7 +30,7 @@ test: db vet   ## all tests, including database integration tests
 
 # Real image builds of examples/ with Docker, pushed to the local registry.
 test-build: registry
-	MINIPAAS_TEST_DOCKER_BUILD=1 go test -count=1 -run Docker -v ./internal/build/
+	PAAS_TEST_DOCKER_BUILD=1 go test -count=1 -run Docker -v ./internal/build/
 
 clean:
 	rm -rf bin

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nisagwn/minipaas/internal/naming"
-	"github.com/nisagwn/minipaas/internal/store"
+	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // Logger lets pipeline stages write lines to the deployment's log.
