@@ -72,7 +72,8 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
-- [ ] Gerçek kümede uçtan uca doğrulama ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
+- [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
+- [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
 
@@ -282,6 +283,27 @@ curl -s -H "$H" localhost:8080/api/deployments/1/logs
 curl -s -H "$H" -X PUT -d '{"DATABASE_URL":"postgres://…","DEBUG":null}' localhost:8080/api/apps/blog/env
 curl -s -H "$H" localhost:8080/api/apps/blog/env
 ```
+
+### Yerel Kubernetes (k3d)
+
+Gerekenler: Docker, [k3d](https://k3d.io), kubectl.
+
+```bash
+scripts/k3d-up.sh     # k3s + Traefik + registry (localhost:5111), port 80
+```
+
+`.env` içinde:
+
+```
+PAAS_BUILDER=docker
+PAAS_REGISTRY=localhost:5111
+PAAS_DEPLOYER=kubernetes
+PAAS_INGRESS_TLS=false
+PAAS_DOMAIN=localtest.me
+```
+
+`make run` sonrası push edilen her commit `http://<sha7>-<app>.localtest.me` adresinde açılır.
+Kaldırmak için: `scripts/k3d-up.sh down`.
 
 ### Gerçek GitHub'a bağlamak
 

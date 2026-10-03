@@ -75,12 +75,19 @@ func run(log *slog.Logger) error {
 		KeepProduction: cfg.KeepProduction, PreviewTTL: cfg.PreviewTTL, PreviewAliasTTL: cfg.PreviewAliasTTL,
 	}, cfg.GCInterval, log)
 
+	// App URLs are HTTPS (wildcard certificate) unless Kubernetes routes are
+	// served without TLS, e.g. on a laptop cluster.
+	scheme := "https"
+	if cfg.Deployer == "kubernetes" && !cfg.IngressTLS {
+		scheme = "http"
+	}
+
 	// Faz 5: live logs, runtime logs and the web UI.
 	hub := store.NewHub(cfg.DatabaseURL, log)
 	sessions := auth.New(cfg.APIToken)
 	runtimeLogs, _ := applier.(api.RuntimeLogs) // only the Kubernetes deployer
 	ui := &web.Server{
-		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain,
+		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log,
 	}
 
@@ -90,7 +97,7 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: (&api.Server{
-			Store: st, Router: apiRouter, Domain: cfg.Domain, APIToken: cfg.APIToken,
+			Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
 			WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
 			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(),
 		}).Handler(),
@@ -104,7 +111,7 @@ func run(log *slog.Logger) error {
 		}
 	}()
 	w := &worker.Worker{
-		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain,
+		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain, Scheme: scheme,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
 	}
 	if cfg.GitHubToken != "" && cfg.GitHubStatus {

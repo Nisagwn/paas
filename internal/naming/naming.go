@@ -73,3 +73,13 @@ func ResourceName(sha string) string {
 func Namespace(app string) string {
 	return "app-" + app
 }
+
+// URL joins a scheme and a host. An empty scheme means "https": the
+// platform serves every route over TLS unless it runs on a cluster without
+// the wildcard certificate (PAAS_INGRESS_TLS=false).
+func URL(scheme, host string) string {
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}

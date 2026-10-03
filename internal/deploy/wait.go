@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -159,10 +160,7 @@ func (r *rollout) fail(ctx context.Context, p *corev1.Pod, cs corev1.ContainerSt
 			for _, l := range lines {
 				r.log("    | %s", l)
 			}
-			if len(lines) > 5 {
-				lines = lines[len(lines)-5:]
-			}
-			msg += "; last log lines: " + strings.Join(lines, " ⏎ ")
+			msg += "; " + crashSummary(lines)
 		}
 	}
 	return errors.New(msg)
@@ -217,4 +215,28 @@ func podState(p *corev1.Pod) string {
 		s += " (" + strings.Join(details, ", ") + ")"
 	}
 	return s
+}
+
+// errorLine matches log lines that name the failure: "SyntaxError: …",
+// "panic: …", "Error: listen EADDRINUSE", Python's "…Error: …".
+var errorLine = regexp.MustCompile(`(?i)\b(\w*error|exception|panic|fatal)\b[:!]`)
+
+// crashSummary condenses a crashed container's log for the error message.
+// Runtimes print the cause first and a stack trace after it, so the last
+// lines alone are often just frames; the last line that names an error is
+// put in front of them.
+func crashSummary(lines []string) string {
+	tail := lines
+	if len(tail) > 3 {
+		tail = tail[len(tail)-3:]
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		if errorLine.MatchString(lines[i]) {
+			if i < len(lines)-len(tail) {
+				return "error: " + strings.TrimSpace(lines[i]) + "; last log lines: " + strings.Join(tail, " ⏎ ")
+			}
+			break // already part of the tail
+		}
+	}
+	return "last log lines: " + strings.Join(tail, " ⏎ ")
 }

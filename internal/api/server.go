@@ -33,8 +33,10 @@ type Router interface {
 type Server struct {
 	Store *store.Store
 	// Router is nil when nothing is routed (dry run).
-	Router        Router
-	Domain        string
+	Router Router
+	Domain string
+	// Scheme of app URLs in responses; empty means "https".
+	Scheme        string
 	APIToken      string
 	WebhookSecret string
 	Log           *slog.Logger
@@ -186,7 +188,7 @@ type appView struct {
 }
 
 func (s *Server) appView(a store.App, aliases []store.Alias) appView {
-	return appView{App: a, ProductionURL: "https://" + naming.ProductionHost(a.Name, s.Domain), Aliases: aliases}
+	return appView{App: a, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(a.Name, s.Domain)), Aliases: aliases}
 }
 
 func (s *Server) getApp(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +210,7 @@ type deploymentView struct {
 }
 
 func (s *Server) deploymentView(d store.Deployment) deploymentView {
-	return deploymentView{Deployment: d, URL: "https://" + naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)}
+	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain))}
 }
 
 func (s *Server) listDeployments(w http.ResponseWriter, r *http.Request) {

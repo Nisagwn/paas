@@ -196,12 +196,16 @@ yazmak hem riskli hem gereksiz olurdu.
   push'lanır, digest ile çalıştırılır ve HTTP yanıtı kontrol edilir.
 - Uçtan uca duman testleri: imzalı webhook → build → dry-run deploy → alias; web arayüzünde
   giriş, canlı log akışı.
+- Yerel gerçek küme (k3d): gerçek build, Kubernetes deploy, Traefik yönlendirmesi, trafik
+  altında rollback, hata ve temizlik senaryoları (bölüm 8).
 - Altyapı: `terraform validate`, kubeconform ile 19 Kubernetes kaynağının şema doğrulaması,
   tüm Mermaid diyagramlarının mermaid-cli ile doğrulanması.
 
 Entegrasyon sırasında testler gerçek hatalar yakaladı: veritabanı ile uygulama saatleri
 arasındaki kaymanın canlı log akışını erken kapatması, bir şablon tip hatası ve yeni `retired`
-durumunun canlı log ve web arayüzü tarafından bitmiş sayılmaması.
+durumunun canlı log ve web arayüzü tarafından bitmiş sayılmaması. Gerçek küme koşusu da iki
+sorun gösterdi: crash mesajının hatanın nedenini değil stack trace'in sonunu göstermesi ve TLS
+kapalıyken adreslerin `https://` yazılması.
 
 ## 8. Ölçümler
 
@@ -215,17 +219,21 @@ Ayrıntılar ve yeniden üretme komutları: [MEASUREMENTS.md](MEASUREMENTS.md).
 | Build, Go örneği | soğuk 19.4 s → kod değişikliği 4.3 s |
 | Build, Node örneği | soğuk 8.1 s → kod değişikliği 2.6 s |
 | İmaj boyutu | Go 3 MB, statik 20 MB, Node 61 MB |
-| Push → ready (Docker build, `node-hello`) | 5.3 s |
+| Push → ready, gerçek küme (k3d), kod değişikliği | 8.9 s |
+| Rollback sırasında trafik, gerçek küme | 1 000 istek, 0 hata |
 
 ## 9. Sınırlar ve açık konular
 
 Açıkça belirtilmesi gerekenler:
 
-- **Gerçek küme üzerinde uçtan uca çalıştırılmadı.** Kubernetes deploy, yönlendirme ve
-  çalışma zamanı logları fake clientset ile test edildi; Terraform yapılandırması doğrulandı
-  ama `apply` edilmedi. İlk kurulumda doğrulanacaklar: Traefik'in varsayılan wildcard
-  sertifikayı Ingress'lere uygulaması, k3s ağ politikasının readiness probe'larına izin vermesi,
-  ECR'a ilk push'ta repo oluşturma izinleri, kubelet ECR kimlik bilgisi sağlayıcısı.
+- **Yerel gerçek kümede doğrulandı, AWS'de henüz değil.** k3d (k3s v1.35, Traefik, NetworkPolicy)
+  üzerinde uçtan uca çalıştırıldı: deploy, üç tür adres, trafik altında kesintisiz rollback
+  (1 000 istek, 0 hata), bozuk commit'te hızlı başarısızlık, temizlik, branch silme, pod logları
+  ([MEASUREMENTS.md §4](MEASUREMENTS.md#4-gerçek-küme-k3d-yerel)). k3s ağ politikasının readiness
+  probe'larına izin verdiği ve Traefik'in standart Ingress'leri sunduğu böylece doğrulandı.
+  Terraform yapılandırması doğrulandı ama `apply` edilmedi; AWS'de doğrulanacaklar: TLS ile
+  wildcard sertifikanın varsayılan olarak uygulanması, ECR'a ilk push'ta repo oluşturma
+  izinleri, kubelet ECR kimlik bilgisi sağlayıcısı, arm64 build süreleri.
 - **Ölçümler dizüstü bilgisayarda alındı;** hedef sunucuda (arm64, 2 vCPU) tekrar alınmalı.
   Kubernetes'teki pod hazır olma süresi ve uygulama trafiği kapasitesi henüz ölçülmedi.
 - **Tek düğüm:** Postgres ve build cache düğümün diskinde; düğüm kaybı veri kaybıdır.

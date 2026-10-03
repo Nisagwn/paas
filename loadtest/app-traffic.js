@@ -17,7 +17,7 @@ export const options = {
       rate: RATE,
       timeUnit: '1s',
       duration: __ENV.DURATION || '60s',
-      preAllocatedVUs: Math.max(10, RATE / 4),
+      preAllocatedVUs: Math.max(10, Math.ceil(RATE / 4)),
       maxVUs: RATE * 2,
     },
   },

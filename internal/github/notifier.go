@@ -49,7 +49,7 @@ func (n *Notifier) DeploymentFinished(ctx context.Context, d store.Deployment, r
 	s := Status{Context: n.context()}
 	if r.Status == store.StatusReady {
 		s.State, s.TargetURL = StateSuccess, r.URL
-		s.Description = "Deploy hazır: " + strings.TrimPrefix(r.URL, "https://")
+		s.Description = "Deploy hazır: " + strings.TrimPrefix(strings.TrimPrefix(r.URL, "https://"), "http://")
 	} else {
 		s.State, s.TargetURL = StateFailure, n.DeploymentPage(d.ID)
 		s.Description = "Deploy başarısız: " + oneLine(r.Error)

@@ -67,10 +67,12 @@ type Result struct {
 }
 
 type Worker struct {
-	Store        *store.Store
-	Pipeline     Pipeline
-	Router       Router
-	Domain       string
+	Store    *store.Store
+	Pipeline Pipeline
+	Router   Router
+	Domain   string
+	// Scheme of app URLs in logs and notifications; empty means "https".
+	Scheme       string
 	PollInterval time.Duration
 	Concurrency  int
 	// Timeout bounds a whole deployment (build + deploy).
@@ -182,7 +184,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, mErr
 	}
 	w.Log.Info("deployment ready", "deployment", d.ID, "app", d.AppName,
-		"url", "https://"+naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain))
+		"url", naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)))
 	res := w.result(ctx, d, store.StatusReady)
 	if cur, err := w.Store.GetDeployment(ctx, d.ID); err == nil && cur.Status == store.StatusRetired {
 		// The branch was deleted meanwhile: there is no preview to announce.
@@ -197,14 +199,14 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 func (w *Worker) result(ctx context.Context, d store.Deployment, status string) Result {
 	r := Result{
 		Status:     status,
-		URL:        "https://" + naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain),
-		PreviewURL: "https://" + naming.PreviewHost(d.Branch, d.AppName, w.Domain),
+		URL:        naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)),
+		PreviewURL: naming.URL(w.Scheme, naming.PreviewHost(d.Branch, d.AppName, w.Domain)),
 	}
 	if status == store.StatusReady && w.Notifier != nil {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if app, err := w.Store.GetAppByName(ctx, d.AppName); err == nil && d.Branch == app.ProductionBranch {
-			r.ProductionURL = "https://" + naming.ProductionHost(d.AppName, w.Domain)
+			r.ProductionURL = naming.URL(w.Scheme, naming.ProductionHost(d.AppName, w.Domain))
 		}
 	}
 	return r
@@ -285,9 +287,9 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 		}
 	}
 	for _, a := range aliases {
-		log("==> %s alias: https://%s", a.Kind, a.Hostname)
+		log("==> %s alias: %s", a.Kind, naming.URL(w.Scheme, a.Hostname))
 	}
-	log("==> ready: https://%s", naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain))
+	log("==> ready: %s", naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)))
 	return nil
 }
 

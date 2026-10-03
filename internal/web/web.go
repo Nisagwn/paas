@@ -40,6 +40,8 @@ type Server struct {
 	Router   api.Router
 	Sessions *auth.Sessions
 	Domain   string
+	// Scheme of app links; empty means "https".
+	Scheme string
 	// RuntimeLogs shows the runtime log panel (Kubernetes deployer only).
 	RuntimeLogs bool
 	Log         *slog.Logger
@@ -304,7 +306,7 @@ func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, 
 	}
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
-		row := appRow{App: a, ProductionURL: "https://" + naming.ProductionHost(a.Name, s.Domain)}
+		row := appRow{App: a, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(a.Name, s.Domain))}
 		if d, ok := latest[a.ID]; ok {
 			row.Latest = &d
 		}
@@ -386,7 +388,7 @@ func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, boo
 }
 
 func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error) {
-	v := appDetail{App: app, ProductionURL: "https://" + naming.ProductionHost(app.Name, s.Domain)}
+	v := appDetail{App: app, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(app.Name, s.Domain))}
 	aliases, err := s.Store.ListAliases(ctx, app.ID)
 	if err != nil {
 		return v, err
@@ -406,7 +408,7 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 	hosts := map[int64][]string{}
 	var prodID int64
 	for _, a := range aliases {
-		v.Aliases = append(v.Aliases, aliasRow{Alias: a, URL: "https://" + a.Hostname, SHA: shas[a.DeploymentID]})
+		v.Aliases = append(v.Aliases, aliasRow{Alias: a, URL: naming.URL(s.Scheme, a.Hostname), SHA: shas[a.DeploymentID]})
 		hosts[a.DeploymentID] = append(hosts[a.DeploymentID], a.Hostname)
 		if a.Kind == store.AliasProduction {
 			prodID = a.DeploymentID
@@ -416,7 +418,7 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 	for _, d := range deps {
 		v.Deployments = append(v.Deployments, deploymentRow{
 			Deployment:  d,
-			URL:         "https://" + naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain),
+			URL:         naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
 			Production:  d.ID == prodID,
 			CanRollback: v.HasProduction && d.ID != prodID && d.Status == store.StatusReady,
 			AliasesHere: hosts[d.ID],
@@ -563,7 +565,7 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "deployment", fmt.Sprintf("%s · %s", d.AppName, naming.ShortSHA(d.CommitSHA)),
 		map[string]any{
 			"D":           d,
-			"URL":         "https://" + naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain),
+			"URL":         naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
 			"RuntimeLogs": s.RuntimeLogs,
 		}, "")
 }

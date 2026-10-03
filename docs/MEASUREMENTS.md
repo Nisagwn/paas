@@ -86,7 +86,27 @@ yalnızca tek bir Ingress'in güncellenmesi eklenir: yeniden build yok, pod yeni
 çünkü eski deploy zaten çalışıyor. Rollback sırasında kesinti olmadığı
 `loadtest/app-traffic.js` ile gerçek kümede doğrulanmalıdır (bkz. [DEMO.md](DEMO.md)).
 
-## 4. Test kapsamı
+## 4. Gerçek küme (k3d, yerel)
+
+k3s v1.35 (k3d), Traefik, NetworkPolicy etkin; kontrol düzlemi `PAAS_BUILDER=docker`,
+`PAAS_DEPLOYER=kubernetes` ile. Kurulum: `scripts/k3d-up.sh`.
+
+| Senaryo | Sonuç |
+|---|---|
+| İlk deploy (cache yok), push → `ready` | 20.4 s |
+| Kod değişikliği, push → `ready` | 8.9 s (clone 0.6 s, build + push 3.3 s, rollout 4 s) |
+| Üç adres Traefik üzerinden (`<sha7>-blog`, `blog`, `main-blog`) | hepsi 200 |
+| Rollback API'si (Ingress güncellemesi dahil) | 66–68 ms |
+| **Rollback sırasında trafik** (50 istek/s, 20 s) | **1 000 istek, 0 hata**, p50 2.4 ms, p95 4.6 ms |
+| Bozuk commit (Node sözdizimi hatası) | build dahil 12.4 s'de `failed`, production etkilenmedi |
+| Başarısız deploy'un nesneleri | temizlik döngüsü sildi; Ingress sahiplik ilişkisiyle birlikte gitti |
+| Branch silme webhook'u | preview alias'ı kalktı (404), deploy `retired`, nesneleri silindi |
+| Pod logları (`runtime-logs`) | çalışıyor |
+
+Bu koşu iki hata buldu ve düzeltildi: crash mesajı yalnızca stack trace'in sonunu gösteriyordu
+(artık hatayı adlandıran satır başta), TLS kapalıyken adresler `https://` olarak yazılıyordu.
+
+## 5. Test kapsamı
 
 | | |
 |---|---|
@@ -102,5 +122,5 @@ yalnızca tek bir Ingress'in güncellenmesi eklenir: yeniden build yok, pod yeni
   farklı olacaktır.
 - Kuyruk ölçeklenmesi dry-run pipeline ile ölçüldü: kontrol düzleminin kendisini ölçer, gerçek
   build/deploy maliyetini değil.
-- Kubernetes deploy süresi (pod'un hazır olması), Ingress yayılma süresi ve uygulama trafiğinin
-  istek/saniye kapasitesi gerçek kümede ölçülmelidir: `loadtest/app-traffic.js`.
+- Gerçek küme ölçümleri yerel k3d üzerinde alındı (bölüm 4); hedef sunucuda (arm64, TLS,
+  ECR) tekrar alınmalı. Uygulama trafiğinin üst sınırı (istek/saniye) henüz ölçülmedi.
