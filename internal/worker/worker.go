@@ -47,6 +47,25 @@ type Router interface {
 	SyncApp(ctx context.Context, app string) error
 }
 
+// Notifier reports deployment progress to an outside system (GitHub commit
+// statuses and PR comments). Calls are best effort: they run with their own
+// short timeout and an error is logged, never fails the deployment.
+type Notifier interface {
+	DeploymentStarted(ctx context.Context, d store.Deployment) error
+	DeploymentFinished(ctx context.Context, d store.Deployment, r Result) error
+}
+
+// Result is the outcome of a deployment as passed to a Notifier.
+type Result struct {
+	// Status is store.StatusReady or store.StatusFailed.
+	Status string
+	// Error is the failure reason; empty when ready.
+	Error string
+	// URL is the immutable deployment URL, PreviewURL the branch alias.
+	// ProductionURL is set when the branch is the production branch.
+	URL, PreviewURL, ProductionURL string
+}
+
 type Worker struct {
 	Store        *store.Store
 	Pipeline     Pipeline
@@ -57,6 +76,10 @@ type Worker struct {
 	// Timeout bounds a whole deployment (build + deploy).
 	Timeout time.Duration
 	Log     *slog.Logger
+	// Notifier is optional (nil: no notifications).
+	Notifier Notifier
+	// NotifyTimeout bounds each Notifier call (default 15s).
+	NotifyTimeout time.Duration
 }
 
 // Run starts Concurrency polling loops and blocks until ctx is cancelled and
@@ -115,6 +138,8 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
+	w.notify(ctx, d, func(nctx context.Context) error { return w.Notifier.DeploymentStarted(nctx, d) })
+
 	if err := w.run(runCtx, d); err != nil {
 		// runCtx may be the reason we failed (timeout), so record the failure
 		// with a fresh context; otherwise the row would stay "building" forever.
@@ -122,14 +147,60 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		defer cancelFail()
 		w.Log.Warn("deployment failed", "deployment", d.ID, "app", d.AppName, "err", err)
 		w.logLine(failCtx, d.ID, "ERROR: %v", err)
-		if mErr := w.Store.MarkFailed(failCtx, d.ID, err.Error()); mErr != nil {
-			return true, mErr
-		}
-		return true, nil
+		mErr := w.Store.MarkFailed(failCtx, d.ID, err.Error())
+		res := w.result(ctx, d, store.StatusFailed)
+		res.Error = err.Error()
+		w.notify(ctx, d, func(nctx context.Context) error { return w.Notifier.DeploymentFinished(nctx, d, res) })
+		return true, mErr
 	}
 	w.Log.Info("deployment ready", "deployment", d.ID, "app", d.AppName,
 		"url", "https://"+naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain))
+	res := w.result(ctx, d, store.StatusReady)
+	w.notify(ctx, d, func(nctx context.Context) error { return w.Notifier.DeploymentFinished(nctx, d, res) })
 	return true, nil
+}
+
+// result describes the outcome for the Notifier.
+func (w *Worker) result(ctx context.Context, d store.Deployment, status string) Result {
+	r := Result{
+		Status:     status,
+		URL:        "https://" + naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain),
+		PreviewURL: "https://" + naming.PreviewHost(d.Branch, d.AppName, w.Domain),
+	}
+	if status == store.StatusReady && w.Notifier != nil {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if app, err := w.Store.GetAppByName(ctx, d.AppName); err == nil && d.Branch == app.ProductionBranch {
+			r.ProductionURL = "https://" + naming.ProductionHost(d.AppName, w.Domain)
+		}
+	}
+	return r
+}
+
+// notify runs one Notifier call with its own timeout, detached from ctx so
+// the final status is still reported during shutdown. Errors (and panics)
+// are logged; they never change the deployment's outcome.
+func (w *Worker) notify(ctx context.Context, d store.Deployment, call func(context.Context) error) {
+	if w.Notifier == nil {
+		return
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			w.Log.Error("deployment notifier panicked", "deployment", d.ID, "panic", p)
+		}
+	}()
+	timeout := w.NotifyTimeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	nctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	if err := call(nctx); err != nil {
+		w.Log.Warn("deployment notification failed", "deployment", d.ID, "app", d.AppName, "err", err)
+		logCtx, cancelLog := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelLog()
+		w.logLine(logCtx, d.ID, "WARNING: notification failed: %v", err)
+	}
 }
 
 func (w *Worker) run(ctx context.Context, d store.Deployment) error {

@@ -48,6 +48,7 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 4: rollback = alias `Ingress`'inin backend'ini çevirmek; pod yeniden başlamaz, build yok
 - [x] Faz 4: wildcard sertifika (cert-manager, DNS-01) Traefik'in varsayılanı; her host otomatik TLS
 - [x] Faz 4: periyodik uzlaştırma (reconcile) döngüsü: başarısız bir senkron kendiliğinden düzelir
+- [x] Faz 5: GitHub commit status'ları (`pending` → `success` / `failure`) ve PR'da güncellenen "Preview hazır" yorumu
 - [ ] Faz 5: canlı loglar (SSE), GitHub commit status / PR yorumu, web arayüzü
 
 ### Deploy nasıl çalışır
@@ -132,6 +133,46 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 | `PAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
 | `PAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
 
+### GitHub entegrasyonu (Faz 5)
+
+`PAAS_GITHUB_TOKEN` tanımlıysa worker her deployment'ı GitHub'a bildirir:
+
+| An | Commit status (`paas/deploy`) | Bağlantı |
+|---|---|---|
+| Worker deployment'ı aldı | `pending` — "Build başladı" | deployment sayfası |
+| Deploy hazır | `success` — "Deploy hazır: `<sha7>-<app>.<domain>`" | deployment URL'si |
+| Build/deploy hatası | `failure` — hata mesajı (140 karaktere kısaltılır) | deployment sayfası |
+
+Deployment bittiğinde branch'in açık PR'ları (`GET /repos/{o}/{r}/pulls?head=<owner>:<branch>`) bulunur
+ve her birinde uygulama başına **tek bir yorum** tutulur: gizli `<!-- paas:preview:<app> -->` işaretiyle
+mevcut yorum bulunur ve güncellenir (`PATCH`), yoksa oluşturulur. Başarıda yorum preview, deployment
+(production branch'te production) URL'lerini, commit'i ve durumu tablo olarak gösterir; hatada
+"❌ Deploy başarısız" başlığıyla hata metnini ve log bağlantısını içerir.
+
+- Deployment sayfası: `PAAS_PUBLIC_URL/deployments/<id>` (web arayüzü; loglar orada canlı izlenir).
+  API karşılığı `GET /api/deployments/<id>/logs` (bearer token ister).
+- Bildirimler deployment'ı asla düşürmez: her çağrının kendi zaman aşımı vardır (15 sn), hata `slog`'a
+  ve deployment loguna `WARNING: notification failed: …` satırı olarak yazılır.
+- Geç biten eski bir commit, PR'ın head'i ilerlemişse yorumu ezmez; yorumu yeni commit'in deployment'ı yazar.
+- İstemci yalnızca `net/http` kullanır; hata yanıtları durum kodu ve GitHub mesajıyla döner, kalan istek
+  hakkı 100'ün altına inince `X-RateLimit-*` başlıkları loglanır, rate limit hatasında bekleme süresi
+  hata mesajında yer alır.
+- **Fork kısıtı:** PR araması aynı repodaki branch'leri bulur (`head=<repo sahibi>:<branch>`). Fork'tan
+  açılan PR'lar bulunmaz; fork'a yapılan push bu reponun webhook'unu tetiklemediği için zaten deploy edilmezler.
+
+**Token izinleri:** fine-grained PAT (yalnızca ilgili repolar) — *Contents: Read*, *Commit statuses:
+Read and write*, *Pull requests: Read and write* (PR yorumları issue comments API'si ile yazılır; GitHub
+bunu PR'larda *Pull requests: write* izniyle kabul eder). Klasik token için `repo` kapsamı (yalnızca
+public repolar için `public_repo`).
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_GITHUB_TOKEN` | hem private repo klonlama hem bildirimler için; boşsa bildirim yok |
+| `PAAS_GITHUB_STATUS` | `false` → token olsa da status/yorum gönderilmez (varsayılan açık) |
+| `PAAS_GITHUB_STATUS_CONTEXT` | commit status adı (varsayılan `paas/deploy`) |
+| `PAAS_GITHUB_API_URL` | varsayılan `https://api.github.com`; GitHub Enterprise: `https://<host>/api/v3` |
+| `PAAS_PUBLIC_URL` | kontrol düzleminin dış adresi, bağlantılar buraya gider (varsayılan `https://<PAAS_DOMAIN>`) |
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -208,6 +249,7 @@ cmd/paas/         giriş noktası: API + worker tek süreçte, graceful shutdown
 internal/config/      ortam değişkenleri
 internal/store/       PostgreSQL erişimi, migration'lar, kuyruk
 internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
+internal/github/      GitHub REST istemcisi: commit status, PR arama, işaretli PR yorumu
 internal/api/         HTTP uçları
 internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run pipeline
 internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları

@@ -18,6 +18,7 @@ import (
 	"github.com/nisagwn/paas/internal/build"
 	"github.com/nisagwn/paas/internal/config"
 	"github.com/nisagwn/paas/internal/deploy"
+	"github.com/nisagwn/paas/internal/github"
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/worker"
@@ -73,6 +74,13 @@ func run(log *slog.Logger) error {
 	w := &worker.Worker{
 		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
+	}
+	if cfg.GitHubToken != "" && cfg.GitHubStatus {
+		w.Notifier = &github.Notifier{
+			Client:    github.New(cfg.GitHubAPIURL, cfg.GitHubToken, log),
+			PublicURL: cfg.PublicURL, Context: cfg.GitHubStatusContext, Log: log,
+		}
+		log.Info("github commit statuses and PR comments enabled", "api", cfg.GitHubAPIURL, "public_url", cfg.PublicURL)
 	}
 
 	var wg sync.WaitGroup

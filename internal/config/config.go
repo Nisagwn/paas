@@ -64,6 +64,15 @@ type Config struct {
 	PollInterval time.Duration
 	// Number of deployments processed concurrently.
 	Workers int
+	// Where the control plane is reachable; links in GitHub statuses and PR
+	// comments point here. Default "https://" + Domain.
+	PublicURL string
+	// GitHub REST API base (GitHub Enterprise: https://<host>/api/v3).
+	GitHubAPIURL string
+	// Report commit statuses and PR comments (needs GitHubToken).
+	GitHubStatus bool
+	// Commit status context shown on GitHub.
+	GitHubStatusContext string
 }
 
 func Load() (Config, error) {
@@ -98,7 +107,11 @@ func Load() (Config, error) {
 		PollInterval:        2 * time.Second,
 		Workers:             2,
 		DeployTimeout:       15 * time.Minute,
+		GitHubAPIURL:        getenv("PAAS_GITHUB_API_URL", "https://api.github.com"),
+		GitHubStatus:        os.Getenv("PAAS_GITHUB_STATUS") != "false",
+		GitHubStatusContext: getenv("PAAS_GITHUB_STATUS_CONTEXT", "paas/deploy"),
 	}
+	c.PublicURL = strings.TrimRight(getenv("PAAS_PUBLIC_URL", "https://"+c.Domain), "/")
 	if v := os.Getenv("PAAS_DEPLOY_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
