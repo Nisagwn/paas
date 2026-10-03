@@ -3,8 +3,11 @@
 //	namespace app-<app> (+ ResourceQuota, LimitRange)
 //	  └─ Secret d-<sha7>-env → Deployment d-<sha7> → Service d-<sha7> (:80 → :8080)
 //
-// Every commit gets its own Deployment and Service, so deployments are
-// immutable and a rollback (Faz 4) only has to move a route.
+//	  └─ Ingress d-<sha7>       <sha7>-<app>.<domain>   (owned by the Deployment)
+//	  └─ Ingress alias-<label>  <app>.<domain>, <branch>-<app>.<domain>
+//
+// Every commit gets its own Deployment, Service and Ingress, so deployments
+// are immutable and a rollback only moves an alias Ingress (ApplyAliases).
 package deploy
 
 import (
@@ -46,6 +49,14 @@ type EnvSource interface {
 
 // Config holds the tunables. Quantities use Kubernetes syntax ("250m", "256Mi").
 type Config struct {
+	// Domain is the platform domain every hostname lives under.
+	Domain string
+	// IngressClass selects the ingress controller ("traefik" on k3s).
+	// Empty uses the cluster's default class.
+	IngressClass string
+	// TLS serves routes on the websecure entry point with the default
+	// (wildcard) certificate; false uses plain HTTP, e.g. on a laptop cluster.
+	TLS bool
 	// Per container.
 	CPURequest, CPULimit       string
 	MemoryRequest, MemoryLimit string
@@ -64,6 +75,7 @@ type Config struct {
 // DefaultConfig is sized for a 4 GiB node shared by many deployments.
 func DefaultConfig() Config {
 	return Config{
+		IngressClass: "traefik", TLS: true,
 		CPURequest: "25m", CPULimit: "500m",
 		MemoryRequest: "64Mi", MemoryLimit: "256Mi",
 		QuotaCPU: "1", QuotaMemory: "4Gi", QuotaPods: 20,
@@ -108,6 +120,9 @@ func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, e
 	}
 	if k.q.cpuReq.Cmp(k.q.cpuLim) > 0 || k.q.memReq.Cmp(k.q.memLim) > 0 {
 		return nil, errors.New("deploy: requests must not exceed limits")
+	}
+	if cfg.Domain == "" {
+		return nil, errors.New("deploy: domain is required")
 	}
 	if cfg.QuotaPods < 1 {
 		return nil, errors.New("deploy: quota pods must be positive")
@@ -182,6 +197,11 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 		return fmt.Errorf("secret %s/%s: %w", ns, secret.Name, err)
 	}
 	log("    deployment + service %s/%s (ClusterIP :80 → :%d)", ns, name, Port)
+	host, err := k.ensureDeploymentIngress(ctx, d, dep)
+	if err != nil {
+		return fmt.Errorf("ingress %s/%s: %w", ns, name, err)
+	}
+	log("    ingress %s/%s → %s", ns, name, k.url(host))
 
 	return k.waitReady(ctx, ns, name, log)
 }
@@ -194,4 +214,11 @@ func envVars(d store.Deployment) []corev1.EnvVar {
 		{Name: "MINIPAAS_COMMIT_SHA", Value: d.CommitSHA},
 		{Name: "MINIPAAS_BRANCH", Value: d.Branch},
 	}
+}
+
+func (k *Kubernetes) url(host string) string {
+	if k.cfg.TLS {
+		return "https://" + host
+	}
+	return "http://" + host
 }

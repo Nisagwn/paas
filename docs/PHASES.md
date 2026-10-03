@@ -55,7 +55,8 @@ queued → building → deploying → ready
 - **Çıktı:** Her commit kümede ayrı bir sürüm olarak çalışıyor
 
 ## Faz 4 — Yönlendirme, alias ve TLS
-- Traefik `IngressRoute`: deploy URL'si + alias URL'leri
+- Traefik üzerinden standart `Ingress`: deploy URL'si + alias URL'leri (taşınabilirlik için CRD yerine)
+- Alias'lar veritabanından senkronlanır; periyodik uzlaştırma döngüsü
 - Wildcard DNS (`*.domain` → EC2 Elastic IP) — Route 53
 - cert-manager + Let's Encrypt **DNS-01** ile wildcard sertifika
 - main branch → production alias, diğer branch'ler → preview alias

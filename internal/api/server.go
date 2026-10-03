@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -23,8 +24,15 @@ const maxWebhookBody = 5 << 20 // GitHub caps payloads at 25 MB; pushes are far 
 
 var repoRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
+// Router pushes an app's aliases to the ingress layer (routing.Syncer).
+type Router interface {
+	SyncApp(ctx context.Context, app string) error
+}
+
 type Server struct {
-	Store         *store.Store
+	Store *store.Store
+	// Router is nil when nothing is routed (dry run).
+	Router        Router
 	Domain        string
 	APIToken      string
 	WebhookSecret string
@@ -272,6 +280,16 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 	default:
 		s.Log.Info("rollback", "app", app.Name, "deployment", req.DeploymentID)
+		// The alias already points at the old deployment in the database, so
+		// a failed sync is retried by the reconcile loop; report it anyway.
+		if s.Router != nil {
+			if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
+				s.Log.Error("rollback: route sync", "app", app.Name, "err", err)
+				writeError(w, http.StatusBadGateway,
+					"rollback saved, but updating the router failed (retried automatically): "+err.Error())
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, alias)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/nisagwn/minipaas/internal/build"
 	"github.com/nisagwn/minipaas/internal/config"
 	"github.com/nisagwn/minipaas/internal/deploy"
+	"github.com/nisagwn/minipaas/internal/routing"
 	"github.com/nisagwn/minipaas/internal/store"
 	"github.com/nisagwn/minipaas/internal/worker"
 )
@@ -48,21 +49,29 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	pipeline, err := newPipeline(cfg, st)
+	pipeline, applier, err := newPipeline(cfg, st)
 	if err != nil {
 		return err
+	}
+	// Alias routing exists only with a real deployer; nil interfaces otherwise.
+	var router *routing.Syncer
+	var apiRouter api.Router
+	var workerRouter worker.Router
+	if applier != nil {
+		router = &routing.Syncer{Store: st, Applier: applier, Interval: cfg.RouteSyncInterval, Log: log}
+		apiRouter, workerRouter = router, router
 	}
 
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: (&api.Server{
-			Store: st, Domain: cfg.Domain, APIToken: cfg.APIToken,
+			Store: st, Router: apiRouter, Domain: cfg.Domain, APIToken: cfg.APIToken,
 			WebhookSecret: cfg.GitHubWebhookSecret, Log: log,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	w := &worker.Worker{
-		Store: st, Pipeline: pipeline, Domain: cfg.Domain,
+		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
 	}
 
@@ -72,6 +81,13 @@ func run(log *slog.Logger) error {
 		defer wg.Done()
 		w.Run(ctx)
 	}()
+	if router != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			router.Run(ctx)
+		}()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -99,9 +115,11 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, error) {
+// newPipeline also returns the alias applier when the deployer has one.
+func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.Applier, error) {
 	dry := worker.DryRunPipeline{Registry: "registry.local", Step: 500 * time.Millisecond}
 	var p worker.Stages
+	var applier routing.Applier
 
 	switch cfg.Builder {
 	case "dryrun":
@@ -116,11 +134,11 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, error) {
 			GitBaseURL: cfg.GitBaseURL, GitToken: cfg.GitHubToken,
 		}
 		if err := b.Check(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		p.Builder = b
 	default:
-		return nil, fmt.Errorf("unknown MINIPAAS_BUILDER %q (dryrun, buildkit, docker)", cfg.Builder)
+		return nil, nil, fmt.Errorf("unknown MINIPAAS_BUILDER %q (dryrun, buildkit, docker)", cfg.Builder)
 	}
 
 	switch cfg.Deployer {
@@ -129,23 +147,25 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, error) {
 	case "kubernetes":
 		client, err := deploy.NewClient(cfg.Kubeconfig)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		d, err := deploy.New(client, st, deploy.Config{
+			Domain: cfg.Domain, IngressClass: cfg.IngressClass, TLS: cfg.IngressTLS,
 			CPURequest: cfg.AppCPURequest, CPULimit: cfg.AppCPULimit,
 			MemoryRequest: cfg.AppMemoryRequest, MemoryLimit: cfg.AppMemoryLimit,
 			QuotaCPU: cfg.AppQuotaCPU, QuotaMemory: cfg.AppQuotaMemory, QuotaPods: cfg.AppQuotaPods,
 			RunAsNonRoot: cfg.AppRunAsNonRoot, RolloutTimeout: cfg.RolloutTimeout,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := d.Check(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		p.Deployer = d
+		applier = d
 	default:
-		return nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (dryrun, kubernetes)", cfg.Deployer)
+		return nil, nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (dryrun, kubernetes)", cfg.Deployer)
 	}
-	return p, nil
+	return p, applier, nil
 }

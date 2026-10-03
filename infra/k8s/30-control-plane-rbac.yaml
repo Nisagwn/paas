@@ -35,8 +35,9 @@ rules:
   - apiGroups: [apps]
     resources: [replicasets]
     verbs: [get, list, watch]
+  # networkpolicies: per-app isolation; ingresses: deployment and alias routes (Faz 4).
   - apiGroups: [networking.k8s.io]
-    resources: [networkpolicies]
+    resources: [networkpolicies, ingresses]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [traefik.io]
     resources: [ingressroutes, middlewares]

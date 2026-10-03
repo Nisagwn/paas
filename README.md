@@ -22,7 +22,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
-## Durum: Faz 3 tamamlandı
+## Durum: Faz 4 tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -43,7 +43,12 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 3: idempotent create-or-update (çökme sonrası tekrar çalıştırma `AlreadyExists` ile düşmez)
 - [x] Faz 3: hazır olana kadar bekleme, pod durumları loga; `ImagePullBackOff` / `CrashLoopBackOff` / kota aşımında
   hemen `failed` (crash'te son log satırlarıyla), zaman aşımında `failed`
-- [ ] Faz 4: Traefik yönlendirme, alias'lar ve TLS
+- [x] Faz 4: her deploy'a kendi `Ingress`'i: `https://<sha7>-<app>.<domain>` (Deployment'a ait, onunla silinir)
+- [x] Faz 4: alias `Ingress`'leri (production + branch başına preview) veritabanından senkronlanır
+- [x] Faz 4: rollback = alias `Ingress`'inin backend'ini çevirmek; pod yeniden başlamaz, build yok
+- [x] Faz 4: wildcard sertifika (cert-manager, DNS-01) Traefik'in varsayılanı; her host otomatik TLS
+- [x] Faz 4: periyodik uzlaştırma (reconcile) döngüsü: başarısız bir senkron kendiliğinden düzelir
+- [ ] Faz 5: canlı loglar (SSE), GitHub commit status / PR yorumu, web arayüzü
 
 ### Deploy nasıl çalışır
 
@@ -53,8 +58,35 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 namespace app-<app>          (managed-by=minipaas, ResourceQuota + LimitRange + NetworkPolicy "minipaas")
 ├── Secret     d-<sha7>-env  değişmez; deploy anındaki ortam değişkenleri
 ├── Deployment d-<sha7>      1 replika, PORT=8080, MINIPAAS_APP/COMMIT_SHA/BRANCH, envFrom secret
-└── Service    d-<sha7>      ClusterIP :80 → :8080
+├── Service    d-<sha7>      ClusterIP :80 → :8080
+├── Ingress    d-<sha7>      <sha7>-<app>.<domain> → Service d-<sha7>
+└── Ingress    alias-<etiket> <app>.<domain> (production), <branch>-<app>.<domain> (preview)
 ```
+
+### Yönlendirme ve rollback (Faz 4)
+
+Alias'ların nereyi gösterdiğinin tek doğru kaynağı Postgres'teki `aliases` tablosudur.
+`internal/routing` bu durumu kümeye yansıtır:
+
+1. Deploy hazır olunca `MarkReady` alias'ları ileri taşır → senkron
+2. `POST /api/apps/{name}/rollback` production alias'ını geri çevirir → senkron
+3. Her `MINIPAAS_ROUTE_SYNC_INTERVAL`'da (varsayılan 1 dk) tüm uygulamalar uzlaştırılır
+
+Senkron idempotenttir: aynı durum tekrar uygulanınca kümeye hiçbir yazma yapılmaz;
+veritabanında olmayan alias `Ingress`'leri silinir. Aynı uygulamanın senkronları sıraya
+girer ve her biri veritabanını kilidin içinde okur, böylece geç biten eski bir senkron
+yeni bir rollback'i ezemez. Yönlendirme katmanı hata verirse rollback yine kaydedilir,
+API `502` ile bildirir ve bir sonraki uzlaştırma uygular.
+
+Standart `networking.k8s.io/v1 Ingress` kullanılır (Traefik CRD'si değil): CRD gerekmez,
+client-go ile tipli ve test edilebilir, başka bir ingress controller ile de çalışır.
+TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) sertifikayı sunar.
+
+| Değişken | Açıklama |
+|---|---|
+| `MINIPAAS_INGRESS_CLASS` | varsayılan `traefik`; boş = kümenin varsayılan sınıfı |
+| `MINIPAAS_INGRESS_TLS` | `true` (varsayılan) → `websecure` + TLS; `false` → düz HTTP (yerel küme) |
+| `MINIPAAS_ROUTE_SYNC_INTERVAL` | uzlaştırma aralığı, varsayılan `1m` |
 
 - Etiketler: `app=<app>`, `minipaas/deployment-id`, `minipaas/commit-sha`, `minipaas/branch` (slug; tam adı annotation'da).
 - Pod güvenliği: `runAsNonRoot` (sabit `runAsUser` yok, imajın sayısal `USER`'ı kullanılır),
@@ -179,7 +211,8 @@ internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
 internal/api/         HTTP uçları
 internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run pipeline
 internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
-internal/deploy/      Kubernetes deployer: namespace, kota, Secret, Deployment, Service, rollout bekleme
+internal/deploy/      Kubernetes deployer: namespace, kota, Secret, Deployment, Service, Ingress, rollout bekleme
+internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
 examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı

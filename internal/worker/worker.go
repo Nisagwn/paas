@@ -41,9 +41,16 @@ type Stages struct {
 	Deployer
 }
 
+// Router pushes an app's aliases from the database to the ingress layer
+// (routing.Syncer). Nil when there is nothing to route (dry run).
+type Router interface {
+	SyncApp(ctx context.Context, app string) error
+}
+
 type Worker struct {
 	Store        *store.Store
 	Pipeline     Pipeline
+	Router       Router
 	Domain       string
 	PollInterval time.Duration
 	Concurrency  int
@@ -162,6 +169,13 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	}
 	if err := w.Store.MarkReady(ctx, d, aliases); err != nil {
 		return err
+	}
+	if w.Router != nil {
+		// The deployment is up and reachable on its own URL either way; a
+		// failed alias sync is retried by the router's reconcile loop.
+		if err := w.Router.SyncApp(ctx, d.AppName); err != nil {
+			log("WARNING: updating alias routes failed (retried automatically): %v", err)
+		}
 	}
 	for _, a := range aliases {
 		log("==> %s alias: https://%s", a.Kind, a.Hostname)

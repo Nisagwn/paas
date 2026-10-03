@@ -101,6 +101,34 @@ func TestAliasOnlyMovesForward(t *testing.T) {
 	}
 }
 
+// AliasRoutes follows a rollback: the router reads it to point hostnames at commits.
+func TestAliasRoutes(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	app, _ := st.CreateApp(ctx, "blog", "nisagwn/blog", "main")
+	first, _, _ := st.EnqueueDeployment(ctx, app.ID, sha(1), "main", "")
+	second, _, _ := st.EnqueueDeployment(ctx, app.ID, sha(2), "main", "")
+	prod := store.AliasSpec{Hostname: "blog.test", Kind: store.AliasProduction, Branch: "main"}
+	preview := store.AliasSpec{Hostname: "main-blog.test", Kind: store.AliasPreview, Branch: "main"}
+	st.MarkReady(ctx, first, []store.AliasSpec{prod, preview})
+	st.MarkReady(ctx, second, []store.AliasSpec{prod, preview})
+
+	if _, err := st.Rollback(ctx, app.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	routes, err := st.AliasRoutes(ctx, app.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.AliasRoute{
+		{Hostname: "blog.test", Kind: store.AliasProduction, Branch: "main", DeploymentID: first.ID, CommitSHA: sha(1)},
+		{Hostname: "main-blog.test", Kind: store.AliasPreview, Branch: "main", DeploymentID: second.ID, CommitSHA: sha(2)},
+	}
+	if fmt.Sprint(routes) != fmt.Sprint(want) {
+		t.Fatalf("routes = %+v\nwant     %+v", routes, want)
+	}
+}
+
 func TestDuplicateApp(t *testing.T) {
 	st := testdb.Open(t)
 	ctx := context.Background()

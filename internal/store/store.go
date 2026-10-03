@@ -430,6 +430,37 @@ func (s *Store) UpdateAppEnv(ctx context.Context, appID int64, changes map[strin
 	return tx.Commit()
 }
 
+// AliasRoute is an alias joined with the commit it points at: everything
+// the router needs to send a hostname to the right deployment.
+type AliasRoute struct {
+	Hostname     string
+	Kind         string
+	Branch       string
+	DeploymentID int64
+	CommitSHA    string
+}
+
+// AliasRoutes returns the app's aliases with their target commits.
+func (s *Store) AliasRoutes(ctx context.Context, appID int64) ([]AliasRoute, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT al.hostname, al.kind, al.branch, al.deployment_id, d.commit_sha
+		FROM aliases al JOIN deployments d ON d.id = al.deployment_id
+		WHERE al.app_id = $1 ORDER BY al.hostname`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AliasRoute{}
+	for rows.Next() {
+		var r AliasRoute
+		if err := rows.Scan(&r.Hostname, &r.Kind, &r.Branch, &r.DeploymentID, &r.CommitSHA); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // ---- logs ----
 
 func (s *Store) AppendLog(ctx context.Context, deploymentID int64, line string) error {

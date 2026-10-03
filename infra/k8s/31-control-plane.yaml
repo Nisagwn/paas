@@ -69,6 +69,14 @@ spec:
               value: 3m
             - name: MINIPAAS_APP_RUN_AS_NON_ROOT
               value: "true"
+            # App routes: plain Ingress objects served by k3s's Traefik, TLS
+            # from the default wildcard certificate (40-tls.yaml).
+            - name: MINIPAAS_INGRESS_CLASS
+              value: traefik
+            - name: MINIPAAS_INGRESS_TLS
+              value: "true"
+            - name: MINIPAAS_ROUTE_SYNC_INTERVAL
+              value: 1m
             - name: MINIPAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: minipaas, key: database-url }

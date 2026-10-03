@@ -58,6 +58,7 @@ func newDeployer(t *testing.T, env envMap, timeout time.Duration) (*Kubernetes, 
 	t.Helper()
 	cs := fake.NewClientset()
 	cfg := DefaultConfig()
+	cfg.Domain = "paas.test"
 	cfg.RunAsNonRoot = true
 	cfg.RolloutTimeout = timeout
 	cfg.PollInterval = 10 * time.Millisecond

@@ -52,6 +52,12 @@ type Config struct {
 	// numeric USERs; a repo Dockerfile with a named USER (e.g. "USER node")
 	// is rejected by the kubelet because it cannot verify the UID.
 	AppRunAsNonRoot bool
+	// Ingress class for app routes ("traefik" on k3s; empty = cluster default).
+	IngressClass string
+	// Serve app routes over HTTPS with the default wildcard certificate.
+	IngressTLS bool
+	// How often alias routes are reconciled with the database.
+	RouteSyncInterval time.Duration
 	// Bounds a whole deployment (build + deploy).
 	DeployTimeout time.Duration
 	// How often the worker polls for queued deployments.
@@ -86,6 +92,9 @@ func Load() (Config, error) {
 		AppQuotaPods:        20,
 		AppRunAsNonRoot:     os.Getenv("MINIPAAS_APP_RUN_AS_NON_ROOT") != "false",
 		RolloutTimeout:      3 * time.Minute,
+		IngressClass:        getenv("MINIPAAS_INGRESS_CLASS", "traefik"),
+		IngressTLS:          os.Getenv("MINIPAAS_INGRESS_TLS") != "false",
+		RouteSyncInterval:   time.Minute,
 		PollInterval:        2 * time.Second,
 		Workers:             2,
 		DeployTimeout:       15 * time.Minute,
@@ -103,6 +112,13 @@ func Load() (Config, error) {
 			return c, errors.New("MINIPAAS_ROLLOUT_TIMEOUT must be a positive duration")
 		}
 		c.RolloutTimeout = d
+	}
+	if v := os.Getenv("MINIPAAS_ROUTE_SYNC_INTERVAL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, errors.New("MINIPAAS_ROUTE_SYNC_INTERVAL must be a positive duration")
+		}
+		c.RouteSyncInterval = d
 	}
 	if v := os.Getenv("MINIPAAS_POLL_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
