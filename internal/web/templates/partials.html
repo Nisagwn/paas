@@ -1,0 +1,83 @@
+{{/* Fragments shared by full pages and htmx responses. Both pass a value
+     with .Data (the app detail) and .CSRF. */}}
+
+{{define "deployments"}}
+<div id="deployments" class="card"
+  {{if .Data.Active}}hx-get="/apps/{{.Data.App.Name}}/deployments" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
+{{$csrf := .CSRF}}{{$app := .Data.App.Name}}
+{{with .Data.Deployments}}
+  <table>
+    <thead><tr><th>Status</th><th>Commit</th><th class="hide-sm">Branch</th><th class="hide-sm">Created</th><th></th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{.Status}}</span></a>
+          {{if .Production}}<span class="tag prod">production</span>{{end}}</td>
+        <td>
+          <a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a>
+          <div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
+          {{if eq .Status "ready"}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>{{end}}
+          {{if .Error}}<div class="small" style="color:var(--err)">{{.Error}}</div>{{end}}
+        </td>
+        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
+        <td class="hide-sm muted small" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
+        <td style="text-align:right">
+          {{if .CanRollback}}
+          <form class="inline" method="post" action="/apps/{{$app}}/rollback"
+            hx-post="/apps/{{$app}}/rollback" hx-target="main" hx-select="main" hx-swap="outerHTML"
+            hx-confirm="Send production traffic to {{short .CommitSHA}}?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="deployment_id" value="{{.ID}}">
+            <button class="small" type="submit">Rollback to this</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">No deployments yet. Push to <span class="mono">{{.Data.App.Repo}}</span> to create one.</div>
+{{end}}
+</div>
+{{end}}
+
+{{define "env"}}
+<div id="env-card" class="card pad">
+  {{$csrf := .CSRF}}{{$app := .Data.App.Name}}
+  {{with .EnvError}}<div class="flash err" role="alert">{{.}}</div>{{end}}
+  {{with .Data.EnvKeys}}
+  <table style="margin-bottom:12px">
+    <tbody>
+    {{range .}}
+      <tr>
+        <td class="mono">{{.}}</td>
+        <td class="muted mono">••••••••</td>
+        <td style="text-align:right">
+          <form class="inline" method="post" action="/apps/{{$app}}/env/delete"
+            hx-post="/apps/{{$app}}/env/delete" hx-target="#env-card" hx-swap="outerHTML"
+            hx-confirm="Delete {{.}}?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="key" value="{{.}}">
+            <button class="small danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted" style="margin-top:0">No variables.</p>
+  {{end}}
+  <form method="post" action="/apps/{{$app}}/env"
+    hx-post="/apps/{{$app}}/env" hx-target="#env-card" hx-swap="outerHTML">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="env-key">Key</label><input id="env-key" name="key" placeholder="DATABASE_URL" required pattern="[A-Za-z_][A-Za-z0-9_]*"></div>
+      <div><label for="env-value">Value</label><input id="env-value" name="value" type="password" autocomplete="off"></div>
+      <div style="flex:0"><button type="submit">Save</button></div>
+    </div>
+  </form>
+  <p class="muted small" style="margin-bottom:0">Values are write-only and apply to deployments created afterwards. <code>PORT</code> and <code>PAAS_*</code> are set by the platform.</p>
+</div>
+{{end}}

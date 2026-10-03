@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,11 +16,13 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/build"
 	"github.com/nisagwn/paas/internal/config"
 	"github.com/nisagwn/paas/internal/deploy"
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/web"
 	"github.com/nisagwn/paas/internal/worker"
 )
 
@@ -62,14 +65,34 @@ func run(log *slog.Logger) error {
 		apiRouter, workerRouter = router, router
 	}
 
+	// Faz 5: live logs, runtime logs and the web UI.
+	hub := store.NewHub(cfg.DatabaseURL, log)
+	sessions := auth.New(cfg.APIToken)
+	runtimeLogs, _ := applier.(api.RuntimeLogs) // only the Kubernetes deployer
+	ui := &web.Server{
+		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain,
+		RuntimeLogs: runtimeLogs != nil, Log: log,
+	}
+
+	// Long-lived streams (SSE) end when shutdown starts instead of holding it up.
+	reqCtx, cancelReqs := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelReqs()
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: (&api.Server{
 			Store: st, Router: apiRouter, Domain: cfg.Domain, APIToken: cfg.APIToken,
 			WebhookSecret: cfg.GitHubWebhookSecret, Log: log,
+			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(),
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return reqCtx },
 	}
+	srv.RegisterOnShutdown(cancelReqs)
+	go func() {
+		if err := hub.Run(ctx); err != nil {
+			log.Error("log listener stopped; live logs fall back to periodic reads", "err", err)
+		}
+	}()
 	w := &worker.Worker{
 		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,

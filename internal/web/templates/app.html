@@ -1,0 +1,40 @@
+{{define "content"}}
+{{$a := .Data.App}}
+<div class="head">
+  <div>
+    <p class="sub" style="margin:0"><a href="/">Apps</a> /</p>
+    <h1>{{$a.Name}}</h1>
+    <p class="sub"><span class="mono">{{$a.Repo}}</span> · production branch <span class="tag">{{$a.ProductionBranch}}</span></p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Visit ↗</a>
+  </div>
+</div>
+
+<h2>Domains</h2>
+<div class="card">
+{{with .Data.Aliases}}
+  <table>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><span class="tag {{if eq .Kind "production"}}prod{{end}}">{{.Kind}}</span></td>
+        <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.Hostname}}</a></td>
+        <td class="hide-sm muted small">branch {{.Branch}}</td>
+        <td class="small">→ <a class="mono" href="/deployments/{{.DeploymentID}}">{{if .SHA}}{{short .SHA}}{{else}}#{{.DeploymentID}}{{end}}</a>
+          <span class="muted">· {{ago .UpdatedAt}}</span></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">Aliases appear after the first successful deployment.</div>
+{{end}}
+</div>
+
+<h2>Deployments</h2>
+{{template "deployments" .}}
+
+<h2 id="env">Environment variables</h2>
+{{template "env" .}}
+{{end}}

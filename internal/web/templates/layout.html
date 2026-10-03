@@ -1,0 +1,114 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
+<title>{{.Title}} · paas</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 13H1z' fill='%23111'/%3E%3C/svg%3E">
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" nonce="{{.Nonce}}"></script>
+<style>
+:root {
+  --bg: #fafafa; --surface: #fff; --text: #171717; --muted: #6b6b6b; --border: #e5e5e5;
+  --accent: #0a66ff; --accent-text: #fff; --code-bg: #0d0d0d; --code-text: #e6e6e6;
+  --ok: #0f7b3d; --ok-bg: #e6f6ec; --err: #c62828; --err-bg: #fdecec;
+  --run: #0a5bd6; --run-bg: #e8f0fe; --idle: #666; --idle-bg: #f0f0f0;
+  --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0c; --surface: #141416; --text: #ededed; --muted: #9a9aa0; --border: #26262a;
+    --accent: #4d8dff; --code-bg: #070708; --code-text: #d8d8d8;
+    --ok: #4ade80; --ok-bg: #0f2a1a; --err: #f87171; --err-bg: #2c1212;
+    --run: #7aa7ff; --run-bg: #12203a; --idle: #a0a0a0; --idle-bg: #1f1f22;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header.top { display: flex; align-items: center; gap: 16px; padding: 12px 24px;
+  border-bottom: 1px solid var(--border); background: var(--surface); }
+.brand { font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+.brand:hover { text-decoration: none; }
+header.top nav { margin-left: auto; display: flex; gap: 16px; align-items: center; }
+main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.02em; }
+h2 { font-size: 16px; margin: 32px 0 12px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.pad { padding: 16px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: 0; }
+.mono, code { font-family: var(--mono); font-size: 13px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.trunc { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; background: var(--idle-bg); color: var(--idle); white-space: nowrap; }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.s-ready { background: var(--ok-bg); color: var(--ok); }
+.s-failed { background: var(--err-bg); color: var(--err); }
+.s-building, .s-deploying { background: var(--run-bg); color: var(--run); }
+.s-building::before, .s-deploying::before { animation: pulse 1s ease-in-out infinite; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px;
+  border: 1px solid var(--border); color: var(--muted); }
+.tag.prod { border-color: var(--ok); color: var(--ok); }
+@keyframes pulse { 50% { opacity: .25; } }
+button, .btn { font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+button:hover, .btn:hover { border-color: var(--muted); text-decoration: none; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+button.danger { color: var(--err); }
+button.link { border: 0; background: none; padding: 0; color: var(--muted); }
+button.small { padding: 3px 10px; font-size: 13px; }
+input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); width: 100%; }
+input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.row > div { flex: 1; min-width: 160px; }
+.flash { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
+.flash.ok { background: var(--ok-bg); color: var(--ok); }
+.flash.err { background: var(--err-bg); color: var(--err); }
+.head { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.head .actions { margin-left: auto; display: flex; gap: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.kv .k { font-size: 12px; color: var(--muted); }
+.log { background: var(--code-bg); color: var(--code-text); font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.55; padding: 12px 14px; border-radius: var(--radius); height: 60vh; overflow: auto;
+  white-space: pre-wrap; word-break: break-all; }
+.log .step { color: #8ab4ff; font-weight: 600; }
+.log .bad { color: #ff8a8a; }
+.log .meta { color: #777; }
+.live { font-size: 12px; color: var(--muted); }
+.empty { padding: 32px; text-align: center; color: var(--muted); }
+details summary { cursor: pointer; }
+form.inline { display: inline; }
+@media (max-width: 720px) { .hide-sm { display: none; } th, td { padding: 8px; } }
+</style>
+</head>
+<body hx-headers='{"X-CSRF-Token": "{{.CSRF}}"}'>
+<header class="top">
+  <a class="brand" href="/">▲ paas</a>
+  {{if .LoggedIn}}
+  <nav>
+    <a href="/">Apps</a>
+    <form class="inline" method="post" action="/logout">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <button class="link" type="submit">Log out</button>
+    </form>
+  </nav>
+  {{end}}
+</header>
+<main>
+  {{if .Flash}}<div class="flash ok" role="status">{{.Flash}}</div>{{end}}
+  {{if .Error}}<div class="flash err" role="alert">{{.Error}}</div>{{end}}
+  {{template "content" .}}
+</main>
+</body>
+</html>{{end}}

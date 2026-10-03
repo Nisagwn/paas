@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="head">
+  <div>
+    <h1>Apps</h1>
+    <p class="sub">Every push becomes an immutable deployment with its own URL.</p>
+  </div>
+</div>
+
+<details class="card pad" style="margin-bottom:20px" {{if .Data.Form.Open}}open{{end}}>
+  <summary><strong>New app</strong></summary>
+  <form method="post" action="/apps" style="margin-top:14px">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="row">
+      <div><label for="name">Name</label>
+        <input id="name" name="name" value="{{.Data.Form.Name}}" placeholder="blog" pattern="[a-z][a-z0-9-]{1,30}" required></div>
+      <div><label for="repo">GitHub repository</label>
+        <input id="repo" name="repo" value="{{.Data.Form.Repo}}" placeholder="owner/repo" required></div>
+      <div><label for="branch">Production branch</label>
+        <input id="branch" name="production_branch" value="{{.Data.Form.Branch}}"></div>
+      <div style="flex:0"><button class="primary" type="submit">Create</button></div>
+    </div>
+  </form>
+</details>
+
+<div class="card">
+{{with .Data.Apps}}
+  <table>
+    <thead><tr><th>App</th><th class="hide-sm">Repository</th><th>Production</th><th>Latest deployment</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td>
+        <td class="hide-sm mono muted">{{.Repo}} <span class="tag">{{.ProductionBranch}}</span></td>
+        <td><a href="{{.ProductionURL}}" target="_blank" rel="noopener">{{.ProductionURL}}</a></td>
+        <td>
+          {{with .Latest}}
+            <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{.Status}}</span></a>
+            <span class="mono small">{{short .CommitSHA}}</span>
+            <span class="muted small">{{.Branch}} · {{ago .CreatedAt}}</span>
+          {{else}}<span class="muted small">no deployments yet</span>{{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">No apps yet. Create one above, then push to its repository.</div>
+{{end}}
+</div>
+{{end}}
