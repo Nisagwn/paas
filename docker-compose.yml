@@ -15,5 +15,37 @@ services:
       interval: 2s
       retries: 15
 
+  # Local image registry; images are pushed as localhost:5000/<app>:<sha>.
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+      # buildkitd shares this network namespace (see below), so its port is
+      # published here.
+      - "1234:1234"
+    volumes:
+      - registry:/var/lib/registry
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5000/v2/"]
+      interval: 2s
+      retries: 15
+
+  # Standalone BuildKit daemon for MINIPAAS_BUILDER=buildkit (needs buildctl
+  # on the host). Sharing the registry's network namespace means
+  # "localhost:5000" is the registry both for the host and for buildkitd.
+  # Optional: `docker compose --profile buildkit up -d buildkitd`.
+  buildkitd:
+    image: moby/buildkit:v0.20.2
+    profiles: ["buildkit"]
+    privileged: true
+    network_mode: "service:registry"
+    command: ["--addr", "tcp://0.0.0.0:1234"]
+    volumes:
+      - buildkit:/var/lib/buildkit
+    depends_on:
+      - registry
+
 volumes:
   pgdata:
+  registry:
+  buildkit:

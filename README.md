@@ -22,7 +22,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
-## Durum: Faz 1 tamamlandı
+## Durum: Faz 2 tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -31,8 +31,34 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Durum makinesi: `queued → building → deploying → ready | failed`, zaman aşımı
 - [x] Production / preview alias'ları, anında rollback
 - [x] Deployment logları (artımlı okuma: `?after=<id>`)
-- [x] Dry-run pipeline (Faz 2 ve 3 gelene kadar aşamaları taklit eder)
-- [ ] Faz 2: gerçek build (BuildKit + registry)
+- [x] Dry-run pipeline (gerçek aşamalar hazır olana kadar taklit eder)
+- [x] Faz 2: commit SHA'sıyla shallow clone (private repo için token, argv/loglara sızmaz)
+- [x] Faz 2: dil algılama (Dockerfile / Node / Go / statik) + cache mount'lu Dockerfile üretimi
+- [x] Faz 2: BuildKit (`buildctl` → `buildkitd`) veya yerelde `docker buildx`; registry'ye `<app>:<sha>` push
+- [x] Faz 2: imaj digest ile sabitlenir (`…:<sha>@sha256:…`), isteğe bağlı registry layer cache
+- [x] Faz 2: build çıktısı satır satır `deployment_logs`'a
+- [ ] Faz 3: Kubernetes deploy
+
+### Build nasıl çalışır
+
+1. `git fetch --depth=1 <repo> <sha>` — branch değil SHA çekilir, kuyrukta beklerken gelen push build'i değiştiremez.
+2. Algılama: repoda `Dockerfile` varsa o kullanılır; yoksa `package.json` → Node, `go.mod` → Go,
+   `index.html` / `public/index.html` → nginx ile statik site. Örnekler: [examples/](examples/)
+3. Üretilen Dockerfile build logunda aynen görünür.
+4. İmaj `MINIPAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
+
+**Platform sözleşmesi:** uygulama `$PORT` (8080) üzerinden dinler.
+
+| Değişken | Açıklama |
+|---|---|
+| `MINIPAAS_BUILDER` | `dryrun` · `docker` (yerel, Docker Desktop) · `buildkit` (kümede, `buildctl`) |
+| `MINIPAAS_REGISTRY` | ör. `localhost:5000`, `ghcr.io/nisagwn`, ECR adresi |
+| `MINIPAAS_REGISTRY_INSECURE` | düz HTTP registry (yalnızca yerel) |
+| `MINIPAAS_BUILDKIT_ADDR` | `buildkitd` adresi, ör. `tcp://buildkitd:1234` |
+| `MINIPAAS_BUILD_PLATFORM` | boş = builder'ın kendi platformu; küme `linux/arm64` |
+| `MINIPAAS_BUILD_CACHE` | `true` → `<app>:buildcache` registry cache |
+| `MINIPAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
+| `MINIPAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
 
 ## Yerel geliştirme
 
@@ -40,10 +66,14 @@ Gerekenler: Go 1.24+, Docker, `openssl`.
 
 ```bash
 cp .env.example .env
-make db        # Postgres'i Docker'da başlatır
-make test      # tüm testler (veritabanı entegrasyon testleri dahil)
-make run       # API + worker  →  http://localhost:8080
+make db          # Postgres'i Docker'da başlatır
+make test        # tüm testler (veritabanı entegrasyon testleri dahil)
+make test-build  # examples/ altındaki uygulamaları gerçekten build edip çalıştırır
+make run         # API + worker + yerel registry  →  http://localhost:8080
 ```
+
+Gerçek build için `.env` içinde `MINIPAAS_BUILDER=docker` yap. `buildkit` modunu yerelde
+denemek için `make buildkitd` (host'ta `buildctl` gerekir).
 
 Başka bir terminalde:
 
@@ -101,7 +131,9 @@ internal/config/      ortam değişkenleri
 internal/store/       PostgreSQL erişimi, migration'lar, kuyruk
 internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
 internal/api/         HTTP uçları
-internal/worker/      kuyruk tüketicisi, Pipeline arayüzü, dry-run pipeline
+internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run pipeline
+internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
+examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı
 ```

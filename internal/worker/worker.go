@@ -18,13 +18,27 @@ import (
 // Logger lets pipeline stages write lines to the deployment's log.
 type Logger func(format string, args ...any)
 
-// Pipeline turns a commit into a running deployment.
-//
-//   - Build clones the commit and produces a container image (Faz 2).
-//   - Deploy creates the Kubernetes objects and waits until healthy (Faz 3).
-type Pipeline interface {
+// Builder clones the commit and produces a container image (Faz 2).
+type Builder interface {
 	Build(ctx context.Context, d store.Deployment, log Logger) (image string, err error)
+}
+
+// Deployer creates the Kubernetes objects and waits until healthy (Faz 3).
+type Deployer interface {
 	Deploy(ctx context.Context, d store.Deployment, image string, log Logger) error
+}
+
+// Pipeline turns a commit into a running deployment.
+type Pipeline interface {
+	Builder
+	Deployer
+}
+
+// Stages combines a Builder and a Deployer from different implementations,
+// e.g. a real build with a dry-run deploy while Faz 3 is not done.
+type Stages struct {
+	Builder
+	Deployer
 }
 
 type Worker struct {

@@ -47,6 +47,7 @@ type Deployment struct {
 	ID            int64      `json:"id"`
 	AppID         int64      `json:"app_id"`
 	AppName       string     `json:"app_name"`
+	Repo          string     `json:"repo"`
 	CommitSHA     string     `json:"commit_sha"`
 	Branch        string     `json:"branch"`
 	CommitMessage string     `json:"commit_message"`
@@ -208,12 +209,12 @@ func (s *Store) getApp(ctx context.Context, where string, arg any) (App, error) 
 
 // ---- deployments ----
 
-const deploymentCols = `d.id, d.app_id, a.name, d.commit_sha, d.branch, d.commit_message, d.status,
+const deploymentCols = `d.id, d.app_id, a.name, a.repo_full_name, d.commit_sha, d.branch, d.commit_message, d.status,
 	d.error, d.image, d.created_at, d.started_at, d.finished_at`
 
 func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
-	err := row.Scan(&d.ID, &d.AppID, &d.AppName, &d.CommitSHA, &d.Branch, &d.CommitMessage, &d.Status,
+	err := row.Scan(&d.ID, &d.AppID, &d.AppName, &d.Repo, &d.CommitSHA, &d.Branch, &d.CommitMessage, &d.Status,
 		&d.Error, &d.Image, &d.CreatedAt, &d.StartedAt, &d.FinishedAt)
 	return d, err
 }

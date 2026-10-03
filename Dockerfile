@@ -7,8 +7,15 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/minipaas ./cmd/minipaas
 
-FROM gcr.io/distroless/static:nonroot
-COPY --from=build /out/minipaas /minipaas
-USER nonroot
+# Only the buildctl client; buildkitd itself runs as a separate rootless pod.
+FROM moby/buildkit:v0.20.2 AS buildkit
+
+# Not distroless: the builder shells out to git and buildctl.
+FROM alpine:3.21
+RUN apk add --no-cache git ca-certificates \
+    && adduser -D -u 65532 minipaas
+COPY --from=buildkit /usr/bin/buildctl /usr/local/bin/buildctl
+COPY --from=build /out/minipaas /usr/local/bin/minipaas
+USER 65532
 EXPOSE 8080
-ENTRYPOINT ["/minipaas"]
+ENTRYPOINT ["/usr/local/bin/minipaas"]

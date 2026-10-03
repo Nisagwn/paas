@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/minipaas/internal/api"
+	"github.com/nisagwn/minipaas/internal/build"
 	"github.com/nisagwn/minipaas/internal/config"
 	"github.com/nisagwn/minipaas/internal/store"
 	"github.com/nisagwn/minipaas/internal/worker"
@@ -46,12 +47,9 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	var pipeline worker.Pipeline
-	switch cfg.Pipeline {
-	case "dryrun":
-		pipeline = worker.DryRunPipeline{Registry: "registry.local", Step: 500 * time.Millisecond}
-	default:
-		return fmt.Errorf("unknown MINIPAAS_PIPELINE %q (only \"dryrun\" exists until Faz 2)", cfg.Pipeline)
+	pipeline, err := newPipeline(cfg)
+	if err != nil {
+		return err
 	}
 
 	srv := &http.Server{
@@ -64,7 +62,7 @@ func run(log *slog.Logger) error {
 	}
 	w := &worker.Worker{
 		Store: st, Pipeline: pipeline, Domain: cfg.Domain,
-		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Log: log,
+		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
 	}
 
 	var wg sync.WaitGroup
@@ -76,7 +74,8 @@ func run(log *slog.Logger) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.Addr, "domain", cfg.Domain, "pipeline", cfg.Pipeline)
+		log.Info("listening", "addr", cfg.Addr, "domain", cfg.Domain,
+			"builder", cfg.Builder, "deployer", cfg.Deployer, "registry", cfg.Registry)
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -97,4 +96,37 @@ func run(log *slog.Logger) error {
 	}
 	wg.Wait() // let in-flight deployments finish
 	return nil
+}
+
+func newPipeline(cfg config.Config) (worker.Pipeline, error) {
+	dry := worker.DryRunPipeline{Registry: "registry.local", Step: 500 * time.Millisecond}
+	var p worker.Stages
+
+	switch cfg.Builder {
+	case "dryrun":
+		p.Builder = dry
+	case "buildkit", "docker":
+		var engine build.Engine = build.Docker{}
+		if cfg.Builder == "buildkit" {
+			engine = build.BuildKit{Addr: cfg.BuildKitAddr, Insecure: cfg.RegistryInsecure}
+		}
+		b := &build.Builder{
+			Engine: engine, Registry: cfg.Registry, Platform: cfg.BuildPlatform, Cache: cfg.BuildCache,
+			GitBaseURL: cfg.GitBaseURL, GitToken: cfg.GitHubToken,
+		}
+		if err := b.Check(); err != nil {
+			return nil, err
+		}
+		p.Builder = b
+	default:
+		return nil, fmt.Errorf("unknown MINIPAAS_BUILDER %q (dryrun, buildkit, docker)", cfg.Builder)
+	}
+
+	switch cfg.Deployer {
+	case "dryrun":
+		p.Deployer = dry
+	default:
+		return nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (only \"dryrun\" exists until Faz 3)", cfg.Deployer)
+	}
+	return p, nil
 }
