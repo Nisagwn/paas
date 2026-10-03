@@ -1,0 +1,2 @@
+# Always LF, also on Windows checkouts: gofmt, shell scripts and cloud-init need it.
+* text=auto eol=lf
