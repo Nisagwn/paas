@@ -481,6 +481,10 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrNotReady):
 		s.renderApp(w, r, http.StatusConflict, "Only ready deployments can receive production traffic.")
 		return
+	case errors.Is(err, store.ErrRetired):
+		s.renderApp(w, r, http.StatusConflict,
+			"This deployment is retired and no longer runs; push its commit again to redeploy it.")
+		return
 	case err != nil:
 		s.internalError(w, r, err)
 		return

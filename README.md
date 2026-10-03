@@ -22,7 +22,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
-## Durum: Faz 5 tamamlandı
+## Durum: Faz 7 tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -52,7 +52,11 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 5: canlı build logu (SSE; Postgres `LISTEN/NOTIFY`, bağlantı koparsa periyodik okumaya düşer)
 - [x] Faz 5: çalışma zamanı logu (pod logları, Kubernetes log API'si)
 - [x] Faz 5: web arayüzü (Go şablonları + htmx): uygulamalar, deploy geçmişi, canlı log, rollback, ortam değişkenleri
-- [ ] Faz 7: eski deploy'ları temizleme, branch silinince temizlik, çökme sonrası kurtarma, yük testleri
+- [x] Faz 7: saklama politikası: son N production deploy'u rollback için tutulur, alias'sız eski preview'ler emekliye ayrılır
+- [x] Faz 7: branch silinince / PR kapanınca preview alias'ı kalkar, deploy'ları emekliye ayrılır
+- [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
+- [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
+- [ ] Faz 8: dokümantasyon, mimari diyagram, ölçüm sonuçları
 
 ### Deploy nasıl çalışır
 
@@ -112,8 +116,35 @@ TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) s
 | `PAAS_APP_QUOTA_PODS` | pod kotası (varsayılan `20`) |
 | `PAAS_APP_RUN_AS_NON_ROOT` | varsayılan `true`; repodaki Dockerfile isimli `USER` (ör. `USER node`) kullanıyorsa kubelet reddeder |
 
-> Her commit ayrı bir Deployment olarak çalışmaya devam eder; kota dolunca yeni deploy'lar
-> "exceeded quota" hatasıyla `failed` olur. Eski preview'lerin temizlenmesi Faz 7'de.
+> Her commit ayrı bir Deployment olarak çalışır; kotayı Faz 7'nin temizlik döngüsü korur
+> (aşağıda). Kota yine de dolarsa yeni deploy "exceeded quota" hatasıyla hemen `failed` olur.
+
+### Yaşam döngüsü ve temizlik (Faz 7)
+
+Deploy'lar değişmezdir ama sonsuza kadar çalışmaz. Temizlik döngüsü (`PAAS_GC_INTERVAL`,
+varsayılan 10 dk; bir deploy bitince de tetiklenir) her uygulama için:
+
+1. Herhangi bir alias'ın gösterdiği deploy'a **asla dokunmaz**.
+2. Production branch'inin en yeni `PAAS_KEEP_PRODUCTION` (5) hazır deploy'unu rollback hedefi olarak tutar.
+3. Alias'ı kalmamış preview deploy'larını, bitişlerinden `PAAS_PREVIEW_TTL` (72 saat) sonra emekliye ayırır.
+4. Emekli ve başarısız deploy'ların Kubernetes nesnelerini siler (Deployment silinince Service,
+   Secret ve Ingress de gider); silme başarısız olursa bir sonraki turda tekrar dener.
+
+Emekli (`retired`) bir deploy'a rollback yapılamaz (`409`); aynı commit tekrar push'lanırsa
+yeniden build edilir. Branch GitHub'da silinince ya da PR kapanınca o branch'in preview alias'ı
+hemen kalkar ve deploy'ları emekliye ayrılır; production branch'i bu yolla asla temizlenmez.
+
+Çökme sonrası kurtarma: worker çalıştığı deploy için heartbeat yazar. `PAAS_WORKER_STALE_AFTER`
+(2 dk) boyunca heartbeat gelmezse deploy yeniden kuyruğa alınır; ikinci denemede de sahipsiz
+kalırsa `failed` olur. Ayrıntılar ve tüm arıza durumları: [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md).
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_KEEP_PRODUCTION` | rollback için tutulan production deploy sayısı (varsayılan `5`) |
+| `PAAS_PREVIEW_TTL` | alias'sız preview'in emekliye ayrılma süresi (varsayılan `72h`) |
+| `PAAS_PREVIEW_ALIAS_TTL` | hiç güncellenmeyen preview alias'ının kaldırılma süresi (varsayılan `0` = asla) |
+| `PAAS_GC_INTERVAL` | temizlik turu aralığı (varsayılan `10m`) |
+| `PAAS_WORKER_STALE_AFTER` | heartbeat'siz kalan deploy'un sahipsiz sayılma süresi (varsayılan `2m`) |
 
 ### Build nasıl çalışır
 
@@ -242,7 +273,8 @@ Repo → Settings → Webhooks → Add webhook:
 - **Payload URL:** `https://<sunucun>/webhooks/github` (yerelde test için ngrok veya Cloudflare Tunnel)
 - **Content type:** `application/json`
 - **Secret:** `PAAS_GITHUB_WEBHOOK_SECRET` ile aynı
-- **Events:** Just the push event
+- **Events:** "Let me select individual events" → **Pushes** ve **Pull requests**
+  (PR kapanınca preview temizliği için)
 
 ## API
 
@@ -280,6 +312,8 @@ internal/routing/     alias'ları veritabanından ingress katmanına senkronlar,
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/web/         web arayüzü (html/template + htmx)
 internal/github/      GitHub commit status ve PR yorumları
+internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
+loadtest/             k6 yük testleri
 examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı

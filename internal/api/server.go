@@ -51,6 +51,9 @@ type Server struct {
 	UI http.Handler
 	// Stream tunes the SSE endpoints (tests shorten it).
 	Stream StreamTiming
+	// Cleanup is kicked after a branch deletion (cleanup.Collector); nil
+	// leaves route sync and object deletion to the periodic sweep.
+	Cleanup interface{ Kick(app string) }
 }
 
 func (s *Server) Handler() http.Handler {
@@ -299,6 +302,9 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "deployment or production alias not found for this app")
+	case errors.Is(err, store.ErrRetired):
+		writeError(w, http.StatusConflict,
+			"deployment is retired: its Kubernetes objects were removed; push the commit again to redeploy it")
 	case errors.Is(err, store.ErrNotReady):
 		writeError(w, http.StatusConflict, "only ready deployments can receive production traffic")
 	case err != nil:
@@ -400,12 +406,19 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"result": "pong"})
 		return
 	case "push":
+	case "pull_request":
+		s.pullRequestClosed(w, r, body)
+		return
 	default:
 		writeJSON(w, http.StatusAccepted, map[string]string{"result": "ignored", "reason": "event " + event})
 		return
 	}
 
 	push, err := webhook.ParsePush(body)
+	if errors.Is(err, webhook.ErrBranchDeleted) {
+		s.branchDeleted(w, r, push.Repo, push.Branch, "branch deleted")
+		return
+	}
 	if errors.Is(err, webhook.ErrIgnored) {
 		writeJSON(w, http.StatusAccepted, map[string]string{"result": "ignored", "reason": "not a branch push"})
 		return

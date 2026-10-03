@@ -73,6 +73,49 @@ type Config struct {
 	GitHubStatus bool
 	// Commit status context shown on GitHub.
 	GitHubStatusContext string
+
+	// Faz 7: retention and recovery (see internal/cleanup).
+	// Ready production deployments kept as rollback targets.
+	KeepProduction int
+	// Unaliased preview deployments are retired this long after finishing.
+	PreviewTTL time.Duration
+	// Preview aliases idle this long are removed (0 = never).
+	PreviewAliasTTL time.Duration
+	// Interval of the full cleanup sweep.
+	GCInterval time.Duration
+	// A deployment without a worker heartbeat this long is recovered.
+	WorkerStaleAfter time.Duration
+}
+
+// loadLifecycle reads the Faz 7 settings.
+func (c *Config) loadLifecycle() error {
+	c.KeepProduction, c.PreviewTTL, c.GCInterval, c.WorkerStaleAfter = 5, 72*time.Hour, 10*time.Minute, 2*time.Minute
+	if v := os.Getenv("PAAS_KEEP_PRODUCTION"); v != "" {
+		if _, err := fmt.Sscanf(v, "%d", &c.KeepProduction); err != nil || c.KeepProduction < 0 {
+			return errors.New("PAAS_KEEP_PRODUCTION must be a non-negative integer")
+		}
+	}
+	for _, d := range []struct {
+		key      string
+		dst      *time.Duration
+		positive bool
+	}{
+		{"PAAS_PREVIEW_TTL", &c.PreviewTTL, false},
+		{"PAAS_PREVIEW_ALIAS_TTL", &c.PreviewAliasTTL, false},
+		{"PAAS_GC_INTERVAL", &c.GCInterval, true},
+		{"PAAS_WORKER_STALE_AFTER", &c.WorkerStaleAfter, true},
+	} {
+		v := os.Getenv(d.key)
+		if v == "" {
+			continue
+		}
+		n, err := time.ParseDuration(v)
+		if err != nil || n < 0 || (d.positive && n == 0) {
+			return fmt.Errorf("%s must be a duration (e.g. 72h)", d.key)
+		}
+		*d.dst = n
+	}
+	return nil
 }
 
 func Load() (Config, error) {
@@ -149,6 +192,10 @@ func Load() (Config, error) {
 		if _, err := fmt.Sscanf(v, "%d", &c.Workers); err != nil || c.Workers < 1 {
 			return c, errors.New("PAAS_WORKERS must be a positive integer")
 		}
+	}
+
+	if err := c.loadLifecycle(); err != nil {
+		return c, err
 	}
 
 	var missing []string

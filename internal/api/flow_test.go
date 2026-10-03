@@ -284,3 +284,45 @@ func TestAppEnvAPI(t *testing.T) {
 		t.Errorf("unknown app: got %d, want 404", code)
 	}
 }
+
+// Deleting a branch on GitHub removes its preview and retires its
+// deployments; the production branch is never cleaned this way.
+func TestBranchDeletedWebhook(t *testing.T) {
+	e := setup(t, worker.DryRunPipeline{})
+	e.do("POST", "/api/apps", map[string]string{"name": "blog", "repo": "nisagwn/blog"}, nil)
+	_, prod := e.push("nisagwn/blog", "main", sha(1))
+	_, feat := e.push("nisagwn/blog", "feature/x", sha(2))
+	e.drain()
+
+	deleted := func(branch string) (int, map[string]any) {
+		body := []byte(fmt.Sprintf(`{"ref":"refs/heads/%s","before":"%s","after":"%s","deleted":true,
+			"repository":{"full_name":"nisagwn/blog"}}`, branch, sha(2), strings.Repeat("0", 40)))
+		req, _ := http.NewRequest("POST", e.srv.URL+"/webhooks/github", bytes.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "push")
+		req.Header.Set("X-Hub-Signature-256", webhook.Sign(secret, body))
+		var out map[string]any
+		return e.send(req, &out), out
+	}
+
+	if code, out := deleted("main"); code != 202 || out["result"] != "ignored" {
+		t.Fatalf("deleting the production branch: %d %v", code, out)
+	}
+	if code, out := deleted("feature/x"); code != 200 {
+		t.Fatalf("branch deleted: %d %v", code, out)
+	}
+	aliases := e.aliases()
+	if _, ok := aliases["feature-x-blog.paas.test"]; ok {
+		t.Fatalf("preview alias of the deleted branch still exists: %v", aliases)
+	}
+	if aliases["blog.paas.test"] != prod["id"] {
+		t.Fatalf("production alias changed: %v", aliases)
+	}
+	var got map[string]any
+	e.do("GET", fmt.Sprintf("/api/deployments/%v", feat["id"]), nil, &got)
+	if got["status"] != "retired" {
+		t.Fatalf("feature deployment is %v, want retired", got["status"])
+	}
+	if code := e.do("POST", "/api/apps/blog/rollback", map[string]any{"deployment_id": feat["id"]}, nil); code != 409 {
+		t.Fatalf("rollback to a retired deployment: %d, want 409", code)
+	}
+}
