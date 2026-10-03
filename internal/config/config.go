@@ -23,7 +23,7 @@ type Config struct {
 	// Build stage: "dryrun", "buildkit" (buildctl → buildkitd, used in the
 	// cluster) or "docker" (docker buildx, for local development).
 	Builder string
-	// Deploy stage: "dryrun" until Faz 3 adds "kubernetes".
+	// Deploy stage: "dryrun" or "kubernetes".
 	Deployer string
 	// Image registry prefix, e.g. "localhost:5000" or "ghcr.io/nisagwn".
 	Registry string
@@ -39,6 +39,19 @@ type Config struct {
 	GitBaseURL string
 	// Token for cloning private GitHub repositories (optional).
 	GitHubToken string
+	// kubeconfig for the "kubernetes" deployer. Empty: in-cluster config,
+	// else $KUBECONFIG / ~/.kube/config.
+	Kubeconfig string
+	// Bounds the wait for a new Deployment to become available.
+	RolloutTimeout time.Duration
+	// Per-container resources and per-app ResourceQuota (Kubernetes quantities).
+	AppCPURequest, AppCPULimit, AppMemoryRequest, AppMemoryLimit string
+	AppQuotaCPU, AppQuotaMemory                                  string
+	AppQuotaPods                                                 int
+	// Set runAsNonRoot on app pods (default true). Generated Dockerfiles use
+	// numeric USERs; a repo Dockerfile with a named USER (e.g. "USER node")
+	// is rejected by the kubelet because it cannot verify the UID.
+	AppRunAsNonRoot bool
 	// Bounds a whole deployment (build + deploy).
 	DeployTimeout time.Duration
 	// How often the worker polls for queued deployments.
@@ -63,6 +76,16 @@ func Load() (Config, error) {
 		BuildCache:          os.Getenv("MINIPAAS_BUILD_CACHE") == "true",
 		GitBaseURL:          getenv("MINIPAAS_GIT_BASE_URL", "https://github.com"),
 		GitHubToken:         os.Getenv("MINIPAAS_GITHUB_TOKEN"),
+		Kubeconfig:          os.Getenv("MINIPAAS_KUBECONFIG"),
+		AppCPURequest:       getenv("MINIPAAS_APP_CPU_REQUEST", "25m"),
+		AppCPULimit:         getenv("MINIPAAS_APP_CPU_LIMIT", "500m"),
+		AppMemoryRequest:    getenv("MINIPAAS_APP_MEMORY_REQUEST", "64Mi"),
+		AppMemoryLimit:      getenv("MINIPAAS_APP_MEMORY_LIMIT", "256Mi"),
+		AppQuotaCPU:         getenv("MINIPAAS_APP_QUOTA_CPU", "1"),
+		AppQuotaMemory:      getenv("MINIPAAS_APP_QUOTA_MEMORY", "4Gi"),
+		AppQuotaPods:        20,
+		AppRunAsNonRoot:     os.Getenv("MINIPAAS_APP_RUN_AS_NON_ROOT") != "false",
+		RolloutTimeout:      3 * time.Minute,
 		PollInterval:        2 * time.Second,
 		Workers:             2,
 		DeployTimeout:       15 * time.Minute,
@@ -74,12 +97,24 @@ func Load() (Config, error) {
 		}
 		c.DeployTimeout = d
 	}
+	if v := os.Getenv("MINIPAAS_ROLLOUT_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return c, errors.New("MINIPAAS_ROLLOUT_TIMEOUT must be a positive duration")
+		}
+		c.RolloutTimeout = d
+	}
 	if v := os.Getenv("MINIPAAS_POLL_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return c, fmt.Errorf("MINIPAAS_POLL_INTERVAL: %w", err)
 		}
 		c.PollInterval = d
+	}
+	if v := os.Getenv("MINIPAAS_APP_QUOTA_PODS"); v != "" {
+		if _, err := fmt.Sscanf(v, "%d", &c.AppQuotaPods); err != nil || c.AppQuotaPods < 1 {
+			return c, errors.New("MINIPAAS_APP_QUOTA_PODS must be a positive integer")
+		}
 	}
 	if v := os.Getenv("MINIPAAS_WORKERS"); v != "" {
 		if _, err := fmt.Sscanf(v, "%d", &c.Workers); err != nil || c.Workers < 1 {

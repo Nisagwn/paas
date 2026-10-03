@@ -246,3 +246,41 @@ func TestCreateAppValidation(t *testing.T) {
 		t.Errorf("duplicate repo: got %d, want 409", code)
 	}
 }
+
+func TestAppEnvAPI(t *testing.T) {
+	e := setup(t, worker.DryRunPipeline{})
+	e.do("POST", "/api/apps", map[string]string{"name": "blog", "repo": "nisagwn/blog"}, nil)
+
+	var out map[string]any
+	if code := e.do("PUT", "/api/apps/blog/env", map[string]any{"DB_URL": "postgres://secret", "DEBUG": "1"}, &out); code != 200 {
+		t.Fatalf("put env: %d %v", code, out)
+	}
+	if code := e.do("PUT", "/api/apps/blog/env", map[string]any{"DEBUG": nil}, &out); code != 200 {
+		t.Fatalf("delete env: %d %v", code, out)
+	}
+
+	// GET lists keys only; values never leave the API.
+	req, _ := http.NewRequest("GET", e.srv.URL+"/api/apps/blog/env", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"keys":["DB_URL"]}` {
+		t.Fatalf("get env: %d %s", resp.StatusCode, body)
+	}
+
+	for _, bad := range []map[string]any{
+		{"1X": "v"}, {"A-B": "v"}, {"PORT": "9000"}, {"MINIPAAS_APP": "x"},
+		{"BIG": strings.Repeat("x", 33<<10)},
+	} {
+		if code := e.do("PUT", "/api/apps/blog/env", bad, nil); code != 400 {
+			t.Errorf("%v: got %d, want 400", bad, code)
+		}
+	}
+	if code := e.do("GET", "/api/apps/nope/env", nil, nil); code != 404 {
+		t.Errorf("unknown app: got %d, want 404", code)
+	}
+}

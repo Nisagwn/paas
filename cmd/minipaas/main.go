@@ -17,6 +17,7 @@ import (
 	"github.com/nisagwn/minipaas/internal/api"
 	"github.com/nisagwn/minipaas/internal/build"
 	"github.com/nisagwn/minipaas/internal/config"
+	"github.com/nisagwn/minipaas/internal/deploy"
 	"github.com/nisagwn/minipaas/internal/store"
 	"github.com/nisagwn/minipaas/internal/worker"
 )
@@ -47,7 +48,7 @@ func run(log *slog.Logger) error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	pipeline, err := newPipeline(cfg)
+	pipeline, err := newPipeline(cfg, st)
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func run(log *slog.Logger) error {
 	return nil
 }
 
-func newPipeline(cfg config.Config) (worker.Pipeline, error) {
+func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, error) {
 	dry := worker.DryRunPipeline{Registry: "registry.local", Step: 500 * time.Millisecond}
 	var p worker.Stages
 
@@ -125,8 +126,26 @@ func newPipeline(cfg config.Config) (worker.Pipeline, error) {
 	switch cfg.Deployer {
 	case "dryrun":
 		p.Deployer = dry
+	case "kubernetes":
+		client, err := deploy.NewClient(cfg.Kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+		d, err := deploy.New(client, st, deploy.Config{
+			CPURequest: cfg.AppCPURequest, CPULimit: cfg.AppCPULimit,
+			MemoryRequest: cfg.AppMemoryRequest, MemoryLimit: cfg.AppMemoryLimit,
+			QuotaCPU: cfg.AppQuotaCPU, QuotaMemory: cfg.AppQuotaMemory, QuotaPods: cfg.AppQuotaPods,
+			RunAsNonRoot: cfg.AppRunAsNonRoot, RolloutTimeout: cfg.RolloutTimeout,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err := d.Check(); err != nil {
+			return nil, err
+		}
+		p.Deployer = d
 	default:
-		return nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (only \"dryrun\" exists until Faz 3)", cfg.Deployer)
+		return nil, fmt.Errorf("unknown MINIPAAS_DEPLOYER %q (dryrun, kubernetes)", cfg.Deployer)
 	}
 	return p, nil
 }

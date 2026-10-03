@@ -386,6 +386,50 @@ func (s *Store) ListAliases(ctx context.Context, appID int64) ([]Alias, error) {
 	return out, rows.Err()
 }
 
+// ---- environment variables ----
+
+// AppEnv returns all environment variables of an app.
+func (s *Store) AppEnv(ctx context.Context, appID int64) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM app_env WHERE app_id = $1`, appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	env := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		env[k] = v
+	}
+	return env, rows.Err()
+}
+
+// UpdateAppEnv sets the given variables in one transaction; a nil value
+// deletes the variable. Variables not mentioned are left alone.
+func (s *Store) UpdateAppEnv(ctx context.Context, appID int64, changes map[string]*string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for k, v := range changes {
+		if v == nil {
+			_, err = tx.ExecContext(ctx, `DELETE FROM app_env WHERE app_id = $1 AND key = $2`, appID, k)
+		} else {
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO app_env (app_id, key, value) VALUES ($1, $2, $3)
+				ON CONFLICT (app_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+				appID, k, *v)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // ---- logs ----
 
 func (s *Store) AppendLog(ctx context.Context, deploymentID int64, line string) error {

@@ -63,6 +63,12 @@ spec:
               value: "${MINIPAAS_DEPLOYER}"
             - name: MINIPAAS_DEPLOY_TIMEOUT
               value: 15m
+            # Per-app resources keep their defaults (internal/config): 25m/500m CPU,
+            # 64Mi/256Mi memory per pod; quota 1 CPU requests, 4Gi memory, 20 pods.
+            - name: MINIPAAS_ROLLOUT_TIMEOUT
+              value: 3m
+            - name: MINIPAAS_APP_RUN_AS_NON_ROOT
+              value: "true"
             - name: MINIPAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: minipaas, key: database-url }

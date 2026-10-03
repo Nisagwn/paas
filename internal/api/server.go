@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{name}", s.getApp)
 	api.HandleFunc("GET /api/apps/{name}/deployments", s.listDeployments)
 	api.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
+	api.HandleFunc("GET /api/apps/{name}/env", s.getEnv)
+	api.HandleFunc("PUT /api/apps/{name}/env", s.putEnv)
 	api.HandleFunc("GET /api/deployments/{id}", s.getDeployment)
 	api.HandleFunc("GET /api/deployments/{id}/logs", s.deploymentLogs)
 	mux.Handle("/api/", s.requireToken(api))
@@ -271,6 +274,70 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		s.Log.Info("rollback", "app", app.Name, "deployment", req.DeploymentID)
 		writeJSON(w, http.StatusOK, alias)
 	}
+}
+
+var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,254}$`)
+
+const maxEnvValue = 32 << 10 // all values of an app share one 1 MiB Secret
+
+type envView struct {
+	// Keys only: values are write-only through the API.
+	Keys []string `json:"keys"`
+}
+
+func (s *Server) envView(w http.ResponseWriter, r *http.Request, appID int64) {
+	env, err := s.Store.AppEnv(r.Context(), appID)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	writeJSON(w, http.StatusOK, envView{Keys: keys})
+}
+
+func (s *Server) getEnv(w http.ResponseWriter, r *http.Request) {
+	app, ok := s.lookupApp(w, r)
+	if !ok {
+		return
+	}
+	s.envView(w, r, app.ID)
+}
+
+// putEnv merges {"KEY": "value", "OLD": null} into the app's variables;
+// null deletes. Changes apply to deployments created afterwards.
+func (s *Server) putEnv(w http.ResponseWriter, r *http.Request) {
+	app, ok := s.lookupApp(w, r)
+	if !ok {
+		return
+	}
+	var changes map[string]*string
+	if err := decodeJSON(r, &changes); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	for k, v := range changes {
+		switch {
+		case !envKeyRe.MatchString(k):
+			writeError(w, http.StatusBadRequest, "invalid variable name "+strconv.Quote(k))
+			return
+		case k == "PORT" || strings.HasPrefix(k, "MINIPAAS_"):
+			writeError(w, http.StatusBadRequest, k+" is set by the platform")
+			return
+		case v != nil && len(*v) > maxEnvValue:
+			writeError(w, http.StatusBadRequest, k+" is longer than 32 KiB")
+			return
+		}
+	}
+	if err := s.Store.UpdateAppEnv(r.Context(), app.ID, changes); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.Log.Info("env updated", "app", app.Name, "changed", len(changes))
+	s.envView(w, r, app.ID)
 }
 
 // githubWebhook turns a signed push delivery into a queued deployment.

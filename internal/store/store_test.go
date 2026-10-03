@@ -111,3 +111,36 @@ func TestDuplicateApp(t *testing.T) {
 		t.Fatalf("got %v, want ErrConflict", err)
 	}
 }
+
+func TestAppEnv(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	app, _ := st.CreateApp(ctx, "blog", "nisagwn/blog", "main")
+	other, _ := st.CreateApp(ctx, "shop", "nisagwn/shop", "main")
+	str := func(s string) *string { return &s }
+
+	if err := st.UpdateAppEnv(ctx, app.ID, map[string]*string{"A": str("1"), "B": str("2")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateAppEnv(ctx, other.ID, map[string]*string{"A": str("other")}); err != nil {
+		t.Fatal(err)
+	}
+	// Update one, delete one, leave the rest; deleting a missing key is fine.
+	if err := st.UpdateAppEnv(ctx, app.ID, map[string]*string{"A": str("x"), "B": nil, "C": str(""), "NOPE": nil}); err != nil {
+		t.Fatal(err)
+	}
+	env, err := st.AppEnv(ctx, app.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(env) != 2 || env["A"] != "x" || env["C"] != "" {
+		t.Fatalf("env = %v", env)
+	}
+	if env, _ := st.AppEnv(ctx, other.ID); len(env) != 1 || env["A"] != "other" {
+		t.Fatalf("other app env = %v", env)
+	}
+	// The schema rejects keys that cannot be environment variable names.
+	if err := st.UpdateAppEnv(ctx, app.ID, map[string]*string{"1BAD": str("v")}); err == nil {
+		t.Fatal("invalid key accepted")
+	}
+}

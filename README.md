@@ -22,7 +22,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 Faz planı: [docs/PHASES.md](docs/PHASES.md)
 
-## Durum: Faz 2 tamamlandı
+## Durum: Faz 3 tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -37,7 +37,47 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 2: BuildKit (`buildctl` → `buildkitd`) veya yerelde `docker buildx`; registry'ye `<app>:<sha>` push
 - [x] Faz 2: imaj digest ile sabitlenir (`…:<sha>@sha256:…`), isteğe bağlı registry layer cache
 - [x] Faz 2: build çıktısı satır satır `deployment_logs`'a
-- [ ] Faz 3: Kubernetes deploy
+- [x] Faz 3: uygulama başına namespace `app-<app>` + `ResourceQuota`, `LimitRange`, ingress `NetworkPolicy`
+- [x] Faz 3: commit başına `Deployment` + `Service` `d-<sha7>` (ClusterIP :80 → :8080), CPU/RAM limitleri, readiness probe
+- [x] Faz 3: ortam değişkenleri API'si → deploy anında değişmez `Secret` `d-<sha7>-env` (`envFrom`)
+- [x] Faz 3: idempotent create-or-update (çökme sonrası tekrar çalıştırma `AlreadyExists` ile düşmez)
+- [x] Faz 3: hazır olana kadar bekleme, pod durumları loga; `ImagePullBackOff` / `CrashLoopBackOff` / kota aşımında
+  hemen `failed` (crash'te son log satırlarıyla), zaman aşımında `failed`
+- [ ] Faz 4: Traefik yönlendirme, alias'lar ve TLS
+
+### Deploy nasıl çalışır
+
+`MINIPAAS_DEPLOYER=kubernetes` iken worker, build'in ürettiği digest'li imajı kümeye koyar:
+
+```
+namespace app-<app>          (managed-by=minipaas, ResourceQuota + LimitRange + NetworkPolicy "minipaas")
+├── Secret     d-<sha7>-env  değişmez; deploy anındaki ortam değişkenleri
+├── Deployment d-<sha7>      1 replika, PORT=8080, MINIPAAS_APP/COMMIT_SHA/BRANCH, envFrom secret
+└── Service    d-<sha7>      ClusterIP :80 → :8080
+```
+
+- Etiketler: `app=<app>`, `minipaas/deployment-id`, `minipaas/commit-sha`, `minipaas/branch` (slug; tam adı annotation'da).
+- Pod güvenliği: `runAsNonRoot` (sabit `runAsUser` yok, imajın sayısal `USER`'ı kullanılır),
+  `allowPrivilegeEscalation: false`, tüm capability'ler düşürülür, `RuntimeDefault` seccomp,
+  service account token'ı bağlanmaz.
+- `Secret` ve `Service` Deployment'a ait (ownerReference): Deployment silinince onlar da silinir.
+- `NetworkPolicy`: app pod'larına yalnızca `kube-system` (Traefik) erişebilir; app'ler birbirine ancak public URL'leri üzerinden ulaşır.
+- Ortam değişkeni değişikliği yalnızca sonraki deployment'ları etkiler; çalışan deployment'ın snapshot'ı sabittir.
+
+| Değişken | Açıklama |
+|---|---|
+| `MINIPAAS_DEPLOYER` | `dryrun` · `kubernetes` |
+| `MINIPAAS_KUBECONFIG` | boş = pod içindeyse in-cluster, değilse `$KUBECONFIG` / `~/.kube/config` |
+| `MINIPAAS_ROLLOUT_TIMEOUT` | hazır olma bekleme süresi (varsayılan `3m`) |
+| `MINIPAAS_APP_CPU_REQUEST` / `_LIMIT` | container başına CPU (varsayılan `25m` / `500m`) |
+| `MINIPAAS_APP_MEMORY_REQUEST` / `_LIMIT` | container başına bellek (varsayılan `64Mi` / `256Mi`) |
+| `MINIPAAS_APP_QUOTA_CPU` | app namespace'i için `requests.cpu` kotası (varsayılan `1`) |
+| `MINIPAAS_APP_QUOTA_MEMORY` | `requests.memory` + `limits.memory` kotası (varsayılan `4Gi`) |
+| `MINIPAAS_APP_QUOTA_PODS` | pod kotası (varsayılan `20`) |
+| `MINIPAAS_APP_RUN_AS_NON_ROOT` | varsayılan `true`; repodaki Dockerfile isimli `USER` (ör. `USER node`) kullanıyorsa kubelet reddeder |
+
+> Her commit ayrı bir Deployment olarak çalışmaya devam eder; kota dolunca yeni deploy'lar
+> "exceeded quota" hatasıyla `failed` olur. Eski preview'lerin temizlenmesi Faz 7'de.
 
 ### Build nasıl çalışır
 
@@ -97,6 +137,10 @@ curl -s -H "$H" -d '{"deployment_id":1}' localhost:8080/api/apps/blog/rollback
 
 # 5. Loglar
 curl -s -H "$H" localhost:8080/api/deployments/1/logs
+
+# 6. Ortam değişkenleri (null siler; GET yalnızca anahtarları döner)
+curl -s -H "$H" -X PUT -d '{"DATABASE_URL":"postgres://…","DEBUG":null}' localhost:8080/api/apps/blog/env
+curl -s -H "$H" localhost:8080/api/apps/blog/env
 ```
 
 ### Gerçek GitHub'a bağlamak
@@ -120,6 +164,8 @@ Tüm `/api/*` uçları `Authorization: Bearer <MINIPAAS_API_TOKEN>` ister.
 | GET | `/api/apps/{name}` | Uygulama + alias'lar |
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |
+| GET | `/api/apps/{name}/env` | `{"keys":[…]}` — değerler API'den asla okunmaz |
+| PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `MINIPAAS_*` platforma ait |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 
@@ -133,6 +179,7 @@ internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
 internal/api/         HTTP uçları
 internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run pipeline
 internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
+internal/deploy/      Kubernetes deployer: namespace, kota, Secret, Deployment, Service, rollout bekleme
 examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı
@@ -148,4 +195,16 @@ internal/testdb/      testler için temiz veritabanı
   bir deployment'ın production'ını ezmez.
 - **Tek label'lı hostname'ler:** Hepsi `*.domain` altında olduğu için tek bir
   wildcard sertifika (DNS-01) hepsini kapsar.
-- **Sadece stdlib + lib/pq:** Bağımlılık sayısı bilinçli olarak düşük.
+- **stdlib + lib/pq, tek bilinçli istisna client-go:** Bağımlılık sayısı bilinçli olarak
+  düşük. Kubernetes API'si için `k8s.io/client-go` (typed clientset) kullanılır: kimlik
+  doğrulama, kubeconfig/in-cluster yapılandırma ve API tipleri elle yazılmaya değmez.
+  Yalnızca `internal/deploy` ona bağımlı.
+- **Deploy idempotent:** Her nesne "varsa güncelle, yoksa oluştur"; worker deploy ortasında
+  çökerse aynı deployment tekrar çalıştırılabilir. Değişmez `Secret`'ın verisi farklıysa silinip
+  yeniden oluşturulur ve pod şablonundaki `minipaas/env-hash` rollout'u tetikler.
+- **Polling, watch değil:** Rollout her 2 sn'de bir okunur; bağlantı kopmalarına dayanıklı,
+  fake clientset ile test edilmesi kolay. Kalıcı hatalarda (`ImagePullBackOff`,
+  `CrashLoopBackOff`, `CreateContainerConfigError`, kota aşımı) zaman aşımı beklenmez.
+- **TCP readiness probe:** `/` rotası olmayan bir uygulama da hazır sayılır.
+- **Ortam değişkenleri Postgres'te düz metin:** API değerleri asla geri döndürmez; Kubernetes
+  tarafında Secret olarak durur. Veritabanında şifreleme sonraki bir adım.
