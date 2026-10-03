@@ -88,7 +88,42 @@ queued → building → deploying → ready
 
 ---
 
-## Sonraki aşamalar (kapsam genişlemesi)
-İlk sürümün ardından eklenecek alanlar: multi-tenancy ve kullanıcı yönetimi,
-veritabanı sağlama, özel alan adları, faturalandırma, daha fazla dil ve
-framework için otomatik build desteği, çok düğümlü küme.
+## Kapsam genişlemesi (Faz 9–14)
+
+İlk sürümün ardından, birbirinden bağımsız ilerleyebilen fazlar. Migration numaraları
+çakışmasın diye önceden ayrıldı.
+
+### Faz 9 — Daha fazla dil
+- Python (`requirements.txt` / `pyproject.toml`; gunicorn / uvicorn / Django / Flask / FastAPI algılama)
+- Ruby (`Gemfile`; Rails / Rack), Java (Maven / Gradle → JRE), hepsi sayısal root olmayan kullanıcıyla
+- Her dil için örnek uygulama ve gerçek build testi
+- **Çıktı:** `examples/` altındaki yeni uygulamalar Dockerfile'sız build edilip çalışıyor
+
+### Faz 10 — Ortam değişkenlerinin şifrelenmesi (migration 005)
+- AES-256-GCM ile şifreleme; anahtar `PAAS_ENV_KEY`, anahtar kimliğiyle rotasyon desteği
+- Mevcut düz metin değerlerin şifrelenmesi, anahtarı döndürme komutu
+- **Çıktı:** veritabanı dökümünde hiçbir env değeri okunamıyor
+
+### Faz 11 — Sıfıra ölçekleme
+- Belirli süre istek almayan preview deploy'ları 0 replikaya iner
+- İlk istekte uyandırma: istek bekletilir, pod hazır olunca iletilir
+- Production için isteğe bağlı (uygulama başına ayar)
+- **Çıktı:** boştaki preview'ler kaynak tüketmiyor; ilk istek birkaç saniyede yanıtlanıyor
+
+### Faz 12 — Özel alan adları (migration 006)
+- Uygulamaya alan adı ekleme (API + arayüz), DNS doğrulaması (CNAME / TXT)
+- Alan adı başına Let's Encrypt sertifikası (cert-manager, HTTP-01), production alias'ını izler
+- **Çıktı:** `https://www.ornek.com` production deploy'unu gösteriyor, rollback'i izliyor
+
+### Faz 13 — Kullanıcılar ve ekipler (migration 007)
+- Kullanıcılar, ekipler, roller (owner / member / viewer); uygulamalar ekibe ait
+- GitHub OAuth ile web girişi; kullanıcı başına API token'ları
+- Her API ucu ve arayüz sayfası yetki kontrolünden geçer
+- **Çıktı:** bir ekip yalnızca kendi uygulamalarını görür ve yönetir
+
+### Faz 14 — Daha hızlı ılık build
+- Dockerfile frontend'inin sabitlenmesi / kaldırılması (her build'deki ~2 s'lik sabit maliyet)
+- **Çıktı:** değişiklik olmayan build'ler belirgin şekilde kısa
+
+## Sonraki aşamalar
+Veritabanı sağlama, faturalandırma, çok düğümlü küme.
