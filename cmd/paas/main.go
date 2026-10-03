@@ -16,6 +16,7 @@ import (
 
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/build"
+	"github.com/nisagwn/paas/internal/cleanup"
 	"github.com/nisagwn/paas/internal/config"
 	"github.com/nisagwn/paas/internal/deploy"
 	"github.com/nisagwn/paas/internal/routing"
@@ -61,12 +62,20 @@ func run(log *slog.Logger) error {
 		router = &routing.Syncer{Store: st, Applier: applier, Interval: cfg.RouteSyncInterval, Log: log}
 		apiRouter, workerRouter = router, router
 	}
+	// Faz 7: retention policy, failed leftovers, branch deletion.
+	var gcRouter cleanup.Router
+	if router != nil {
+		gcRouter = router
+	}
+	gc := cleanup.New(st, retirerOf(pipeline), gcRouter, cleanup.Policy{
+		KeepProduction: cfg.KeepProduction, PreviewTTL: cfg.PreviewTTL, PreviewAliasTTL: cfg.PreviewAliasTTL,
+	}, cfg.GCInterval, log)
 
 	srv := &http.Server{
 		Addr: cfg.Addr,
 		Handler: (&api.Server{
 			Store: st, Router: apiRouter, Domain: cfg.Domain, APIToken: cfg.APIToken,
-			WebhookSecret: cfg.GitHubWebhookSecret, Log: log,
+			WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -74,6 +83,7 @@ func run(log *slog.Logger) error {
 		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
 	}
+	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -88,6 +98,11 @@ func run(log *slog.Logger) error {
 			router.Run(ctx)
 		}()
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		gc.Run(ctx)
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -113,6 +128,16 @@ func run(log *slog.Logger) error {
 	}
 	wg.Wait() // let in-flight deployments finish
 	return nil
+}
+
+// retirerOf returns the stage that deletes a deployment's objects.
+func retirerOf(p worker.Pipeline) worker.Retirer {
+	if s, ok := p.(worker.Stages); ok {
+		r, _ := s.Deployer.(worker.Retirer)
+		return r
+	}
+	r, _ := p.(worker.Retirer)
+	return r
 }
 
 // newPipeline also returns the alias applier when the deployer has one.

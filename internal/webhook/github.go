@@ -69,6 +69,8 @@ type Push struct {
 var ErrIgnored = errors.New("push ignored")
 
 // ParsePush decodes a push payload and decides whether it should deploy.
+// A branch deletion returns ErrBranchDeleted (which is also ErrIgnored)
+// with Repo and Branch set.
 func ParsePush(body []byte) (Push, error) {
 	var ev PushEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
@@ -78,8 +80,11 @@ func ParsePush(body []byte) (Push, error) {
 	if !strings.HasPrefix(ev.Ref, headsPrefix) {
 		return Push{}, ErrIgnored // tags and other refs
 	}
-	if ev.Deleted {
-		return Push{}, ErrIgnored // branch deleted; preview cleanup comes in Faz 7
+	if ev.Deleted || ev.After == zeroSHA {
+		if ev.Repository.FullName == "" {
+			return Push{}, errors.New("push payload missing repository")
+		}
+		return Push{Repo: ev.Repository.FullName, Branch: strings.TrimPrefix(ev.Ref, headsPrefix)}, ErrBranchDeleted
 	}
 	if !shaRe.MatchString(ev.After) || ev.Repository.FullName == "" {
 		return Push{}, errors.New("push payload missing commit sha or repository")

@@ -57,6 +57,16 @@ type Worker struct {
 	// Timeout bounds a whole deployment (build + deploy).
 	Timeout time.Duration
 	Log     *slog.Logger
+
+	// Faz 7 (recovery.go). Cleanup is kicked when a deployment finishes,
+	// so failed leftovers and deployments beyond retention go at once.
+	Cleanup Kicker
+	// StaleAfter: a building/deploying deployment without a heartbeat for
+	// this long is an orphan of a dead worker and is recovered. Zero
+	// disables heartbeats and recovery.
+	StaleAfter time.Duration
+	// MaxAttempts bounds claims of one deployment (DefaultMaxAttempts).
+	MaxAttempts int
 }
 
 // Run starts Concurrency polling loops and blocks until ctx is cancelled and
@@ -69,6 +79,13 @@ func (w *Worker) Run(ctx context.Context) {
 			defer wg.Done()
 			w.loop(ctx, n)
 		}(i)
+	}
+	if w.StaleAfter > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.recoverLoop(ctx)
+		}()
 	}
 	wg.Wait()
 }
@@ -114,8 +131,19 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 	}
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
+	runCtx, cancelLease := context.WithCancelCause(runCtx)
+	defer cancelLease(nil)
+	defer w.kick(d.AppName)
 
-	if err := w.run(runCtx, d); err != nil {
+	stopHeartbeat := w.startHeartbeat(runCtx, d, cancelLease)
+	err = w.run(runCtx, d)
+	stopHeartbeat()
+	if err != nil && errors.Is(context.Cause(runCtx), errLeaseLost) {
+		// Another attempt owns the deployment now; it records the outcome.
+		w.Log.Warn("deployment taken over", "deployment", d.ID, "app", d.AppName, "err", err)
+		return true, nil
+	}
+	if err != nil {
 		// runCtx may be the reason we failed (timeout), so record the failure
 		// with a fresh context; otherwise the row would stay "building" forever.
 		failCtx, cancelFail := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -167,7 +195,10 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 			Branch:   d.Branch,
 		})
 	}
-	if err := w.Store.MarkReady(ctx, d, aliases); err != nil {
+	if err := w.Store.MarkReady(ctx, d, aliases); errors.Is(err, store.ErrRetired) {
+		log("==> branch was deleted during the deployment; retired without aliases")
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if w.Router != nil {

@@ -57,6 +57,10 @@ type Deployment struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	StartedAt     *time.Time `json:"started_at,omitempty"`
 	FinishedAt    *time.Time `json:"finished_at,omitempty"`
+	// Faz 7: retirement and crash recovery (lifecycle.go).
+	RetiredAt    *time.Time `json:"retired_at,omitempty"`
+	RetireReason string     `json:"retire_reason,omitempty"`
+	Attempts     int        `json:"attempts"`
 }
 
 type Alias struct {
@@ -210,17 +214,18 @@ func (s *Store) getApp(ctx context.Context, where string, arg any) (App, error) 
 // ---- deployments ----
 
 const deploymentCols = `d.id, d.app_id, a.name, a.repo_full_name, d.commit_sha, d.branch, d.commit_message, d.status,
-	d.error, d.image, d.created_at, d.started_at, d.finished_at`
+	d.error, d.image, d.created_at, d.started_at, d.finished_at, d.retired_at, d.retire_reason, d.attempts`
 
 func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
 	err := row.Scan(&d.ID, &d.AppID, &d.AppName, &d.Repo, &d.CommitSHA, &d.Branch, &d.CommitMessage, &d.Status,
-		&d.Error, &d.Image, &d.CreatedAt, &d.StartedAt, &d.FinishedAt)
+		&d.Error, &d.Image, &d.CreatedAt, &d.StartedAt, &d.FinishedAt, &d.RetiredAt, &d.RetireReason, &d.Attempts)
 	return d, err
 }
 
 // EnqueueDeployment queues a commit for deployment. Deployments are immutable,
 // so pushing the same commit again returns the existing one with created=false.
+// A retired deployment whose objects are gone is queued again (created=true).
 func (s *Store) EnqueueDeployment(ctx context.Context, appID int64, sha, branch, message string) (Deployment, bool, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx, `
@@ -232,6 +237,9 @@ func (s *Store) EnqueueDeployment(ctx context.Context, appID int64, sha, branch,
 		created = false
 		err = s.db.QueryRowContext(ctx,
 			`SELECT id FROM deployments WHERE app_id = $1 AND commit_sha = $2`, appID, sha).Scan(&id)
+		if err == nil {
+			created, err = s.revive(ctx, id, branch, message)
+		}
 	}
 	if err != nil {
 		return Deployment{}, false, err
@@ -274,7 +282,8 @@ func (s *Store) ListDeployments(ctx context.Context, appID int64, limit int) ([]
 func (s *Store) ClaimNext(ctx context.Context) (Deployment, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx, `
-		UPDATE deployments SET status = 'building', started_at = now()
+		UPDATE deployments SET status = 'building', started_at = now(),
+			attempts = attempts + 1, heartbeat_at = now()
 		WHERE id = (
 			SELECT id FROM deployments WHERE status = 'queued'
 			ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
@@ -315,6 +324,9 @@ type AliasSpec struct {
 // MarkReady marks a deployment ready and points the given aliases at it, in
 // one transaction. An alias only moves forward: a slow build of an older
 // commit that finishes late will not overwrite a newer deployment.
+//
+// If the branch was deleted while the deployment was in flight (retired_at
+// is set), it ends as retired without aliases and ErrRetired is returned.
 func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -322,9 +334,18 @@ func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE deployments SET status = 'ready', error = '', finished_at = now() WHERE id = $1`, d.ID); err != nil {
+	var status string
+	if err := tx.QueryRowContext(ctx, `
+		UPDATE deployments SET status = CASE WHEN retired_at IS NULL THEN 'ready' ELSE 'retired' END,
+			error = '', finished_at = now()
+		WHERE id = $1 RETURNING status`, d.ID).Scan(&status); err != nil {
 		return err
+	}
+	if status == StatusRetired {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return ErrRetired
 	}
 	for _, a := range aliases {
 		if _, err := tx.ExecContext(ctx, `
@@ -340,22 +361,34 @@ func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec
 }
 
 // Rollback points the app's production alias at an earlier ready deployment.
-// No rebuild happens: the old deployment is still running.
+// No rebuild happens: the old deployment is still running. Retired
+// deployments are gone from the cluster and return ErrRetired.
 func (s *Store) Rollback(ctx context.Context, appID, deploymentID int64) (Alias, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Alias{}, err
+	}
+	defer tx.Rollback()
+
+	// FOR SHARE blocks a concurrent Retire of this row until the alias has
+	// moved, and Retire then sees the alias and keeps the deployment.
 	var status string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT status FROM deployments WHERE id = $1 AND app_id = $2`, deploymentID, appID).Scan(&status)
+	err = tx.QueryRowContext(ctx, `
+		SELECT status FROM deployments WHERE id = $1 AND app_id = $2 FOR SHARE`, deploymentID, appID).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Alias{}, ErrNotFound
 	}
 	if err != nil {
 		return Alias{}, err
 	}
+	if status == StatusRetired {
+		return Alias{}, ErrRetired
+	}
 	if status != StatusReady {
 		return Alias{}, ErrNotReady
 	}
 	var a Alias
-	err = s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE aliases SET deployment_id = $3, updated_at = now()
 		WHERE app_id = $1 AND kind = $2
 		RETURNING hostname, kind, branch, deployment_id, updated_at`,
@@ -364,7 +397,10 @@ func (s *Store) Rollback(ctx context.Context, appID, deploymentID int64) (Alias,
 		// No production deployment has ever succeeded, so there is nothing to roll back.
 		return a, ErrNotFound
 	}
-	return a, err
+	if err != nil {
+		return a, err
+	}
+	return a, tx.Commit()
 }
 
 func (s *Store) ListAliases(ctx context.Context, appID int64) ([]Alias, error) {
