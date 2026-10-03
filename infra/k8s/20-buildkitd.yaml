@@ -1,0 +1,104 @@
+# Rootless BuildKit daemon. The control plane drives it with buildctl over
+# tcp://buildkitd.minipaas:1234 and passes ECR credentials through the
+# buildctl session, so buildkitd itself holds no registry secrets.
+# Plain TCP (no mTLS) is acceptable only because the NetworkPolicy in
+# 50-networkpolicy.yaml lets nothing but the control plane connect.
+apiVersion: v1
+kind: Service
+metadata:
+  name: buildkitd
+  namespace: minipaas
+  labels:
+    app.kubernetes.io/name: buildkitd
+spec:
+  selector:
+    app.kubernetes.io/name: buildkitd
+  ports:
+    - name: buildkit
+      port: 1234
+      targetPort: buildkit
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildkitd-cache
+  namespace: minipaas
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 15Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: buildkitd
+  namespace: minipaas
+  labels:
+    app.kubernetes.io/name: buildkitd
+    app.kubernetes.io/part-of: minipaas
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO cache volume
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: buildkitd
+        app.kubernetes.io/part-of: minipaas
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: buildkitd
+          image: moby/buildkit:v0.20.2-rootless
+          args:
+            - --addr
+            - unix:///run/user/1000/buildkit/buildkitd.sock
+            - --addr
+            - tcp://0.0.0.0:1234
+            # No nested PID namespace, so no privileged pod is needed. Build
+            # steps share the PID namespace of this pod (not of the node).
+            - --oci-worker-no-process-sandbox
+            # Cache GC, in MB: reserved 2 GB, keep 5 GB disk free, max 10 GB.
+            - --oci-worker-gc
+            - --oci-worker-gc-keepstorage=2000,5000,10000
+          ports:
+            - name: buildkit
+              containerPort: 1234
+          readinessProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          livenessProbe:
+            exec:
+              command: ["buildctl", "--addr", "tcp://127.0.0.1:1234", "debug", "workers"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 10
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 2Gi }
+          securityContext:
+            # rootlesskit needs user namespaces and mount syscalls that the
+            # default seccomp/AppArmor profiles block.
+            seccompProfile:
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
+            # The image only works as uid/gid 1000.
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: cache
+              mountPath: /home/user/.local/share/buildkit
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: buildkitd-cache

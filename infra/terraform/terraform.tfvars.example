@@ -1,0 +1,17 @@
+# cp terraform.tfvars.example terraform.tfvars  (terraform.tfvars is git-ignored)
+
+region         = "eu-central-1"
+domain         = "paas.example.com"
+hosted_zone_id = "Z0123456789ABCDEFGHIJ" # zone of example.com (or of paas.example.com)
+
+letsencrypt_email       = "you@example.com"
+letsencrypt_environment = "staging" # switch to "production" once everything works
+
+ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
+admin_cidrs    = ["203.0.113.7/32"] # curl -s https://checkip.amazonaws.com
+
+# Optional
+# instance_type           = "t4g.medium"
+# root_volume_size        = 40
+# control_plane_image_tag = "latest"
+# control_plane_deployer  = "kubernetes" # "dryrun" until the Faz 3 deployer ships

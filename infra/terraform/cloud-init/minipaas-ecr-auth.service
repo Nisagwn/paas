@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh the ECR docker config.json used by buildctl
+After=k3s.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/minipaas-ecr-auth

@@ -1,0 +1,56 @@
+# The control plane creates one namespace per app (app-<name>) and, inside
+# it, Deployments, Services, Secrets, ResourceQuotas, LimitRanges and Traefik
+# IngressRoutes. Namespaces are cluster-scoped and the app namespaces do not
+# exist beforehand, hence a ClusterRole rather than per-namespace Roles.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: minipaas
+  namespace: minipaas
+  labels:
+    app.kubernetes.io/name: minipaas
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: minipaas-control-plane
+  labels:
+    app.kubernetes.io/name: minipaas
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [services, secrets, resourcequotas, limitranges, configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Readiness tracking and runtime logs (Faz 5).
+  - apiGroups: [""]
+    resources: [pods, pods/log, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [traefik.io]
+    resources: [ingressroutes, middlewares]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: minipaas-control-plane
+  labels:
+    app.kubernetes.io/name: minipaas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: minipaas-control-plane
+subjects:
+  - kind: ServiceAccount
+    name: minipaas
+    namespace: minipaas

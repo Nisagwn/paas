@@ -1,0 +1,13 @@
+# Placeholders (dollar + braces, e.g. DOMAIN) in these files are rendered by Terraform templatefile()
+# (infra/terraform/compute.tf, local.k8s_vars) or, for day-2 changes, by
+# envsubst with the exports from `terraform output -raw k8s_env`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minipaas
+  labels:
+    app.kubernetes.io/part-of: minipaas
+    # buildkitd needs Unconfined seccomp/AppArmor; everything else here is
+    # restricted-compatible.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: baseline

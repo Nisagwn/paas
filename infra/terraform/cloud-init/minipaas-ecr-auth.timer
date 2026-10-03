@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh ECR credentials for buildctl every 6 hours (tokens live 12 h)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

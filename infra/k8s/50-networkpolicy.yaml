@@ -1,0 +1,41 @@
+# k3s enforces NetworkPolicies (embedded kube-router). Only the control plane
+# may talk to Postgres and to buildkitd; app pods in app-* namespaces cannot.
+# The control plane itself is reached by Traefik (kube-system) and has no
+# ingress policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  namespace: minipaas
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minipaas
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: buildkitd
+  namespace: minipaas
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: buildkitd
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: minipaas
+      ports:
+        - port: 1234
+          protocol: TCP

@@ -1,0 +1,18 @@
+#cloud-config
+# Rendered by Terraform (compute.tf). Files are emitted with yamlencode so
+# that shell scripts and manifests need no YAML escaping.
+package_update: true
+packages:
+  - curl
+  - unzip
+  - jq
+  - openssl
+  - gettext-base
+
+write_files:
+${yamlencode(write_files)}
+
+runcmd:
+  # Log goes to /var/log/minipaas-bootstrap.log; re-runnable by hand:
+  #   sudo /usr/local/sbin/minipaas-bootstrap
+  - [bash, -c, "/usr/local/sbin/minipaas-bootstrap 2>&1 | tee -a /var/log/minipaas-bootstrap.log"]
