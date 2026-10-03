@@ -26,19 +26,19 @@ queued → building → deploying → ready
 
 ---
 
-## Faz 0 — Hazırlık
+## Faz 0 — Hazırlık ✅
 - Repo, Makefile, yerel geliştirme ortamı (Postgres, k3d)
 - Mimari diyagram (C4: context + container)
 - **Çıktı:** `make dev` ile ayağa kalkan boş servis
 
-## Faz 1 — Kontrol düzlemi: API + webhook + kuyruk
+## Faz 1 — Kontrol düzlemi: API + webhook + kuyruk ✅
 - Go HTTP API (stdlib `net/http`), yapılandırma, graceful shutdown
 - PostgreSQL şeması: `apps`, `deployments`, `aliases`, `deployment_logs`
 - GitHub webhook alıcısı: HMAC-SHA256 imza doğrulaması, `push` olayı → `queued` deploy
 - Postgres tabanlı iş kuyruğu (`FOR UPDATE SKIP LOCKED`), worker iskeleti
 - **Çıktı:** Push yapıldığında veritabanında deploy kaydı oluşuyor ve worker onu alıyor
 
-## Faz 2 — Build hattı ⚠️ en riskli faz
+## Faz 2 — Build hattı ⚠️ en riskli faz ✅
 - Repoyu commit SHA'sıyla klonlama (shallow clone)
 - Dil algılama (Node / Go / statik) + otomatik Dockerfile üretimi
 - BuildKit (rootless `buildkitd`) ile build, cache mount'lar
@@ -46,7 +46,7 @@ queued → building → deploying → ready
 - Build loglarını satır satır `deployment_logs` tablosuna yazma
 - **Çıktı:** Push → arm64 imaj registry'de
 
-## Faz 3 — Deploy katmanı
+## Faz 3 — Deploy katmanı ✅
 - Kubernetes API ile kaynak oluşturma: uygulama başına namespace,
   deploy başına `Deployment` + `Service` (`d-<sha7>`)
 - CPU/RAM limitleri, `ResourceQuota`, readiness probe
@@ -54,7 +54,7 @@ queued → building → deploying → ready
 - Ortam değişkenleri → `Secret`
 - **Çıktı:** Her commit kümede ayrı bir sürüm olarak çalışıyor
 
-## Faz 4 — Yönlendirme, alias ve TLS
+## Faz 4 — Yönlendirme, alias ve TLS ✅
 - Traefik üzerinden standart `Ingress`: deploy URL'si + alias URL'leri (taşınabilirlik için CRD yerine)
 - Alias'lar veritabanından senkronlanır; periyodik uzlaştırma döngüsü
 - Wildcard DNS (`*.domain` → EC2 Elastic IP) — Route 53
@@ -63,25 +63,25 @@ queued → building → deploying → ready
 - Rollback API'si: alias'ı başka bir deploy'a çevir (anında)
 - **Çıktı:** `https://blog.domain` ve `https://a3f9c1-blog.domain` çalışıyor
 
-## Faz 5 — Gözlemlenebilirlik ve geliştirici deneyimi
+## Faz 5 — Gözlemlenebilirlik ve geliştirici deneyimi ✅
 - SSE ile canlı build logu (Postgres `LISTEN/NOTIFY`) ve çalışma zamanı logu (K8s log API)
 - GitHub entegrasyonu: commit status + PR'a "Preview hazır" yorumu
 - Web arayüzü (Go şablonları + htmx): app listesi, deploy geçmişi, rollback butonu
 - **Çıktı:** Demo edilebilir uçtan uca akış
 
-## Faz 6 — Altyapı kodu ve canlıya alma
+## Faz 6 — Altyapı kodu ve canlıya alma ✅ (kod hazır ve doğrulandı; henüz `apply` edilmedi)
 - Terraform: VPC/SG, EC2 (t4g.medium), Elastic IP, Route 53 kayıtları, ECR, IAM
 - k3s kurulumu (cloud-init), Traefik + cert-manager Helm kurulumu
 - Kontrol düzleminin kendisini kümeye deploy etme
 - **Çıktı:** `terraform apply` ile sıfırdan ayağa kalkan platform
 
-## Faz 7 — Sağlamlaştırma
+## Faz 7 — Sağlamlaştırma ✅
 - Eski preview'leri temizleme (PR kapanınca / N gün sonra)
 - k6 ile yük testi: deploy süresi, eşzamanlı build, istek/saniye
 - Arıza senaryoları: worker çökmesi, build hatası, pod crash loop
 - (Bonus) Scale-to-zero: KEDA HTTP add-on
 
-## Faz 8 — Dokümantasyon ve sunum
+## Faz 8 — Dokümantasyon ve sunum ✅ (demo videosu: senaryo hazır, kayıt bekliyor)
 - README, mimari diyagram, demo videosu
 - Ölçüm sonuçları (tablolar/grafikler), teknik rapor
 - Canlı demo provası

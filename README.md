@@ -9,9 +9,9 @@ deployment'a çevirmektir ve yeniden build gerektirmez.
 ```
 git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ──► worker
                                                          │
-                         build (BuildKit) ◄──────────────┤   Faz 2
-                         deploy (Kubernetes) ◄───────────┤   Faz 3
-                         alias + TLS (Traefik) ◄─────────┘   Faz 4
+                         build (BuildKit) ◄──────────────┤
+                         deploy (Kubernetes) ◄───────────┤
+                         alias + TLS (Traefik) ◄─────────┘
 ```
 
 | URL | Ne gösterir |
@@ -20,9 +20,24 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 | `https://<branch>-<app>.<domain>` | Branch'in son başarılı deployment'ı (preview) |
 | `https://<app>.<domain>` | Production (production branch'in son deployment'ı veya rollback hedefi) |
 
-Faz planı: [docs/PHASES.md](docs/PHASES.md)
+**Öne çıkanlar:** Dockerfile'sız build (Node, Go, statik) · commit başına HTTPS URL ·
+branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · canlı build logu ·
+web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform apply` ile AWS'de kurulum.
 
-## Durum: Faz 7 tamamlandı
+## Belgeler
+
+| Belge | İçerik |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Bağlam ve konteyner diyagramları, deploy ve rollback akışları, durum makinesi, veri modeli |
+| [docs/REPORT.md](docs/REPORT.md) | Teknik rapor: problem, tasarım kararları, güvenlik, test, ölçümler, sınırlar |
+| [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Kuyruk ölçeklenmesi, build süreleri, imaj boyutları, rollback gecikmesi |
+| [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | 16 arıza senaryosu, beklenen davranış ve testleri |
+| [docs/DEMO.md](docs/DEMO.md) | Canlı demo ve video senaryosu |
+| [docs/PHASES.md](docs/PHASES.md) | Faz planı |
+| [infra/README.md](infra/README.md) | AWS kurulumu (Terraform, k3s) |
+| [loadtest/README.md](loadtest/README.md) | k6 yük testleri |
+
+## Durum: tüm fazlar tamamlandı
 
 - [x] Go HTTP API (stdlib `net/http`), bearer token ile korunuyor
 - [x] PostgreSQL şeması + gömülü migration'lar (advisory lock ile)
@@ -56,7 +71,8 @@ Faz planı: [docs/PHASES.md](docs/PHASES.md)
 - [x] Faz 7: branch silinince / PR kapanınca preview alias'ı kalkar, deploy'ları emekliye ayrılır
 - [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
-- [ ] Faz 8: dokümantasyon, mimari diyagram, ölçüm sonuçları
+- [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
+- [ ] Gerçek kümede uçtan uca doğrulama ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
 
@@ -299,24 +315,27 @@ Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 ## Proje yapısı
 
 ```
-cmd/paas/         giriş noktası: API + worker tek süreçte, graceful shutdown
+cmd/paas/             giriş noktası: API, worker'lar, routing, cleanup tek süreçte; graceful shutdown
+cmd/paas-dockerfile/  bir dizin için üretilecek Dockerfile'ı yazdırır (go run ./cmd/paas-dockerfile <dizin>)
 internal/config/      ortam değişkenleri
-internal/store/       PostgreSQL erişimi, migration'lar, kuyruk
-internal/webhook/     GitHub imza doğrulama ve push ayrıştırma
-internal/github/      GitHub REST istemcisi: commit status, PR arama, işaretli PR yorumu
-internal/api/         HTTP uçları
-internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, dry-run pipeline
+internal/api/         HTTP uçları, SSE log akışı
+internal/webhook/     GitHub imza doğrulama, push / pull_request ayrıştırma
+internal/store/       PostgreSQL erişimi, migration'lar, kuyruk, LISTEN/NOTIFY
+internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, heartbeat, kurtarma, dry-run
 internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
-internal/deploy/      Kubernetes deployer: namespace, kota, Secret, Deployment, Service, Ingress, rollout bekleme
+internal/deploy/      Kubernetes: namespace, kota, Secret, Deployment, Service, Ingress, rollout, loglar
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
+internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
+internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/web/         web arayüzü (html/template + htmx)
-internal/github/      GitHub commit status ve PR yorumları
-internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
-loadtest/             k6 yük testleri
-examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı
+examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
+infra/                Terraform (AWS) ve Kubernetes manifest'leri
+loadtest/             k6 yük testleri
+scripts/              ölçüm script'leri (measure-*.sh), sahte push (push.sh)
+docs/                 mimari, rapor, ölçümler, arıza senaryoları, demo
 ```
 
 ## Tasarım kararları

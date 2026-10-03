@@ -1,0 +1,4 @@
+example	cold_ms	warm_ms	change_ms	image_mb
+node-hello	8110	2603	2614	61
+go-hello	19419	2270	4256	3
+static-site	3164	2239	2284	20
