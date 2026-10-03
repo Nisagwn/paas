@@ -1,0 +1,13 @@
+{{define "content"}}
+<div class="card pad" style="max-width:420px;margin:48px auto">
+  <h1>Log in</h1>
+  <p class="sub">Enter the control plane's API token (<code>PAAS_API_TOKEN</code>).</p>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <label for="token">API token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
+    <p><button class="primary" type="submit">Log in</button></p>
+  </form>
+  <p class="muted small">The token is checked once and exchanged for a signed, HttpOnly session cookie (12 hours).</p>
+</div>
+{{end}}

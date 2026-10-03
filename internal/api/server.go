@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/webhook"
@@ -37,6 +38,19 @@ type Server struct {
 	APIToken      string
 	WebhookSecret string
 	Log           *slog.Logger
+
+	// Faz 5, all optional.
+	// Sessions lets browsers authenticate GET requests with the web UI's
+	// session cookie (EventSource cannot send an Authorization header).
+	Sessions *auth.Sessions
+	// Events wakes live log streams; nil falls back to polling.
+	Events Notifier
+	// RuntimeLogs streams pod logs; nil (dry-run deployer) answers 501.
+	RuntimeLogs RuntimeLogs
+	// UI is mounted at "/" (internal/web).
+	UI http.Handler
+	// Stream tunes the SSE endpoints (tests shorten it).
+	Stream StreamTiming
 }
 
 func (s *Server) Handler() http.Handler {
@@ -54,7 +68,12 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("PUT /api/apps/{name}/env", s.putEnv)
 	api.HandleFunc("GET /api/deployments/{id}", s.getDeployment)
 	api.HandleFunc("GET /api/deployments/{id}/logs", s.deploymentLogs)
+	api.HandleFunc("GET /api/deployments/{id}/logs/stream", s.streamLogs)
+	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	mux.Handle("/api/", s.requireToken(api))
+	if s.UI != nil {
+		mux.Handle("/", s.UI)
+	}
 
 	return s.logRequests(mux)
 }
@@ -64,6 +83,12 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) requireToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok && s.Sessions != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+			s.Sessions.Valid(r) {
+			// Read-only requests only: unsafe methods would need a CSRF check.
+			next.ServeHTTP(w, r)
+			return
+		}
 		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(s.APIToken)) != 1 {
 			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
 			return
@@ -226,7 +251,7 @@ func (s *Server) getDeployment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.deploymentView(d))
 }
 
-// deploymentLogs returns lines after ?after=<id>. Faz 5 adds an SSE stream.
+// deploymentLogs returns lines after ?after=<id>; streamLogs is the live variant.
 func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
