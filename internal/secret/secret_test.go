@@ -36,7 +36,8 @@ func TestRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if plain != "" && strings.Contains(ct, plain) {
+		// Short values can occur in random base64 by chance.
+		if len(plain) > 8 && strings.Contains(ct, plain) {
 			t.Fatalf("ciphertext contains plaintext")
 		}
 		if !strings.HasPrefix(ct, "v1:"+k.CurrentID()+":") {
