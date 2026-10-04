@@ -60,6 +60,12 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusNotFound, "GitHub sign-in is not configured.")
 		return
 	}
+	// Faz 15: the authorization was started by the GitHub App's setup URL
+	// to verify an installation (github.go), not to sign in.
+	if parts, ok := s.claimFromCookie(r); ok {
+		s.claimCallback(w, r, parts)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: oauthCookie, Value: "", Path: "/auth/github", MaxAge: -1,
 		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: auth.IsTLS(r)})
 

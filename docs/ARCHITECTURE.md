@@ -66,7 +66,7 @@ flowchart LR
 | Bileşen | Sorumluluk | Kod |
 |---|---|---|
 | API + webhook | REST API, imzalı GitHub webhook'u, SSE log akışı | `internal/api`, `internal/webhook` |
-| Web arayüzü | Oturum, uygulama/deploy sayfaları, rollback, env | `internal/web`, `internal/auth` |
+| Web arayüzü | Oturum, uygulama/deploy sayfaları, rollback, env, GitHub App kurulumu ve import (Faz 15) | `internal/web`, `internal/auth` |
 | Kuyruk + worker | `FOR UPDATE SKIP LOCKED` ile iş alma, heartbeat, aşamalar | `internal/store`, `internal/worker` |
 | Build | SHA ile clone, dil algılama, Dockerfile üretimi, BuildKit | `internal/build` |
 | Deploy | Namespace, kota, Secret, Deployment, Service, Ingress, hazır olma bekleme | `internal/deploy` |
@@ -135,6 +135,46 @@ sequenceDiagram
 
 Ölçülen API gecikmesi (veritabanı + senkron, dry-run): p50 7 ms, p95 23 ms
 ([MEASUREMENTS.md](MEASUREMENTS.md)).
+
+### 4.1 Akış: GitHub App kurulumu ve import (Faz 15)
+
+Bir kurulumun repoları yalnızca onu bağlayan ekibe sunulur. Bağlama, kullanıcının kendi GitHub
+hesabıyla doğrulanır: kurulum numarası tahmin edilebilir, kanıt değildir.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Tarayıcı
+    participant P as paas (web)
+    participant GH as github.com
+    participant API as GitHub API
+    participant DB as PostgreSQL
+
+    B->>P: GET /github/install?team=web (member+)
+    P-->>B: 302 apps/<slug>/installations/new?state=imza{ekip, kullanıcı}
+    B->>GH: repoları seç, Install
+    GH-->>B: 302 /github/setup?installation_id&state
+    B->>P: GET /github/setup (oturum çerezi yok: siteler arası)
+    P->>P: state'i doğrula
+    P-->>B: 302 OAuth authorize (PKCE) + imzalı çerez paas_ghclaim
+    B->>GH: authorize (onay sorulmaz)
+    GH-->>B: 302 /auth/github/callback?code&state
+    B->>P: GET /auth/github/callback
+    P->>DB: kullanıcı ekipte member+ mı?
+    P->>GH: kod + PKCE doğrulayıcı → kullanıcı token'ı
+    P->>API: GET /user (state'teki kullanıcı mı?)
+    P->>API: GET /user/installations (kurulum listede mi?)
+    alt webhook henüz gelmedi
+        P->>API: GET /user/installations/{id}/repositories
+        P->>DB: UpsertInstallation + AddInstallationRepos
+    end
+    P->>DB: ClaimInstallation(id, ekip)
+    P-->>B: /import (aynı site üzerinden yönlendirme)
+    B->>P: POST /import {repo, ad, branch} (CSRF)
+    P->>DB: repo bu ekibe import edilebilir mi? CreateAppInTeam
+    P->>API: branch head (kurulum token'ı)
+    P->>DB: EnqueueDeployment (push webhook'uyla aynı kuyruk)
+```
 
 ## 5. Deployment durum makinesi
 
@@ -209,6 +249,8 @@ erDiagram
     teams ||--o{ team_members : ""
     users ||--o{ team_members : ""
     users ||--o{ api_tokens : ""
+    teams ||--o{ github_installations : "bağlar (claim)"
+    github_installations ||--o{ github_installation_repos : ""
 
     apps {
         bigint id PK
@@ -242,6 +284,19 @@ erDiagram
         text prefix "paas_xxxxxx"
         timestamptz last_used_at
         timestamptz expires_at
+    }
+    github_installations {
+        bigint id PK "GitHub kurulum numarası"
+        text account_login
+        text account_type "User|Organization"
+        bigint team_id FK "bağlayan ekip, Faz 15"
+        bool suspended
+    }
+    github_installation_repos {
+        bigint installation_id FK
+        bigint repo_id "GitHub repo numarası"
+        text full_name "owner/repo"
+        bool private
     }
     deployments {
         bigint id PK
@@ -286,6 +341,10 @@ erDiagram
 Faz 13: her uygulama bir ekibe aittir (`apps.team_id`); yetki, çağıranın o ekipteki rolüdür
 (`viewer < member < owner`). Kimlik GitHub hesap numarasıdır (`github_id`); kullanıcı adı değişebilir.
 API token'larının yalnızca SHA-256 özeti tutulur.
+
+Faz 15: `github_installations` ve `github_installation_repos` GitHub App'in kurulum webhook'larını yansıtır
+(doğruluk kaynağı GitHub'dır). `team_id`, kurulumu kullanıcının GitHub token'ıyla doğrulanarak bağlayan
+ekiptir (§4.1); bağlanmamış bir kurulumun repoları import için sunulmaz.
 
 ## 7. Adlandırma
 

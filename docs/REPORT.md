@@ -181,6 +181,7 @@ yazmak hem riskli hem gereksiz olurdu.
 | API'ye yetkisiz erişim | Kişisel bearer token'lar (`paas_` + 256 bit, yalnızca SHA-256 özeti saklanır, süre ve iptal); admin token'ı sabit zamanlı karşılaştırma, GitHub girişi varken kapatılabilir |
 | Ekipler arası erişim | Her API ucu ve sayfa çağıranın ekip rolünü denetler (viewer/member/owner); başka ekibin uygulaması 404 döner, isimler sızmaz; yeni uçlar tek sarmalayıcıyla korunur, sarmalanmamış uç da varsayılan rolle korunur |
 | Yetkisiz GitHub hesabıyla giriş | OAuth yalnızca izin listesindeki kullanıcı/organizasyon üyelerine, admin'lere ve ekibe davet edilenlere açık; varsayılan kapalı |
+| Başkasının GitHub App kurulumunu sahiplenme | Kurulum ancak taze bir kullanıcı token'ıyla (PKCE) `GET /user/installations` onu listeliyorsa ve token, akışı başlatan platform kullanıcısının hesabına aitse bir ekibe bağlanır; ekip ve kullanıcı 30 dakikalık imzalı state'te; kullanıcı ekipte member+ olmalı; başka ekibe bağlı kurulumu taşımak orada da member+ ister |
 | OAuth akışında CSRF / kod çalınması | 10 dakikalık imzalı `state` çerezi (sabit zamanlı karşılaştırma), PKCE S256; GitHub erişim token'ı saklanmaz |
 | Son owner'ın kaybı | Ekip satırı kilitlenerek üye değişikliği yapılır; son owner düşürülemez/çıkarılamaz |
 | Web arayüzünde oturum çalınması / CSRF | Durumsuz, HMAC imzalı `HttpOnly` + `SameSite=Strict` çerez; oturuma bağlı CSRF token'ı; Origin kontrolü; açık yönlendirme engeli |
@@ -251,6 +252,9 @@ Açıkça belirtilmesi gerekenler:
 - **Kullanıcı adı tabanlı izin listeleri:** `PAAS_ADMIN_GITHUB_LOGINS` ve `PAAS_ALLOWED_GITHUB_USERS`
   GitHub kullanıcı adlarıyla eşleşir; GitHub'da bırakılan bir ad başkası tarafından alınabilir.
   Organizasyon üyeliği veya ekip daveti (hesap numarasına bağlı) daha sağlamdır.
+- **GitHub App kurulumu bir ekibe bağlanır (Faz 15):** aynı kurulumun repoları iki ekip arasında
+  paylaştırılamaz; bir organizasyonun repoları farklı ekiplere dağıtılacaksa kurulum tek ekipte kalır
+  ve import o ekipte yapılır. Bağlanmamış bir kurulumun repoları listelenmez.
 - **Durumsuz oturumlar tek tek iptal edilemez;** kullanıcının ekipten çıkarılması anında etkilidir
   (rol her istekte okunur), ama oturumun kendisi süresi dolana veya anahtar değişene kadar geçerlidir.
 

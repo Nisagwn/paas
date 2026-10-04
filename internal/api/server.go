@@ -64,6 +64,11 @@ type Server struct {
 	// Faz 13: resolves callers and roles (access.go). Nil builds one from
 	// Store, Sessions and APIToken (legacy admin token only, no OAuth).
 	Auth *auth.Authenticator
+
+	// Faz 15: reads repositories through the GitHub App for imports (first
+	// deployment, default branch); nil means no GitHub App is configured,
+	// and imports create the app without a deployment.
+	GitHubApp RepoInspector
 }
 
 func (s *Server) Handler() http.Handler {
@@ -82,6 +87,10 @@ func (s *Server) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/apps", s.createApp)
 	api.HandleFunc("GET /api/apps", s.listApps)
+	// Faz 15: repositories of the GitHub App installations of the caller's
+	// teams, and importing one (github_import.go; roles checked there).
+	api.HandleFunc("GET /api/github/repos", s.listImportable)
+	api.HandleFunc("POST /api/apps/import", s.importApp)
 	// Per-app endpoints: requireApp checks the caller's team role (access.go).
 	api.HandleFunc("GET /api/apps/{name}", s.requireApp(viewer, s.getApp))
 	api.HandleFunc("GET /api/apps/{name}/deployments", s.requireApp(viewer, s.listDeployments))
