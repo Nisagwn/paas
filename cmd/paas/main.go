@@ -38,6 +38,11 @@ func main() {
 }
 
 func run(log *slog.Logger) error {
+	if n, err := loadDotEnv(".env"); err != nil {
+		return err
+	} else if n > 0 {
+		log.Info("loaded .env", "vars", n)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
