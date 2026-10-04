@@ -2,8 +2,12 @@ package build
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,5 +164,96 @@ func TestBuilderFailures(t *testing.T) {
 	if _, err := b.Build(context.Background(), d, func(string, ...any) {}); err == nil ||
 		!strings.Contains(err.Error(), "fetch source") {
 		t.Fatalf("err = %v, want a fetch error", err)
+	}
+}
+
+// repoTokens is a TokenSource that records which repositories were asked for.
+type repoTokens struct {
+	mu    sync.Mutex
+	token string
+	err   error
+	repos []string
+}
+
+func (r *repoTokens) RepoToken(_ context.Context, repo string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.repos = append(r.repos, repo)
+	return r.token, r.err
+}
+
+// authRecorder stands in for a Git host: it records the Authorization
+// header of every request and answers 404.
+func authRecorder(t *testing.T) (*httptest.Server, func() []string) {
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func basicAuth(token string) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token))
+}
+
+// With a TokenSource (the GitHub App) the clone authenticates with the
+// repository's token, not GitToken.
+func TestBuilderRepoToken(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	srv, seen := authRecorder(t)
+	tokens := &repoTokens{token: "inst-token"}
+	b := &Builder{Engine: &fakeEngine{}, Registry: "r", GitBaseURL: srv.URL, GitToken: "pat",
+		GitTokens: tokens, WorkDir: t.TempDir()}
+	d := store.Deployment{ID: 1, AppName: "web", Repo: "acme/web", CommitSHA: strings.Repeat("a", 40), Branch: "main"}
+	nolog := func(string, ...any) {}
+
+	if _, err := b.Build(context.Background(), d, nolog); err == nil {
+		t.Fatal("clone from the 404 host succeeded")
+	}
+	if got := seen(); len(got) == 0 || got[0] != basicAuth("inst-token") {
+		t.Fatalf("Authorization = %q, want the installation token", got)
+	}
+	if len(tokens.repos) != 1 || tokens.repos[0] != "acme/web" {
+		t.Fatalf("token asked for %v", tokens.repos)
+	}
+
+	// No token for the repository: an anonymous clone (public repositories).
+	srv2, seen2 := authRecorder(t)
+	b.GitBaseURL, tokens.token = srv2.URL, ""
+	b.Build(context.Background(), d, nolog)
+	if got := seen2(); len(got) == 0 || got[0] != "" {
+		t.Fatalf("anonymous clone sent Authorization %q", got)
+	}
+
+	// A token that cannot be had fails the build before cloning.
+	tokens.err = errors.New("github: 503")
+	if _, err := b.Build(context.Background(), d, nolog); err == nil ||
+		!strings.Contains(err.Error(), "repository token: github: 503") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Without a TokenSource GitToken is used, as before the GitHub App.
+func TestBuilderStaticToken(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	srv, seen := authRecorder(t)
+	b := &Builder{Engine: &fakeEngine{}, Registry: "r", GitBaseURL: srv.URL, GitToken: "pat", WorkDir: t.TempDir()}
+	d := store.Deployment{ID: 1, AppName: "web", Repo: "acme/web", CommitSHA: strings.Repeat("a", 40), Branch: "main"}
+	b.Build(context.Background(), d, func(string, ...any) {})
+	if got := seen(); len(got) == 0 || got[0] != basicAuth("pat") {
+		t.Fatalf("Authorization = %q, want the static token", got)
 	}
 }

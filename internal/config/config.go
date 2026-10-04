@@ -70,7 +70,8 @@ type Config struct {
 	PublicURL string
 	// GitHub REST API base (GitHub Enterprise: https://<host>/api/v3).
 	GitHubAPIURL string
-	// Report commit statuses and PR comments (needs GitHubToken).
+	// Report commit statuses and PR comments (needs GitHubToken or the
+	// GitHub App).
 	GitHubStatus bool
 	// Commit status context shown on GitHub.
 	GitHubStatusContext string
@@ -104,6 +105,8 @@ type Config struct {
 	AdminGitHubLogins []string
 	// Faz 11: scale to zero (see scale.go).
 	Scale Scale
+	// Faz 15: GitHub App (github_app.go); replaces GitHubToken when enabled.
+	GitHubApp GitHubApp
 }
 
 // OAuthEnabled reports whether GitHub login is configured.
@@ -257,6 +260,9 @@ func Load() (Config, error) {
 		return c, err
 	}
 	if err := c.loadScale(); err != nil {
+		return c, err
+	}
+	if err := c.loadGitHubApp(); err != nil {
 		return c, err
 	}
 

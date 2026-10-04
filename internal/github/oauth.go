@@ -99,14 +99,14 @@ var ErrNotFound = errors.New("github: not found")
 // AuthenticatedUser returns the account the client's token belongs to.
 func (c *Client) AuthenticatedUser(ctx context.Context) (User, error) {
 	var u User
-	err := c.do(ctx, http.MethodGet, "/user", nil, &u)
+	err := c.do(ctx, c.Token, http.MethodGet, "/user", nil, &u)
 	return u, err
 }
 
 // GetUser looks up an account by login.
 func (c *Client) GetUser(ctx context.Context, login string) (User, error) {
 	var u User
-	err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(login), nil, &u)
+	err := c.do(ctx, c.Token, http.MethodGet, "/users/"+url.PathEscape(login), nil, &u)
 	var apiErr *Error
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound {
 		return u, ErrNotFound
@@ -123,7 +123,7 @@ func (c *Client) UserOrgs(ctx context.Context) ([]string, error) {
 		var orgs []struct {
 			Login string `json:"login"`
 		}
-		next, err := c.request(ctx, http.MethodGet, path, nil, &orgs)
+		next, err := c.request(ctx, c.Token, http.MethodGet, path, nil, &orgs)
 		if err != nil {
 			return nil, err
 		}

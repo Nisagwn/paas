@@ -2,7 +2,10 @@
 # Secrets used here are created on the node, not stored in this repo:
 #   paas/paas          database-url, api-token, github-webhook-secret, env-key
 #                              (+ optional github-token for private repos,
-#                              optional env-old-keys during a key rotation)
+#                              optional env-old-keys during a key rotation,
+#                              optional GitHub App: github-app-id,
+#                              github-app-slug, github-app-private-key and
+#                              github-oauth-client-id/-secret for its login)
 #   paas/ecr-docker-config config.json for buildctl, refreshed every 6 h
 #                              by the paas-ecr-auth systemd timer
 apiVersion: apps/v1
@@ -109,6 +112,25 @@ spec:
             - name: PAAS_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef: { name: paas, key: github-token, optional: true }
+            # Faz 15: GitHub App. All optional: without them the control plane
+            # runs on github-token and per-repository webhooks as before. The
+            # private key is a file (multi-line PEM); a missing key leaves the
+            # file absent, which counts as unset.
+            - name: PAAS_GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef: { name: paas, key: github-app-id, optional: true }
+            - name: PAAS_GITHUB_APP_SLUG
+              valueFrom:
+                secretKeyRef: { name: paas, key: github-app-slug, optional: true }
+            - name: PAAS_GITHUB_APP_PRIVATE_KEY_FILE
+              value: /etc/paas/github-app/private-key.pem
+            # GitHub login through the App (its client id and secret).
+            - name: PAAS_GITHUB_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: paas, key: github-oauth-client-id, optional: true }
+            - name: PAAS_GITHUB_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: paas, key: github-oauth-client-secret, optional: true }
             # Faz 10: AES-256 key for app env values (bootstrap.sh generates it).
             - name: PAAS_ENV_KEY
               valueFrom:
@@ -144,6 +166,9 @@ spec:
             - name: docker-config
               mountPath: /docker-config
               readOnly: true
+            - name: github-app
+              mountPath: /etc/paas/github-app
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir:
@@ -152,6 +177,14 @@ spec:
         - name: docker-config
           secret:
             secretName: ecr-docker-config
+            defaultMode: 0440
+        - name: github-app
+          secret:
+            secretName: paas
+            optional: true
+            items:
+              - key: github-app-private-key
+                path: private-key.pem
             defaultMode: 0440
 ---
 apiVersion: v1

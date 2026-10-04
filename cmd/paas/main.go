@@ -26,6 +26,7 @@ import (
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/web"
+	"github.com/nisagwn/paas/internal/webhook"
 	"github.com/nisagwn/paas/internal/worker"
 )
 
@@ -63,7 +64,19 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	pipeline, applier, err := newPipeline(cfg, st)
+	// Faz 15: the GitHub App, when configured, authenticates clones,
+	// statuses and comments with installation tokens; repositories it is
+	// not installed on keep using PAAS_GITHUB_TOKEN (if set).
+	ghApp, err := newGitHubApp(cfg, st, log)
+	if err != nil {
+		return err
+	}
+	var repoTokens github.TokenSource
+	if ghApp != nil {
+		repoTokens = github.AppTokens{App: ghApp, Fallback: cfg.GitHubToken}
+	}
+
+	pipeline, applier, err := newPipeline(cfg, st, repoTokens)
 	if err != nil {
 		return err
 	}
@@ -111,19 +124,29 @@ func run(log *slog.Logger) error {
 	ui := &web.Server{
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
+		// Faz 15 (import UI): GitHubAppSlug: cfg.GitHubApp.Slug, GitHubApp: ghApp
+		// (only when ghApp != nil, so the interface stays nil without an App).
 	}
 
 	// Long-lived streams (SSE) end when shutdown starts instead of holding it up.
 	reqCtx, cancelReqs := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelReqs()
+	apiSrv := &api.Server{
+		Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
+		WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
+		Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
+		Auth: authn,
+		// Faz 15 (import API): GitHubApp: ghApp (only when ghApp != nil).
+	}
+	handler := apiSrv.Handler()
+	if ghApp != nil {
+		// The App's installation events share /webhooks/github with push
+		// and pull_request; everything else reaches the API unchanged.
+		handler = &webhook.Installations{Secret: cfg.GitHubWebhookSecret, Store: st, Log: log, Next: handler}
+	}
 	srv := &http.Server{
-		Addr: cfg.Addr,
-		Handler: (&api.Server{
-			Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
-			WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
-			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
-			Auth: authn,
-		}).Handler(),
+		Addr:              cfg.Addr,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return reqCtx },
 	}
@@ -137,12 +160,14 @@ func run(log *slog.Logger) error {
 		Store: st, Pipeline: pipeline, Router: workerRouter, Domain: cfg.Domain, Scheme: scheme,
 		PollInterval: cfg.PollInterval, Concurrency: cfg.Workers, Timeout: cfg.DeployTimeout, Log: log,
 	}
-	if cfg.GitHubToken != "" && cfg.GitHubStatus {
+	if (cfg.GitHubToken != "" || ghApp != nil) && cfg.GitHubStatus {
+		client := github.New(cfg.GitHubAPIURL, cfg.GitHubToken, log)
+		client.Tokens = repoTokens // nil without the App: the token as before
 		w.Notifier = &github.Notifier{
-			Client:    github.New(cfg.GitHubAPIURL, cfg.GitHubToken, log),
-			PublicURL: cfg.PublicURL, Context: cfg.GitHubStatusContext, Log: log,
+			Client: client, PublicURL: cfg.PublicURL, Context: cfg.GitHubStatusContext, Log: log,
 		}
-		log.Info("github commit statuses and PR comments enabled", "api", cfg.GitHubAPIURL, "public_url", cfg.PublicURL)
+		log.Info("github commit statuses and PR comments enabled", "api", cfg.GitHubAPIURL,
+			"public_url", cfg.PublicURL, "app", ghApp != nil)
 	}
 	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
 
@@ -169,6 +194,14 @@ func run(log *slog.Logger) error {
 		defer wg.Done()
 		verifier.Run(ctx)
 	}()
+	if ghApp != nil {
+		syncer := &github.InstallationSyncer{App: ghApp, Store: st, Log: log}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			syncer.Run(ctx)
+		}()
+	}
 
 	// Faz 11: scale idle deployments to zero; the activator wakes them.
 	errCh := make(chan error, 2)
@@ -234,6 +267,23 @@ func newAuth(cfg config.Config, st *store.Store, log *slog.Logger) (*auth.Sessio
 	return sessions, authn, gl
 }
 
+// newGitHubApp returns the GitHub App, or nil when it is not configured.
+// A key that does not parse stops startup.
+func newGitHubApp(cfg config.Config, st *store.Store, log *slog.Logger) (*github.App, error) {
+	if !cfg.GitHubApp.Enabled() {
+		return nil, nil
+	}
+	key, err := github.ParsePrivateKey(cfg.GitHubApp.PrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("PAAS_GITHUB_APP_PRIVATE_KEY: %w", err)
+	}
+	app := github.NewApp(cfg.GitHubAPIURL, cfg.GitHubApp.ID, key, log)
+	app.Installations = st
+	log.Info("github app enabled", "app_id", cfg.GitHubApp.ID, "slug", cfg.GitHubApp.Slug,
+		"token_fallback", cfg.GitHubToken != "")
+	return app, nil
+}
+
 // retirerOf returns the stage that deletes a deployment's objects.
 func retirerOf(p worker.Pipeline) worker.Retirer {
 	if s, ok := p.(worker.Stages); ok {
@@ -245,7 +295,8 @@ func retirerOf(p worker.Pipeline) worker.Retirer {
 }
 
 // newPipeline also returns the alias applier when the deployer has one.
-func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.Applier, error) {
+// repoTokens (the GitHub App) replaces PAAS_GITHUB_TOKEN for clones when set.
+func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSource) (worker.Pipeline, routing.Applier, error) {
 	dry := worker.DryRunPipeline{Registry: "registry.local", Step: 500 * time.Millisecond}
 	var p worker.Stages
 	var applier routing.Applier
@@ -261,6 +312,9 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.A
 		b := &build.Builder{
 			Engine: engine, Registry: cfg.Registry, Platform: cfg.BuildPlatform, Cache: cfg.BuildCache,
 			GitBaseURL: cfg.GitBaseURL, GitToken: cfg.GitHubToken,
+		}
+		if repoTokens != nil {
+			b.GitTokens = repoTokens
 		}
 		if err := b.Check(); err != nil {
 			return nil, nil, err
