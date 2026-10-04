@@ -85,6 +85,9 @@ type Config struct {
 	GCInterval time.Duration
 	// A deployment without a worker heartbeat this long is recovered.
 	WorkerStaleAfter time.Duration
+
+	// Faz 12: custom domains (domains.go).
+	Domains DomainConfig
 }
 
 // loadLifecycle reads the Faz 7 settings.
@@ -195,6 +198,9 @@ func Load() (Config, error) {
 	}
 
 	if err := c.loadLifecycle(); err != nil {
+		return c, err
+	}
+	if err := c.loadDomains(); err != nil {
 		return c, err
 	}
 

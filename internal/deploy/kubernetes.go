@@ -5,6 +5,7 @@
 //
 //	  └─ Ingress d-<sha7>       <sha7>-<app>.<domain>   (owned by the Deployment)
 //	  └─ Ingress alias-<label>  <app>.<domain>, <branch>-<app>.<domain>
+//	  └─ Ingress domain-<host>  custom domains → production (domains.go)
 //
 // Every commit gets its own Deployment, Service and Ingress, so deployments
 // are immutable and a rollback only moves an alias Ingress (ApplyAliases).
@@ -18,6 +19,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -57,6 +59,9 @@ type Config struct {
 	// TLS serves routes on the websecure entry point with the default
 	// (wildcard) certificate; false uses plain HTTP, e.g. on a laptop cluster.
 	TLS bool
+	// CustomDomainIssuer is the cert-manager ClusterIssuer for custom
+	// domains (Faz 12). Empty means DefaultCustomDomainIssuer.
+	CustomDomainIssuer string
 	// Per container.
 	CPURequest, CPULimit       string
 	MemoryRequest, MemoryLimit string
@@ -94,6 +99,10 @@ type Kubernetes struct {
 	env    EnvSource
 	cfg    Config
 	q      quantities
+
+	// Certificates reads cert-manager Certificates of custom domains
+	// (optional; see DomainCertificate).
+	Certificates dynamic.Interface
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)
@@ -139,6 +148,14 @@ func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, e
 // NewClient uses the in-cluster service account when running in a pod,
 // otherwise kubeconfig (explicit path, else $KUBECONFIG / ~/.kube/config).
 func NewClient(kubeconfig string) (kubernetes.Interface, error) {
+	cfg, err := restConfig(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	return kubernetes.NewForConfig(cfg)
+}
+
+func restConfig(kubeconfig string) (*rest.Config, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil || kubeconfig != "" {
 		rules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -149,7 +166,7 @@ func NewClient(kubeconfig string) (kubernetes.Interface, error) {
 		}
 	}
 	cfg.Timeout = 30 * time.Second // per request; rollouts are bounded separately
-	return kubernetes.NewForConfig(cfg)
+	return cfg, nil
 }
 
 // Check verifies that the API server is reachable, so a misconfiguration

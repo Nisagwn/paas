@@ -21,6 +21,7 @@ import (
 	"github.com/nisagwn/paas/internal/cleanup"
 	"github.com/nisagwn/paas/internal/config"
 	"github.com/nisagwn/paas/internal/deploy"
+	"github.com/nisagwn/paas/internal/domains"
 	"github.com/nisagwn/paas/internal/github"
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
@@ -86,9 +87,21 @@ func run(log *slog.Logger) error {
 	hub := store.NewHub(cfg.DatabaseURL, log)
 	sessions := auth.New(cfg.APIToken)
 	runtimeLogs, _ := applier.(api.RuntimeLogs) // only the Kubernetes deployer
+
+	// Faz 12: custom domain verification; routes follow production.
+	verifier := &domains.Verifier{
+		Store: st, Resolver: net.DefaultResolver, Domain: cfg.Domain, Mode: cfg.Domains.Verify,
+		Interval: cfg.Domains.CheckInterval, Recheck: cfg.Domains.RecheckInterval, Grace: cfg.Domains.Grace, Log: log,
+	}
+	if router != nil {
+		verifier.Router = router
+	}
+	if certs, ok := applier.(domains.Certificates); ok {
+		verifier.Certs = certs
+	}
 	ui := &web.Server{
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
-		RuntimeLogs: runtimeLogs != nil, Log: log,
+		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier,
 	}
 
 	// Long-lived streams (SSE) end when shutdown starts instead of holding it up.
@@ -99,7 +112,7 @@ func run(log *slog.Logger) error {
 		Handler: (&api.Server{
 			Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
 			WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
-			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(),
+			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return reqCtx },
@@ -140,6 +153,11 @@ func run(log *slog.Logger) error {
 	go func() {
 		defer wg.Done()
 		gc.Run(ctx)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		verifier.Run(ctx)
 	}()
 
 	errCh := make(chan error, 1)
@@ -218,11 +236,15 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.A
 			MemoryRequest: cfg.AppMemoryRequest, MemoryLimit: cfg.AppMemoryLimit,
 			QuotaCPU: cfg.AppQuotaCPU, QuotaMemory: cfg.AppQuotaMemory, QuotaPods: cfg.AppQuotaPods,
 			RunAsNonRoot: cfg.AppRunAsNonRoot, RolloutTimeout: cfg.RolloutTimeout,
+			CustomDomainIssuer: cfg.Domains.Issuer,
 		})
 		if err != nil {
 			return nil, nil, err
 		}
 		if err := d.Check(); err != nil {
+			return nil, nil, err
+		}
+		if d.Certificates, err = deploy.NewDynamicClient(cfg.Kubeconfig); err != nil {
 			return nil, nil, err
 		}
 		p.Deployer = d

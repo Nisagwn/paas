@@ -81,3 +81,60 @@
   <p class="muted small" style="margin-bottom:0">Values are write-only and apply to deployments created afterwards. <code>PORT</code> and <code>PAAS_*</code> are set by the platform.</p>
 </div>
 {{end}}
+
+{{define "domains"}}
+<div id="domains-card" class="card pad">
+  {{$csrf := .CSRF}}{{$app := .Data.App.Name}}
+  {{with .DomainError}}<div class="flash err" role="alert">{{.}}</div>{{end}}
+  {{range .Data.Domains}}
+  <div style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:12px">
+    <div class="row" style="align-items:center">
+      <div>
+        <span class="badge s-{{.Status}}">{{.Status}}</span>
+        {{if .Serving}}<a href="{{.URL}}" target="_blank" rel="noopener">{{.Hostname}}</a>{{else}}<span class="mono">{{.Hostname}}</span>{{end}}
+        {{with .VerifiedBy}}<span class="muted small">· verified by {{.}}</span>{{end}}
+        {{with .LastCheckedAt}}<span class="muted small">· checked {{ago .}}</span>{{end}}
+      </div>
+      <div style="flex:0;white-space:nowrap;text-align:right">
+        <form class="inline" method="post" action="/apps/{{$app}}/domains/verify"
+          hx-post="/apps/{{$app}}/domains/verify" hx-target="#domains-card" hx-swap="outerHTML">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="hostname" value="{{.Hostname}}">
+          <button class="small" type="submit">Check now</button>
+        </form>
+        <form class="inline" method="post" action="/apps/{{$app}}/domains/delete"
+          hx-post="/apps/{{$app}}/domains/delete" hx-target="#domains-card" hx-swap="outerHTML"
+          hx-confirm="Remove {{.Hostname}}? It stops serving the app.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="hostname" value="{{.Hostname}}">
+          <button class="small danger" type="submit">Delete</button>
+        </form>
+      </div>
+    </div>
+    {{with .Error}}<div class="small" style="color:var(--err)">{{.}}</div>{{end}}
+    {{if ne .Status "active"}}
+    <p class="small muted" style="margin:8px 0 4px">Create one of these DNS records, then wait for the next check (every minute) or press “Check now”:</p>
+    <table class="small">
+      <thead><tr><th>Type</th><th>Name</th><th>Value</th><th class="hide-sm"></th></tr></thead>
+      <tbody>
+      {{range .DNSRecords}}
+        <tr><td class="mono">{{.Type}}</td><td class="mono">{{.Name}}</td><td class="mono">{{.Value}}</td><td class="hide-sm muted">{{.Note}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+  {{else}}
+  <p class="muted" style="margin-top:0">No custom domains.</p>
+  {{end}}
+  <form method="post" action="/apps/{{$app}}/domains"
+    hx-post="/apps/{{$app}}/domains" hx-target="#domains-card" hx-swap="outerHTML">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="domain-host">Hostname</label><input id="domain-host" name="hostname" placeholder="www.example.com" required></div>
+      <div style="flex:0"><button type="submit">Add domain</button></div>
+    </div>
+  </form>
+  <p class="muted small" style="margin-bottom:0">A verified domain serves the production deployment and follows rollbacks. With HTTPS, each domain gets its own Let's Encrypt certificate (HTTP-01) shortly after verification.</p>
+</div>
+{{end}}

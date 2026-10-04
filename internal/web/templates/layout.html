@@ -56,6 +56,9 @@ tr:last-child td { border-bottom: 0; }
 .s-retired { opacity: .6; text-decoration: line-through; }
 .s-building, .s-deploying { background: var(--run-bg); color: var(--run); }
 .s-building::before, .s-deploying::before { animation: pulse 1s ease-in-out infinite; }
+.s-active { background: var(--ok-bg); color: var(--ok); }
+.s-verified { background: var(--run-bg); color: var(--run); }
+.s-error { background: var(--err-bg); color: var(--err); }
 .tag { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 12px;
   border: 1px solid var(--border); color: var(--muted); }
 .tag.prod { border-color: var(--ok); color: var(--ok); }

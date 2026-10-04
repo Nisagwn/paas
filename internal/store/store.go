@@ -476,12 +476,21 @@ type AliasRoute struct {
 	CommitSHA    string
 }
 
-// AliasRoutes returns the app's aliases with their target commits.
+// AliasRoutes returns the app's aliases with their target commits, plus
+// one route of kind AliasCustom per routed custom domain. Custom domains
+// target the production alias's deployment, so a rollback moves them too.
 func (s *Store) AliasRoutes(ctx context.Context, appID int64) ([]AliasRoute, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT al.hostname, al.kind, al.branch, al.deployment_id, d.commit_sha
 		FROM aliases al JOIN deployments d ON d.id = al.deployment_id
-		WHERE al.app_id = $1 ORDER BY al.hostname`, appID)
+		WHERE al.app_id = $1
+		UNION ALL
+		SELECT dm.hostname, '`+AliasCustom+`', al.branch, al.deployment_id, d.commit_sha
+		FROM app_domains dm
+		JOIN aliases al ON al.app_id = dm.app_id AND al.kind = '`+AliasProduction+`'
+		JOIN deployments d ON d.id = al.deployment_id
+		WHERE dm.app_id = $1 AND dm.routed
+		ORDER BY 1`, appID)
 	if err != nil {
 		return nil, err
 	}

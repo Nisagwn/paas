@@ -39,6 +39,11 @@ rules:
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies, ingresses]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Custom domains (Faz 12): certificate readiness of per-domain certificates
+  # (cert-manager creates them from the Ingress annotation).
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [get, list, watch]
   - apiGroups: [traefik.io]
     resources: [ingressroutes, middlewares]
     verbs: [get, list, watch, create, update, patch, delete]
