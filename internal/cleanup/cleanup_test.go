@@ -71,10 +71,12 @@ func TestCollectApp(t *testing.T) {
 	failed, _, _ := st.EnqueueDeployment(ctx, app.ID, sha(7), "main", "")
 	st.MarkFailed(ctx, failed.ID, "CrashLoopBackOff")
 
-	time.Sleep(20 * time.Millisecond) // let the preview TTL below pass
+	// Generous margins: finished_at and the TTL check use the database clock,
+	// which inside Docker Desktop can be adjusted by a few milliseconds.
+	time.Sleep(time.Second) // let the preview TTL below pass
 	ret := &fakeRetirer{failFor: map[int64]bool{m1.ID: true}}
 	router := &countingRouter{}
-	c := cleanup.New(st, ret, router, cleanup.Policy{KeepProduction: 2, PreviewTTL: 10 * time.Millisecond},
+	c := cleanup.New(st, ret, router, cleanup.Policy{KeepProduction: 2, PreviewTTL: 200 * time.Millisecond},
 		time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	r := c.CollectApp(ctx, app, false)

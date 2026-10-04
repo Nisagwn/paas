@@ -72,14 +72,16 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
-- [x] Faz 12: özel alan adları: DNS doğrulaması (CNAME / TXT), alan adı başına Let's Encrypt sertifikası (HTTP-01), production ve rollback'i izler
-- [x] Faz 11: sıfıra ölçekleme: boştaki deploy'lar 0 replikaya iner, ilk istek bekletilip uyandırılan pod'a iletilir; production uygulama başına isteğe bağlı
 - [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
 - [x] Faz 9: Python (pip / uv / poetry; Django, FastAPI, Flask), Ruby (Rails, Rack), Java (Maven / Gradle) build'leri,
   her dilde `Procfile` `web:` desteği; hepsi sayısal root olmayan kullanıcıyla, örnekleri gerçek build testinde
+- [x] Faz 10: env değerleri veritabanında AES-256-GCM ile şifreli, anahtar kimliğiyle rotasyon (`paas-envkey`)
+- [x] Faz 11: sıfıra ölçekleme: boştaki deploy'lar 0 replikaya iner, ilk istek bekletilip uyandırılan pod'a iletilir; production uygulama başına isteğe bağlı
+- [x] Faz 12: özel alan adları: DNS doğrulaması (CNAME / TXT), alan adı başına Let's Encrypt sertifikası (HTTP-01), production ve rollback'i izler
+- [x] Faz 13: kullanıcılar ve ekipler: GitHub ile giriş (OAuth + PKCE), roller (owner / member / viewer),
+  kişisel API token'ları, ekip dışı kaynaklar 404; eski `PAAS_API_TOKEN` acil durum admin token'ı
 - [x] Faz 14 (kısmen): üretilen Dockerfile'larda `# syntax=` satırı yok; yerleşik BuildKit frontend'i cache mount'u
   destekliyor, her build'den frontend imajı çözümleme adımı düşüyor
-- [x] Faz 10: env değerleri veritabanında AES-256-GCM ile şifreli, anahtar kimliğiyle rotasyon (`paas-envkey`)
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
