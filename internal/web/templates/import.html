@@ -5,14 +5,13 @@
     <p class="sub">Repositories the GitHub App is installed on. Importing creates the app and deploys its production branch.</p>
   </div>
   {{if .Data.InstallEnabled}}{{with .Data.Teams}}
-  <form class="actions" method="get" action="/github/install">
+  {{/* Links, not a form: CSP form-action 'self' would block the redirect to github.com. */}}
+  <div class="actions">
+    {{$label := "Install GitHub App"}}{{if $.Data.Groups}}{{$label = "Configure repositories"}}{{end}}
     {{if gt (len .) 1}}
-    <select name="team" aria-label="Team">
-      {{range .}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}
-    </select>
-    {{else}}{{range .}}<input type="hidden" name="team" value="{{.Slug}}">{{end}}{{end}}
-    <button class="primary" type="submit">{{if $.Data.Groups}}Configure repositories{{else}}Install GitHub App{{end}}</button>
-  </form>
+    {{range .}}<a class="btn" href="/github/install?team={{.Slug}}">{{$label}} · {{.Name}}</a> {{end}}
+    {{else}}{{range .}}<a class="btn" href="/github/install?team={{.Slug}}">{{$label}}</a>{{end}}{{end}}
+  </div>
   {{end}}{{end}}
 </div>
 
