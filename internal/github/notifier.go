@@ -35,12 +35,12 @@ var _ worker.Notifier = (*Notifier)(nil)
 
 // DeploymentStarted marks the commit "pending".
 func (n *Notifier) DeploymentStarted(ctx context.Context, d store.Deployment) error {
-	return n.Client.CreateCommitStatus(ctx, d.Repo, d.CommitSHA, Status{
+	return n.skipUncredentialed(d, n.Client.CreateCommitStatus(ctx, d.Repo, d.CommitSHA, Status{
 		State:       StatePending,
 		TargetURL:   n.DeploymentPage(d.ID),
 		Description: "Build başladı",
 		Context:     n.context(),
-	})
+	}))
 }
 
 // DeploymentFinished sets the final commit status and updates the preview
@@ -55,7 +55,21 @@ func (n *Notifier) DeploymentFinished(ctx context.Context, d store.Deployment, r
 		s.Description = "Deploy başarısız: " + oneLine(r.Error)
 	}
 	statusErr := n.Client.CreateCommitStatus(ctx, d.Repo, d.CommitSHA, s)
+	if errors.Is(statusErr, ErrNoCredentials) {
+		return n.skipUncredentialed(d, statusErr)
+	}
 	return errors.Join(statusErr, n.commentOnPullRequests(ctx, d, r))
+}
+
+// skipUncredentialed turns ErrNoCredentials into a log line: a repository
+// the GitHub App is not installed on (and no fallback token) simply gets no
+// statuses or comments.
+func (n *Notifier) skipUncredentialed(d store.Deployment, err error) error {
+	if errors.Is(err, ErrNoCredentials) {
+		n.log().Info("github: no credentials for repository, status skipped", "repo", d.Repo, "deployment", d.ID)
+		return nil
+	}
+	return err
 }
 
 func (n *Notifier) commentOnPullRequests(ctx context.Context, d store.Deployment, r worker.Result) error {

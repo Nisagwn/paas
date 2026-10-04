@@ -36,11 +36,29 @@ type Builder struct {
 	GitBaseURL string
 	// GitToken authenticates clones of private repositories (optional).
 	GitToken string
+	// GitTokens, when set, replaces GitToken with a token per repository:
+	// the GitHub App's installation token (Faz 15). An empty token clones
+	// anonymously.
+	GitTokens TokenSource
 	// WorkDir holds per-build checkouts. Empty means the OS temp directory.
 	WorkDir string
 }
 
 var _ worker.Builder = (*Builder)(nil)
+
+// TokenSource returns the token that grants access to a repository
+// ("owner/name"); github.AppTokens implements it.
+type TokenSource interface {
+	RepoToken(ctx context.Context, repo string) (string, error)
+}
+
+// gitToken is the clone token for repo.
+func (b *Builder) gitToken(ctx context.Context, repo string) (string, error) {
+	if b.GitTokens == nil {
+		return b.GitToken, nil
+	}
+	return b.GitTokens.RepoToken(ctx, repo)
+}
 
 // Check verifies the binaries the builder shells out to, so that a
 // misconfiguration shows up at startup instead of on the first push.
@@ -80,7 +98,11 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	repoURL := strings.TrimSuffix(b.GitBaseURL, "/") + "/" + d.Repo
 	log("==> fetching %s@%s", d.Repo, naming.ShortSHA(d.CommitSHA))
 	start := time.Now()
-	if err := Checkout(ctx, repoURL, d.CommitSHA, b.GitToken, src, out); err != nil {
+	token, err := b.gitToken(ctx, d.Repo)
+	if err != nil {
+		return "", fmt.Errorf("fetch source: repository token: %w", err)
+	}
+	if err := Checkout(ctx, repoURL, d.CommitSHA, token, src, out); err != nil {
 		out.Flush()
 		return "", fmt.Errorf("fetch source: %w", err)
 	}

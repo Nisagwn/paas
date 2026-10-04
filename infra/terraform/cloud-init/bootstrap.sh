@@ -136,6 +136,15 @@ if [ -z "$(kubectl -n paas get secret paas -o jsonpath='{.data.env-key}')" ]; th
     -p "{\"data\":{\"env-key\":\"$(openssl rand -base64 32 | tr -d '\n' | base64 -w0)\"}}"
 fi
 
+# Faz 15: the GitHub App's credentials come from GitHub, not from here. They
+# are optional keys of the same Secret, added once the App exists (the
+# control plane starts without them):
+#   kubectl -n paas patch secret paas --type merge -p "{\"data\":{
+#     \"github-app-id\":\"$(printf %s 123456 | base64 -w0)\",
+#     \"github-app-slug\":\"$(printf %s my-paas | base64 -w0)\",
+#     \"github-app-private-key\":\"$(base64 -w0 < my-paas.private-key.pem)\"}}"
+#   kubectl -n paas rollout restart deployment/paas
+
 # --- 8. ECR credentials for buildctl (refreshed every 6 h) -------------------
 log "ECR auth for buildctl"
 systemctl daemon-reload

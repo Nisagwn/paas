@@ -1,6 +1,6 @@
 // Package github is a REST client for the few GitHub API calls paas makes:
-// commit statuses, open pull requests of a branch and PR comments. It uses
-// net/http only.
+// commit statuses, open pull requests of a branch, PR comments and, as a
+// GitHub App (Faz 15), installation tokens. It uses net/http only.
 package github
 
 import (
@@ -40,8 +40,11 @@ const lowRateLimit = 100
 
 type Client struct {
 	// BaseURL without a trailing slash, e.g. https://api.github.com.
-	BaseURL   string
-	Token     string
+	BaseURL string
+	Token   string
+	// Tokens, when set, replaces Token: repository calls authenticate with
+	// the token it returns for that repository (Faz 15, GitHub App).
+	Tokens    TokenSource
 	UserAgent string
 	HTTP      *http.Client
 	Log       *slog.Logger
@@ -104,7 +107,11 @@ func (c *Client) CreateCommitStatus(ctx context.Context, repo, sha string, s Sta
 		s.Context = "paas/deploy"
 	}
 	s.Description = Truncate(s.Description, MaxDescription)
-	return c.do(ctx, http.MethodPost, "/repos/"+repo+"/statuses/"+url.PathEscape(sha), s, nil)
+	tok, err := c.repoToken(ctx, repo)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, tok, http.MethodPost, "/repos/"+repo+"/statuses/"+url.PathEscape(sha), s, nil)
 }
 
 type PullRequest struct {
@@ -129,8 +136,12 @@ func (c *Client) OpenPullRequests(ctx context.Context, repo, branch string) ([]P
 	}
 	owner, _, _ := strings.Cut(repo, "/")
 	q := url.Values{"state": {"open"}, "head": {owner + ":" + branch}, "per_page": {"100"}}
+	tok, err := c.repoToken(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
 	var prs []PullRequest
-	err := c.do(ctx, http.MethodGet, "/repos/"+repo+"/pulls?"+q.Encode(), nil, &prs)
+	err = c.do(ctx, tok, http.MethodGet, "/repos/"+repo+"/pulls?"+q.Encode(), nil, &prs)
 	return prs, err
 }
 
@@ -153,25 +164,29 @@ func (c *Client) UpsertComment(ctx context.Context, repo string, number int, mar
 	if marker == "" || !strings.Contains(body, marker) {
 		return Comment{}, false, errors.New("github: comment body must contain the marker")
 	}
+	tok, err := c.repoToken(ctx, repo)
+	if err != nil {
+		return Comment{}, false, err
+	}
 	base := fmt.Sprintf("/repos/%s/issues/%d/comments", repo, number)
-	existing, err := c.findComment(ctx, base+"?per_page=100", marker)
+	existing, err := c.findComment(ctx, tok, base+"?per_page=100", marker)
 	if err != nil {
 		return Comment{}, false, err
 	}
 	payload := map[string]string{"body": body}
 	var out Comment
 	if existing != nil {
-		err = c.do(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/comments/%d", repo, existing.ID), payload, &out)
+		err = c.do(ctx, tok, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/comments/%d", repo, existing.ID), payload, &out)
 		return out, false, err
 	}
-	err = c.do(ctx, http.MethodPost, base, payload, &out)
+	err = c.do(ctx, tok, http.MethodPost, base, payload, &out)
 	return out, true, err
 }
 
-func (c *Client) findComment(ctx context.Context, path, marker string) (*Comment, error) {
+func (c *Client) findComment(ctx context.Context, token, path, marker string) (*Comment, error) {
 	for page := 0; page < maxCommentPages && path != ""; page++ {
 		var comments []Comment
-		next, err := c.request(ctx, http.MethodGet, path, nil, &comments)
+		next, err := c.request(ctx, token, http.MethodGet, path, nil, &comments)
 		if err != nil {
 			return nil, err
 		}
@@ -185,14 +200,31 @@ func (c *Client) findComment(ctx context.Context, path, marker string) (*Comment
 	return nil, nil
 }
 
-func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
-	_, err := c.request(ctx, method, path, in, out)
+// repoToken is the token for a call about repo: from Tokens when set
+// (ErrNoCredentials if it has none), else the static Token.
+func (c *Client) repoToken(ctx context.Context, repo string) (string, error) {
+	if c.Tokens == nil {
+		return c.Token, nil
+	}
+	tok, err := c.Tokens.RepoToken(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	if tok == "" {
+		return "", fmt.Errorf("%w %s", ErrNoCredentials, repo)
+	}
+	return tok, nil
+}
+
+func (c *Client) do(ctx context.Context, token, method, path string, in, out any) error {
+	_, err := c.request(ctx, token, method, path, in, out)
 	return err
 }
 
-// request sends one API call and decodes the JSON response into out. It
-// returns the path of the next page from the Link header, if any.
-func (c *Client) request(ctx context.Context, method, path string, in, out any) (string, error) {
+// request sends one API call authenticated with token (none when empty) and
+// decodes the JSON response into out. It returns the path of the next page
+// from the Link header, if any.
+func (c *Client) request(ctx context.Context, token, method, path string, in, out any) (string, error) {
 	var body io.Reader
 	if in != nil {
 		b, err := json.Marshal(in)
@@ -208,8 +240,8 @@ func (c *Client) request(ctx context.Context, method, path string, in, out any) 
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", c.UserAgent)
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
