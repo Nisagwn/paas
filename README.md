@@ -20,7 +20,7 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 | `https://<branch>-<app>.<domain>` | Branch'in son başarılı deployment'ı (preview) |
 | `https://<app>.<domain>` | Production (production branch'in son deployment'ı veya rollback hedefi) |
 
-**Öne çıkanlar:** Dockerfile'sız build (Node, Go, statik) · commit başına HTTPS URL ·
+**Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · commit başına HTTPS URL ·
 branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · canlı build logu ·
 web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform apply` ile AWS'de kurulum.
 
@@ -73,6 +73,10 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
 - [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
+- [x] Faz 9: Python (pip / uv / poetry; Django, FastAPI, Flask), Ruby (Rails, Rack), Java (Maven / Gradle) build'leri,
+  her dilde `Procfile` `web:` desteği; hepsi sayısal root olmayan kullanıcıyla, örnekleri gerçek build testinde
+- [x] Faz 14 (kısmen): üretilen Dockerfile'larda `# syntax=` satırı yok; yerleşik BuildKit frontend'i cache mount'u
+  destekliyor, her build'den frontend imajı çözümleme adımı düşüyor
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -166,8 +170,22 @@ kalırsa `failed` olur. Ayrıntılar ve tüm arıza durumları: [docs/FAILURE-SC
 ### Build nasıl çalışır
 
 1. `git fetch --depth=1 <repo> <sha>` — branch değil SHA çekilir, kuyrukta beklerken gelen push build'i değiştiremez.
-2. Algılama: repoda `Dockerfile` varsa o kullanılır; yoksa `package.json` → Node, `go.mod` → Go,
-   `index.html` / `public/index.html` → nginx ile statik site. Örnekler: [examples/](examples/)
+2. Algılama: repoda `Dockerfile` varsa o kullanılır. Yoksa sırayla:
+   - `pom.xml` / `build.gradle(.kts)` → Java 21: Maven / Gradle (varsa `./mvnw` / `./gradlew`), üretilen en büyük
+     jar `eclipse-temurin:21-jre` üzerinde `java -jar`; Spring Boot için `SERVER_PORT=8080`
+   - `Gemfile` + `config.ru` → Ruby: `bin/rails` varsa Rails (`rails server`, assets precompile), yoksa Rack
+     (`puma` ya da `rackup`); `ruby:3.3` ile build, `ruby:3.3-slim` ile çalışır, sürüm `Gemfile` / `.ruby-version`'dan
+   - `requirements.txt` / `pyproject.toml` + `manage.py` → Django (`gunicorn <proje>.wsgi`)
+   - `package.json` → Node, `go.mod` → Go
+   - `requirements.txt` / `pyproject.toml` → Python: `uv.lock` → uv, `poetry.lock` → poetry, yoksa pip;
+     FastAPI / Starlette → `uvicorn`, Flask → `gunicorn`, yoksa `python main.py` / `app.py`.
+     Bağımlılıklarda olmayan sunucu paketi eklenir; sürüm `.python-version` / `runtime.txt`'den (varsayılan 3.12)
+   - `Gemfile` + `Procfile` → Ruby
+   - `index.html` / `public/index.html` → nginx ile statik site
+
+   Java, Rails/Rack ve Django öne alınır, çünkü bu projelerde ön yüz araçları için sıkça `package.json` bulunur.
+   `Procfile`'daki `web:` satırı Node, Python, Ruby ve Java'da başlatma komutunun yerine geçer (`sh -c` ile,
+   `$PORT` genişler); Go ve statik imajlarda kabuk olmadığından yok sayılır. Örnekler: [examples/](examples/)
 3. Üretilen Dockerfile build logunda aynen görünür.
 4. İmaj `PAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
 
@@ -353,7 +371,7 @@ internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/web/         web arayüzü (html/template + htmx)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/testdb/      testler için temiz veritabanı
-examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
+examples/             otomatik algılanan örnek uygulamalar (Node, Go, Python, Ruby, Java, statik)
 infra/                Terraform (AWS) ve Kubernetes manifest'leri
 loadtest/             k6 yük testleri
 scripts/              ölçüm script'leri (measure-*.sh), sahte push (push.sh)

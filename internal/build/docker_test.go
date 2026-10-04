@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -25,9 +26,12 @@ func TestDockerBuildExamples(t *testing.T) {
 		registry = "localhost:5000"
 	}
 	examples := map[string]string{
-		"node-hello":  "hello from node",
-		"go-hello":    "hello from go",
-		"static-site": "hello from a static site",
+		"node-hello":   "hello from node",
+		"go-hello":     "hello from go",
+		"static-site":  "hello from a static site",
+		"python-hello": "hello from python",
+		"ruby-hello":   "hello from ruby",
+		"java-hello":   "hello from java",
 	}
 	for name, want := range examples {
 		t.Run(name, func(t *testing.T) {
@@ -53,7 +57,15 @@ func TestDockerBuildExamples(t *testing.T) {
 				t.Errorf("digest = %q", digest)
 			}
 
-			got := runAndGet(t, image+"@"+digest)
+			ref := image + "@" + digest
+			// runAsNonRoot needs a numeric user, set by the image or its base.
+			exec.Command("docker", "pull", "-q", ref).Run()
+			userOut, err := exec.Command("docker", "inspect", "--format", "{{.Config.User}}", ref).Output()
+			if user := strings.TrimSpace(string(userOut)); err != nil || !numericUser.MatchString(user) {
+				t.Fatalf("image user = %q (%v), want a numeric non-root uid", user, err)
+			}
+
+			got := runAndGet(t, ref)
 			if !strings.Contains(got, want) {
 				t.Fatalf("GET / = %q, want it to contain %q", got, want)
 			}
@@ -93,3 +105,6 @@ func runAndGet(t *testing.T, image string) string {
 		time.Sleep(300 * time.Millisecond)
 	}
 }
+
+// numericUser matches "uid" or "uid:gid" with a non-zero uid.
+var numericUser = regexp.MustCompile(`^[1-9][0-9]*(:[0-9]+)?$`)
