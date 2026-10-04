@@ -178,7 +178,11 @@ yazmak hem riskli hem gereksiz olurdu.
 | Tehdit | Önlem |
 |---|---|
 | Sahte webhook | HMAC-SHA256 imzası, sabit zamanlı karşılaştırma |
-| API'ye yetkisiz erişim | Bearer token (sabit zamanlı karşılaştırma) |
+| API'ye yetkisiz erişim | Kişisel bearer token'lar (`paas_` + 256 bit, yalnızca SHA-256 özeti saklanır, süre ve iptal); admin token'ı sabit zamanlı karşılaştırma, GitHub girişi varken kapatılabilir |
+| Ekipler arası erişim | Her API ucu ve sayfa çağıranın ekip rolünü denetler (viewer/member/owner); başka ekibin uygulaması 404 döner, isimler sızmaz; yeni uçlar tek sarmalayıcıyla korunur, sarmalanmamış uç da varsayılan rolle korunur |
+| Yetkisiz GitHub hesabıyla giriş | OAuth yalnızca izin listesindeki kullanıcı/organizasyon üyelerine, admin'lere ve ekibe davet edilenlere açık; varsayılan kapalı |
+| OAuth akışında CSRF / kod çalınması | 10 dakikalık imzalı `state` çerezi (sabit zamanlı karşılaştırma), PKCE S256; GitHub erişim token'ı saklanmaz |
+| Son owner'ın kaybı | Ekip satırı kilitlenerek üye değişikliği yapılır; son owner düşürülemez/çıkarılamaz |
 | Web arayüzünde oturum çalınması / CSRF | Durumsuz, HMAC imzalı `HttpOnly` + `SameSite=Strict` çerez; oturuma bağlı CSRF token'ı; Origin kontrolü; açık yönlendirme engeli |
 | XSS | `html/template` otomatik kaçışlama; istek başına nonce'lu sıkı CSP |
 | Sırların sızması | Env değerleri API'den ve arayüzden asla okunmaz; deploy anında değişmez Secret; GitHub token'ı argv/log'a yazılmaz; altyapı sırları Terraform state'ine girmez |
@@ -241,6 +245,11 @@ Açıkça belirtilmesi gerekenler:
   kısa yarışlar olabilir (uzlaştırma döngüsü düzeltir).
 - **Env değerleri veritabanında düz metin;** şifreleme sonraki iştir.
 - **Fork'lardan açılan PR'lar** preview yorumu almaz.
+- **Kullanıcı adı tabanlı izin listeleri:** `PAAS_ADMIN_GITHUB_LOGINS` ve `PAAS_ALLOWED_GITHUB_USERS`
+  GitHub kullanıcı adlarıyla eşleşir; GitHub'da bırakılan bir ad başkası tarafından alınabilir.
+  Organizasyon üyeliği veya ekip daveti (hesap numarasına bağlı) daha sağlamdır.
+- **Durumsuz oturumlar tek tek iptal edilemez;** kullanıcının ekipten çıkarılması anında etkilidir
+  (rol her istekte okunur), ama oturumun kendisi süresi dolana veya anahtar değişene kadar geçerlidir.
 
 ## 10. Gelecek çalışmalar
 

@@ -1,0 +1,73 @@
+{{define "content"}}
+{{$t := .Data.Team}}{{$csrf := .CSRF}}{{$owner := .Data.Owner}}{{$roles := .Data.Roles}}{{$me := .Me}}
+<div class="head"><div>
+  <p class="sub" style="margin:0"><a href="/teams">Teams</a> /</p>
+  <h1>{{$t.Name}}</h1>
+  <p class="sub"><span class="mono">{{$t.Slug}}</span> · your role <span class="tag">{{$t.Role}}</span></p>
+</div></div>
+
+<h2>Members</h2>
+<div class="card">
+{{with .Data.Members}}
+  <table>
+    <thead><tr><th>User</th><th>Role</th><th></th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><strong>@{{.Login}}</strong> <span class="muted small">{{.Name}}</span></td>
+        <td>
+          {{if $owner}}
+          <form class="inline" method="post" action="/teams/{{$t.Slug}}/members">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="login" value="{{.Login}}">
+            {{$r := .Role}}
+            <select name="role" aria-label="Role of {{.Login}}">
+              {{range $roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            <button class="small" type="submit">Change</button>
+          </form>
+          {{else}}<span class="tag">{{.Role}}</span>{{end}}
+        </td>
+        <td style="text-align:right">
+          {{if or $owner (eq .ID $me.UserID)}}
+          <form class="inline" method="post" action="/teams/{{$t.Slug}}/members/remove">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="login" value="{{.Login}}">
+            <button class="small danger" type="submit">{{if eq .ID $me.UserID}}Leave{{else}}Remove{{end}}</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">No members yet.</div>
+{{end}}
+</div>
+
+{{if $owner}}
+<h2>Add member</h2>
+<form class="card pad" method="post" action="/teams/{{$t.Slug}}/members">
+  <input type="hidden" name="csrf" value="{{$csrf}}">
+  <div class="row">
+    <div><label for="login">GitHub login</label><input id="login" name="login" placeholder="octocat" required></div>
+    <div><label for="role">Role</label>
+      <select id="role" name="role">{{range $roles}}<option value="{{.}}" {{if eq . "member"}}selected{{end}}>{{.}}</option>{{end}}</select></div>
+    <div style="flex:0"><button class="primary" type="submit">Add</button></div>
+  </div>
+  <p class="muted small" style="margin-bottom:0">Added users can sign in with GitHub even when they are not on the allowlist.</p>
+</form>
+{{end}}
+
+<h2>Apps</h2>
+<div class="card">
+{{with .Data.Apps}}
+  <table><tbody>
+  {{range .}}<tr><td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td><td class="mono muted">{{.Repo}}</td></tr>{{end}}
+  </tbody></table>
+{{else}}
+  <div class="empty">No apps in this team.</div>
+{{end}}
+</div>
+{{end}}

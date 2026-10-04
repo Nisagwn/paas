@@ -1,13 +1,19 @@
 {{define "content"}}
 <div class="card pad" style="max-width:420px;margin:48px auto">
   <h1>Log in</h1>
-  <p class="sub">Enter the control plane's API token (<code>PAAS_API_TOKEN</code>).</p>
+  {{if .Data.GitHub}}
+  <p class="sub">Sign in with your GitHub account. Access is limited to allowed accounts and invited team members.</p>
+  <p><a class="btn" href="/auth/github?next={{.Data.Next}}">Sign in with GitHub</a></p>
+  {{end}}
+  {{if .Data.TokenLogin}}
+  <p class="sub">Development mode: enter the control plane's API token (<code>PAAS_API_TOKEN</code>).</p>
   <form method="post" action="/login">
     <input type="hidden" name="next" value="{{.Data.Next}}">
     <label for="token">API token</label>
     <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
     <p><button class="primary" type="submit">Log in</button></p>
   </form>
-  <p class="muted small">The token is checked once and exchanged for a signed, HttpOnly session cookie (12 hours).</p>
+  <p class="muted small">The token is checked once and exchanged for a signed, HttpOnly session cookie (12 hours). It signs you in as the admin.</p>
+  {{end}}
 </div>
 {{end}}

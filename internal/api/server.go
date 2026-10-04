@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io"
@@ -51,14 +50,28 @@ type Server struct {
 	RuntimeLogs RuntimeLogs
 	// UI is mounted at "/" (internal/web).
 	UI http.Handler
+	// cookieless: no Sessions were given, so session cookies are ignored.
+	cookieless bool
 	// Stream tunes the SSE endpoints (tests shorten it).
 	Stream StreamTiming
 	// Cleanup is kicked after a branch deletion (cleanup.Collector); nil
 	// leaves route sync and object deletion to the periodic sweep.
 	Cleanup interface{ Kick(app string) }
+
+	// Faz 13: resolves callers and roles (access.go). Nil builds one from
+	// Store, Sessions and APIToken (legacy admin token only, no OAuth).
+	Auth *auth.Authenticator
 }
 
 func (s *Server) Handler() http.Handler {
+	if s.Sessions == nil {
+		s.Sessions = auth.New(s.APIToken)
+		s.cookieless = true
+	}
+	if s.Auth == nil {
+		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
+	}
+	viewer, member := store.RoleViewer, store.RoleMember
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("POST /webhooks/github", s.githubWebhook)
@@ -66,16 +79,29 @@ func (s *Server) Handler() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/apps", s.createApp)
 	api.HandleFunc("GET /api/apps", s.listApps)
-	api.HandleFunc("GET /api/apps/{name}", s.getApp)
-	api.HandleFunc("GET /api/apps/{name}/deployments", s.listDeployments)
-	api.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
-	api.HandleFunc("GET /api/apps/{name}/env", s.getEnv)
-	api.HandleFunc("PUT /api/apps/{name}/env", s.putEnv)
+	// Per-app endpoints: requireApp checks the caller's team role (access.go).
+	api.HandleFunc("GET /api/apps/{name}", s.requireApp(viewer, s.getApp))
+	api.HandleFunc("GET /api/apps/{name}/deployments", s.requireApp(viewer, s.listDeployments))
+	api.HandleFunc("POST /api/apps/{name}/rollback", s.requireApp(member, s.rollback))
+	api.HandleFunc("GET /api/apps/{name}/env", s.requireApp(viewer, s.getEnv))
+	api.HandleFunc("PUT /api/apps/{name}/env", s.requireApp(member, s.putEnv))
+	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
+	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
+	// Deployment endpoints check the deployment's app (lookupDeployment).
 	api.HandleFunc("GET /api/deployments/{id}", s.getDeployment)
 	api.HandleFunc("GET /api/deployments/{id}/logs", s.deploymentLogs)
 	api.HandleFunc("GET /api/deployments/{id}/logs/stream", s.streamLogs)
-	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
-	mux.Handle("/api/", s.requireToken(api))
+	// Faz 13: caller, teams, members and personal tokens (teams.go).
+	api.HandleFunc("GET /api/me", s.me)
+	api.HandleFunc("GET /api/teams", s.listTeams)
+	api.HandleFunc("POST /api/teams", s.createTeam)
+	api.HandleFunc("GET /api/teams/{slug}", s.getTeam)
+	api.HandleFunc("PUT /api/teams/{slug}/members/{login}", s.setMember)
+	api.HandleFunc("DELETE /api/teams/{slug}/members/{login}", s.removeMember)
+	api.HandleFunc("GET /api/tokens", s.listTokens)
+	api.HandleFunc("POST /api/tokens", s.createToken)
+	api.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
+	mux.Handle("/api/", s.authenticate(api))
 	if s.UI != nil {
 		mux.Handle("/", s.UI)
 	}
@@ -84,23 +110,6 @@ func (s *Server) Handler() http.Handler {
 }
 
 // ---- middleware ----
-
-func (s *Server) requireToken(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok && s.Sessions != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
-			s.Sessions.Valid(r) {
-			// Read-only requests only: unsafe methods would need a CSRF check.
-			next.ServeHTTP(w, r)
-			return
-		}
-		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(s.APIToken)) != 1 {
-			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -136,6 +145,8 @@ type createAppRequest struct {
 	Name             string `json:"name"`
 	Repo             string `json:"repo"`
 	ProductionBranch string `json:"production_branch"`
+	// Team slug; empty picks the caller's first team where it is a member.
+	Team string `json:"team"`
 }
 
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +167,22 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	if req.ProductionBranch == "" {
 		req.ProductionBranch = "main"
 	}
-	app, err := s.Store.CreateApp(r.Context(), req.Name, req.Repo, req.ProductionBranch)
+	team, err := s.Auth.TeamForApps(r.Context(), principal(r), req.Team)
+	switch {
+	case errors.Is(err, store.ErrNotFound) && req.Team == "":
+		writeError(w, http.StatusForbidden, "you are not a member of any team that can create apps")
+		return
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "team not found")
+		return
+	case errors.Is(err, auth.ErrForbidden):
+		writeError(w, http.StatusForbidden, "creating apps needs the member role on the team")
+		return
+	case err != nil:
+		s.internalError(w, err)
+		return
+	}
+	app, err := s.Store.CreateAppInTeam(r.Context(), team.ID, req.Name, req.Repo, req.ProductionBranch)
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, "an app with this name or repo already exists")
 		return
@@ -169,7 +195,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listApps(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.Store.ListApps(r.Context())
+	apps, err := s.Auth.Apps(r.Context(), principal(r))
 	if err != nil {
 		s.internalError(w, err)
 		return
@@ -240,17 +266,8 @@ func (s *Server) listDeployments(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getDeployment(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
+	d, ok := s.lookupDeployment(w, r)
 	if !ok {
-		return
-	}
-	d, err := s.Store.GetDeployment(r.Context(), id)
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "deployment not found")
-		return
-	}
-	if err != nil {
-		s.internalError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.deploymentView(d))
@@ -258,10 +275,11 @@ func (s *Server) getDeployment(w http.ResponseWriter, r *http.Request) {
 
 // deploymentLogs returns lines after ?after=<id>; streamLogs is the live variant.
 func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
+	d, ok := s.lookupDeployment(w, r)
 	if !ok {
 		return
 	}
+	id := d.ID
 	var after int64
 	if v := r.URL.Query().Get("after"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
@@ -270,13 +288,6 @@ func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		after = n
-	}
-	if _, err := s.Store.GetDeployment(r.Context(), id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "deployment not found")
-		return
-	} else if err != nil {
-		s.internalError(w, err)
-		return
 	}
 	lines, err := s.Store.Logs(r.Context(), id, after, 1000)
 	if err != nil {
@@ -458,17 +469,14 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 
 // ---- helpers ----
 
+// lookupApp returns the {name} app checked by requireApp; for an unwrapped
+// handler it checks the caller's role itself (viewer for reads, member
+// otherwise), so a new endpoint is never left open.
 func (s *Server) lookupApp(w http.ResponseWriter, r *http.Request) (store.App, bool) {
-	app, err := s.Store.GetAppByName(r.Context(), r.PathValue("name"))
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "app not found")
-		return app, false
+	if app, ok := r.Context().Value(appCtxKey{}).(store.App); ok {
+		return app, true
 	}
-	if err != nil {
-		s.internalError(w, err)
-		return app, false
-	}
-	return app, true
+	return s.authorizeApp(w, r, defaultRole(r.Method))
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {

@@ -129,10 +129,11 @@ func (s *sseWriter) status(d store.Deployment, final bool) error {
 // changes; the one with "final": true is sent when the deployment is ready
 // or failed, and the server then closes the stream.
 func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
+	d0, ok := s.lookupDeployment(w, r)
 	if !ok {
 		return
 	}
+	id := d0.ID
 	var after int64
 	for _, v := range []string{r.Header.Get("Last-Event-ID"), r.URL.Query().Get("after")} {
 		if v == "" {
@@ -148,13 +149,6 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	timing := s.Stream.withDefaults()
-	if _, err := s.Store.GetDeployment(ctx, id); errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "deployment not found")
-		return
-	} else if err != nil {
-		s.internalError(w, err)
-		return
-	}
 
 	// Subscribe before the first query, so nothing falls in between.
 	var wake <-chan struct{}
@@ -250,6 +244,7 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 // "Accept: text/event-stream" (EventSource) get SSE with one event per line
 // and a final "end" event; everyone else gets chunked text/plain.
 func (s *Server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
+	// 501 first: it depends on the deployer only and reveals nothing.
 	if s.RuntimeLogs == nil {
 		writeError(w, http.StatusNotImplemented, "runtime logs need PAAS_DEPLOYER=kubernetes")
 		return

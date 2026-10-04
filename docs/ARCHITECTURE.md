@@ -163,12 +163,43 @@ erDiagram
     apps ||--o{ app_env : ""
     deployments ||--o{ aliases : "hedef"
     deployments ||--o{ deployment_logs : ""
+    teams ||--o{ apps : "sahip"
+    teams ||--o{ team_members : ""
+    users ||--o{ team_members : ""
+    users ||--o{ api_tokens : ""
 
     apps {
         bigint id PK
         text name UK "DNS etiketi"
         text repo_full_name UK "owner/repo"
         text production_branch
+        bigint team_id FK "Faz 13"
+    }
+    teams {
+        bigint id PK
+        text slug UK "default: eski uygulamalar"
+        text name
+    }
+    users {
+        bigint id PK
+        bigint github_id UK "kimlik"
+        text login UK "lower(login)"
+        text name
+        text avatar_url
+    }
+    team_members {
+        bigint team_id FK
+        bigint user_id FK
+        text role "owner|member|viewer"
+    }
+    api_tokens {
+        bigint id PK
+        bigint user_id FK
+        text name
+        text token_hash UK "sha256 hex"
+        text prefix "paas_xxxxxx"
+        timestamptz last_used_at
+        timestamptz expires_at
     }
     deployments {
         bigint id PK
@@ -200,6 +231,10 @@ erDiagram
         text value
     }
 ```
+
+Faz 13: her uygulama bir ekibe aittir (`apps.team_id`); yetki, çağıranın o ekipteki rolüdür
+(`viewer < member < owner`). Kimlik GitHub hesap numarasıdır (`github_id`); kullanıcı adı değişebilir.
+API token'larının yalnızca SHA-256 özeti tutulur.
 
 ## 7. Adlandırma
 

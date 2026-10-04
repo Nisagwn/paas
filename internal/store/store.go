@@ -41,6 +41,8 @@ type App struct {
 	Repo             string    `json:"repo"`
 	ProductionBranch string    `json:"production_branch"`
 	CreatedAt        time.Time `json:"created_at"`
+	// Faz 13: the owning team (users.go).
+	TeamID int64 `json:"team_id"`
 }
 
 type Deployment struct {
@@ -103,7 +105,11 @@ var migrationFS embed.FS
 
 // Migrate applies every migrations/NNN_*.sql file that has not run yet.
 // A Postgres advisory lock keeps concurrent instances from racing.
-func (s *Store) Migrate(ctx context.Context) error {
+func (s *Store) Migrate(ctx context.Context) error { return s.migrate(ctx, "") }
+
+// migrate stops after version until ("" applies everything); tests use it to
+// check data migrations against rows written by an older schema.
+func (s *Store) migrate(ctx context.Context, until string) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -128,6 +134,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	sort.Strings(files)
 	for _, f := range files {
 		version := strings.TrimSuffix(strings.TrimPrefix(f, "migrations/"), ".sql")
+		if until != "" && version > until {
+			break
+		}
 		var exists bool
 		if err := conn.QueryRowContext(ctx,
 			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
@@ -161,12 +170,26 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 // ---- apps ----
 
-func (s *Store) CreateApp(ctx context.Context, name, repo, branch string) (App, error) {
+// appCols are the columns scanned by scanApp.
+const appCols = `id, name, repo_full_name, production_branch, created_at, team_id`
+
+func scanApp(row interface{ Scan(...any) error }) (App, error) {
 	var a App
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO apps (name, repo_full_name, production_branch) VALUES ($1, $2, $3)
-		RETURNING id, name, repo_full_name, production_branch, created_at`,
-		name, repo, branch).Scan(&a.ID, &a.Name, &a.Repo, &a.ProductionBranch, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.Name, &a.Repo, &a.ProductionBranch, &a.CreatedAt, &a.TeamID)
+	return a, err
+}
+
+// CreateApp creates an app in the "default" team; CreateAppInTeam picks one.
+func (s *Store) CreateApp(ctx context.Context, name, repo, branch string) (App, error) {
+	return s.CreateAppInTeam(ctx, 0, name, repo, branch)
+}
+
+// CreateAppInTeam creates an app owned by teamID (0: the "default" team).
+func (s *Store) CreateAppInTeam(ctx context.Context, teamID int64, name, repo, branch string) (App, error) {
+	a, err := scanApp(s.db.QueryRowContext(ctx, `
+		INSERT INTO apps (name, repo_full_name, production_branch, team_id)
+		VALUES ($1, $2, $3, COALESCE(NULLIF($4, 0), (SELECT id FROM teams WHERE slug = 'default')))
+		RETURNING `+appCols, name, repo, branch, teamID))
 	if isUniqueViolation(err) {
 		return a, ErrConflict
 	}
@@ -174,16 +197,19 @@ func (s *Store) CreateApp(ctx context.Context, name, repo, branch string) (App, 
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, repo_full_name, production_branch, created_at FROM apps ORDER BY name`)
+	return s.listApps(ctx, `SELECT `+appCols+` FROM apps ORDER BY name`)
+}
+
+func (s *Store) listApps(ctx context.Context, query string, args ...any) ([]App, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	apps := []App{}
 	for rows.Next() {
-		var a App
-		if err := rows.Scan(&a.ID, &a.Name, &a.Repo, &a.ProductionBranch, &a.CreatedAt); err != nil {
+		a, err := scanApp(rows)
+		if err != nil {
 			return nil, err
 		}
 		apps = append(apps, a)
@@ -201,10 +227,7 @@ func (s *Store) GetAppByRepo(ctx context.Context, repo string) (App, error) {
 }
 
 func (s *Store) getApp(ctx context.Context, where string, arg any) (App, error) {
-	var a App
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, repo_full_name, production_branch, created_at FROM apps WHERE `+where, arg).
-		Scan(&a.ID, &a.Name, &a.Repo, &a.ProductionBranch, &a.CreatedAt)
+	a, err := scanApp(s.db.QueryRowContext(ctx, `SELECT `+appCols+` FROM apps WHERE `+where, arg))
 	if errors.Is(err, sql.ErrNoRows) {
 		return a, ErrNotFound
 	}

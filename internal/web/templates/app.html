@@ -4,7 +4,8 @@
   <div>
     <p class="sub" style="margin:0"><a href="/">Apps</a> /</p>
     <h1>{{$a.Name}}</h1>
-    <p class="sub"><span class="mono">{{$a.Repo}}</span> · production branch <span class="tag">{{$a.ProductionBranch}}</span></p>
+    <p class="sub"><span class="mono">{{$a.Repo}}</span> · production branch <span class="tag">{{$a.ProductionBranch}}</span>
+      · team <a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Slug}}</a> <span class="tag">{{.Data.Role}}</span></p>
   </div>
   <div class="actions">
     <a class="btn" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Visit ↗</a>

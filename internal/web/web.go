@@ -2,10 +2,12 @@
 // htmx for partial refreshes, and EventSource for live logs. There is no
 // build step; templates are embedded in the binary.
 //
-// Authentication is the API token, entered once on /login and exchanged for
-// a signed session cookie (internal/auth). Every state-changing form is a
-// POST that must carry the session's CSRF token and, when the browser sends
-// one, a same-host Origin.
+// Authentication is GitHub OAuth (Faz 13; oauth.go) or, in dev mode without
+// an OAuth App, the API token entered once on /login. Both end in a signed
+// session cookie (internal/auth). Every page checks the caller's role on the
+// app's team (users.go). Every state-changing form is a POST that must carry
+// the session's CSRF token and, when the browser sends one, a same-host
+// Origin.
 package web
 
 import (
@@ -45,6 +47,10 @@ type Server struct {
 	// RuntimeLogs shows the runtime log panel (Kubernetes deployer only).
 	RuntimeLogs bool
 	Log         *slog.Logger
+	// Faz 13. Auth nil builds one from Store and Sessions (token login only).
+	Auth *auth.Authenticator
+	// GitHub enables "Sign in with GitHub"; nil is dev mode (token login).
+	GitHub *auth.GitHubLogin
 
 	pages map[string]*template.Template
 }
@@ -70,7 +76,10 @@ var funcs = template.FuncMap{
 
 func (s *Server) Handler() http.Handler {
 	s.pages = map[string]*template.Template{}
-	for _, p := range []string{"login", "apps", "app", "deployment", "error"} {
+	if s.Auth == nil {
+		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
+	}
+	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html"))
 	}
@@ -90,6 +99,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /apps/{name}/env", s.authed(s.setEnv))
 	mux.Handle("POST /apps/{name}/env/delete", s.authed(s.deleteEnv))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
+	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
+	mux.HandleFunc("GET /auth/github", s.githubStart)
+	mux.HandleFunc("GET /auth/github/callback", s.githubCallback)
+	mux.Handle("GET /teams", s.authed(s.teamsPage))
+	mux.Handle("POST /teams", s.authed(s.createTeam))
+	mux.Handle("GET /teams/{slug}", s.authed(s.teamPage))
+	mux.Handle("POST /teams/{slug}/members", s.authed(s.setMember))
+	mux.Handle("POST /teams/{slug}/members/remove", s.authed(s.removeMember))
+	mux.Handle("GET /tokens", s.authed(s.tokensPage))
+	mux.Handle("POST /tokens", s.authed(s.createToken))
+	mux.Handle("POST /tokens/revoke", s.authed(s.revokeToken))
 	mux.Handle("/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusNotFound, "Page not found.")
 	}))
@@ -120,20 +140,27 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// authed accepts the API token as a bearer header (scripts) or a session
-// cookie (browsers). Cookie-authenticated POSTs must pass the CSRF check;
-// a bearer header cannot be attached by another site, so it needs none.
+// authed accepts a bearer token (legacy admin or personal; scripts) or a
+// session cookie (browsers) and stores the caller in the request context.
+// Cookie-authenticated POSTs must pass the CSRF check; a bearer header
+// cannot be attached by another site, so it needs none.
 func (s *Server) authed(h http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-			if !s.Sessions.CheckToken(token) {
+			p, err := s.Auth.Bearer(r.Context(), token)
+			if err != nil {
 				http.Error(w, "invalid bearer token", http.StatusUnauthorized)
 				return
 			}
-			h(w, r)
+			h(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 			return
 		}
-		if !s.Sessions.Valid(r) {
+		p, err := s.Auth.Session(r)
+		if err != nil && !errors.Is(err, auth.ErrUnauthenticated) {
+			s.internalError(w, r, err)
+			return
+		}
+		if err != nil {
 			if r.Method == http.MethodGet || r.Method == http.MethodHead {
 				http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 				return
@@ -148,7 +175,7 @@ func (s *Server) authed(h http.HandlerFunc) http.Handler {
 				return
 			}
 		}
-		h(w, r)
+		h(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 	})
 }
 
@@ -165,6 +192,8 @@ type page struct {
 	Domain   string
 	EnvError string // only set on htmx env fragments
 	Data     any
+	// Me is the signed-in caller (Faz 13).
+	Me auth.Principal
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
@@ -173,7 +202,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 		Flash: flashes[r.URL.Query().Get("ok")],
 	}
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
-	p.LoggedIn = p.CSRF != ""
+	p.Me, p.LoggedIn = auth.From(r.Context())
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("render", "page", name, "err", err)
@@ -217,6 +246,9 @@ var flashes = map[string]string{
 	"created":  "App created. Point a GitHub push webhook at /webhooks/github to deploy it.",
 	"rollback": "Production now serves the selected deployment.",
 	"env":      "Environment updated. New values apply to the next deployment.",
+	"team":     "Team created.",
+	"member":   "Team members updated.",
+	"revoked":  "Token revoked.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -245,23 +277,33 @@ func ago(t time.Time) string {
 // ---- login ----
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	if s.Sessions.Valid(r) {
+	if _, err := s.Auth.Session(r); err == nil {
 		http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, http.StatusOK, "login", "Log in", map[string]string{"Next": safeNext(r.URL.Query().Get("next"))}, "")
+	s.render(w, r, http.StatusOK, "login", "Log in", s.loginData(safeNext(r.URL.Query().Get("next"))),
+		loginErrors[r.URL.Query().Get("error")])
+}
+
+// loginData selects the login method: GitHub, or the token form in dev mode.
+func (s *Server) loginData(next string) map[string]any {
+	return map[string]any{"Next": next, "GitHub": s.GitHub != nil, "TokenLogin": s.Auth.TokenLogin()}
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	next := safeNext(r.PostFormValue("next"))
+	if !s.Auth.TokenLogin() {
+		http.Error(w, "token login is disabled: sign in with GitHub", http.StatusNotFound)
+		return
+	}
 	if !auth.SameOrigin(r) {
 		http.Error(w, "cross-origin login rejected", http.StatusForbidden)
 		return
 	}
 	if !s.Sessions.CheckToken(strings.TrimSpace(r.PostFormValue("token"))) {
 		s.Log.Warn("web: failed login", "remote", r.RemoteAddr)
-		s.render(w, r, http.StatusUnauthorized, "login", "Log in", map[string]string{"Next": next}, "Invalid API token.")
+		s.render(w, r, http.StatusUnauthorized, "login", "Log in", s.loginData(next), "Invalid API token.")
 		return
 	}
 	s.Sessions.Issue(w, r)
@@ -285,6 +327,7 @@ func safeNext(next string) string {
 
 type appRow struct {
 	store.App
+	Team          string
 	ProductionURL string
 	Latest        *store.Deployment
 }
@@ -294,10 +337,24 @@ func (s *Server) appsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, errMsg string, form map[string]string) {
-	apps, err := s.Store.ListApps(r.Context())
+	me, _ := auth.From(r.Context())
+	apps, err := s.Auth.Apps(r.Context(), me)
 	if err != nil {
 		s.internalError(w, r, err)
 		return
+	}
+	teams, err := s.Auth.Teams(r.Context(), me)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	slugs := map[int64]string{}
+	var writable []store.Team
+	for _, t := range teams {
+		slugs[t.ID] = t.Slug
+		if store.RoleAllows(t.Role, store.RoleMember) {
+			writable = append(writable, t)
+		}
 	}
 	latest, err := s.Store.LatestDeployments(r.Context())
 	if err != nil {
@@ -306,7 +363,7 @@ func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, 
 	}
 	rows := make([]appRow, 0, len(apps))
 	for _, a := range apps {
-		row := appRow{App: a, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(a.Name, s.Domain))}
+		row := appRow{App: a, Team: slugs[a.TeamID], ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(a.Name, s.Domain))}
 		if d, ok := latest[a.ID]; ok {
 			row.Latest = &d
 		}
@@ -315,7 +372,7 @@ func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, 
 	if form == nil {
 		form = map[string]string{"Branch": "main"}
 	}
-	s.render(w, r, status, "apps", "Apps", map[string]any{"Apps": rows, "Form": form}, errMsg)
+	s.render(w, r, status, "apps", "Apps", map[string]any{"Apps": rows, "Form": form, "Teams": writable}, errMsg)
 }
 
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
@@ -325,7 +382,8 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	if branch == "" {
 		branch = "main"
 	}
-	form := map[string]string{"Name": name, "Repo": repo, "Branch": branch, "Open": "1"}
+	teamSlug := strings.TrimSpace(r.PostFormValue("team"))
+	form := map[string]string{"Name": name, "Repo": repo, "Branch": branch, "Team": teamSlug, "Open": "1"}
 	switch {
 	case !naming.ValidAppName(name):
 		s.renderApps(w, r, http.StatusBadRequest,
@@ -335,7 +393,17 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		s.renderApps(w, r, http.StatusBadRequest, `Repository must look like "owner/repo".`, form)
 		return
 	}
-	_, err := s.Store.CreateApp(r.Context(), name, repo, branch)
+	me, _ := auth.From(r.Context())
+	team, err := s.Auth.TeamForApps(r.Context(), me, teamSlug)
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, auth.ErrForbidden) {
+		s.renderApps(w, r, http.StatusForbidden, "You need the member role on a team to create apps there.", form)
+		return
+	}
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	_, err = s.Store.CreateAppInTeam(r.Context(), team.ID, name, repo, branch)
 	if errors.Is(err, store.ErrConflict) {
 		s.renderApps(w, r, http.StatusConflict, "An app with this name or repository already exists.", form)
 		return
@@ -366,6 +434,10 @@ type appDetail struct {
 	Active        bool // something is in progress: the table polls
 	EnvKeys       []string
 	HasProduction bool
+	// Faz 13: the caller's role on the app's team; CanWrite = member+.
+	Team     store.Team
+	Role     string
+	CanWrite bool
 }
 
 type aliasRow struct {
@@ -374,6 +446,8 @@ type aliasRow struct {
 	SHA string
 }
 
+// loadApp loads the {name} app and checks the caller's team role: viewer
+// for GET, member for POST. Apps of other teams look like missing ones.
 func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, bool) {
 	app, err := s.Store.GetAppByName(r.Context(), r.PathValue("name"))
 	if errors.Is(err, store.ErrNotFound) {
@@ -384,11 +458,27 @@ func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, boo
 		s.internalError(w, r, err)
 		return app, false
 	}
+	need := store.RoleMember
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		need = store.RoleViewer
+	}
+	if !s.checkTeam(w, r, app.TeamID, need, "App not found.") {
+		return app, false
+	}
 	return app, true
 }
 
 func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error) {
 	v := appDetail{App: app, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(app.Name, s.Domain))}
+	me, _ := auth.From(ctx)
+	role, err := s.Auth.TeamRole(ctx, me, app.TeamID)
+	if err != nil {
+		return v, err
+	}
+	if v.Team, err = s.Store.GetTeam(ctx, app.TeamID); err != nil {
+		return v, err
+	}
+	v.Role, v.CanWrite = role, store.RoleAllows(role, store.RoleMember)
 	aliases, err := s.Store.ListAliases(ctx, app.ID)
 	if err != nil {
 		return v, err
@@ -420,7 +510,7 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 			Deployment:  d,
 			URL:         naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
 			Production:  d.ID == prodID,
-			CanRollback: v.HasProduction && d.ID != prodID && d.Status == store.StatusReady,
+			CanRollback: v.CanWrite && v.HasProduction && d.ID != prodID && d.Status == store.StatusReady,
 			AliasesHere: hosts[d.ID],
 		})
 		if !d.Finished() {
@@ -560,6 +650,14 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.internalError(w, r, err)
+		return
+	}
+	app, err := s.Store.GetAppByName(r.Context(), d.AppName)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if !s.checkTeam(w, r, app.TeamID, store.RoleViewer, "Deployment not found.") {
 		return
 	}
 	s.render(w, r, http.StatusOK, "deployment", fmt.Sprintf("%s · %s", d.AppName, naming.ShortSHA(d.CommitSHA)),

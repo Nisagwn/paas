@@ -115,7 +115,7 @@ queued → building → deploying → ready
 - Alan adı başına Let's Encrypt sertifikası (cert-manager, HTTP-01), production alias'ını izler
 - **Çıktı:** `https://www.ornek.com` production deploy'unu gösteriyor, rollback'i izliyor
 
-### Faz 13 — Kullanıcılar ve ekipler (migration 007)
+### Faz 13 — Kullanıcılar ve ekipler (migration 007) ✅
 - Kullanıcılar, ekipler, roller (owner / member / viewer); uygulamalar ekibe ait
 - GitHub OAuth ile web girişi; kullanıcı başına API token'ları
 - Her API ucu ve arayüz sayfası yetki kontrolünden geçer
