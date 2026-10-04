@@ -147,6 +147,10 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"POST", "/api/apps", func(w string) any {
 			return map[string]string{"name": "app-" + w, "repo": "nisagwn/app-" + w, "team": "web"}
 		}, want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201}, nil},
+		// Faz 15: importing a repository of an installation team "web" claimed.
+		{"POST", "/api/apps/import", func(w string) any { return map[string]string{"repo": "acme/imp-" + w, "team": "web"} },
+			want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201},
+			func() { f.claimInstallation(7, f.web.ID, "acme/imp-bob", "acme/imp-alice", "acme/imp-admin") }},
 		{"GET", "/api/teams/web", nil, read, nil},
 		{"PUT", "/api/teams/web/members/erin", func(string) any { return map[string]string{"role": "viewer"} }, owner, nil},
 		{"DELETE", "/api/teams/web/members/erin", nil,
@@ -156,6 +160,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"GET", "/api/apps", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
 		{"GET", "/api/me", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
 		{"GET", "/api/teams", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
+		{"GET", "/api/github/repos", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
 		// Unknown apps look the same as other teams' apps.
 		{"GET", "/api/apps/nope", nil, want{"anonymous": 401, "carol": 404, "dave": 404, "admin": 404}, nil},
 	}

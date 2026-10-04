@@ -1,6 +1,6 @@
 {{define "head"}}<meta http-equiv="refresh" content="0;url={{.Data.Next}}">{{end}}
 {{define "content"}}
 <div class="card empty">
-  <p>Signed in. <a href="{{.Data.Next}}">Continue</a></p>
+  <p>{{with .Data.Message}}{{.}}{{else}}Signed in.{{end}} <a href="{{.Data.Next}}">Continue</a></p>
 </div>
 {{end}}

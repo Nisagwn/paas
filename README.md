@@ -83,6 +83,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 14: üretilen Dockerfile'larda `# syntax=` satırı yok; yerleşik BuildKit frontend'i cache mount'u
   destekliyor, her build'den frontend imajı çözümleme adımı düşüyor: ılık build %18–34 kısa
   ([ölçüm](docs/MEASUREMENTS.md#7-daha-hızlı-ılık-build-faz-14))
+- [x] Faz 15: GitHub App: arayüzden "Install" → repoları seç → "Import" (uygulama oluşur, ilk deploy başlar);
+  kurulumun ekibe bağlanması kullanıcının GitHub token'ıyla doğrulanır, giriş aynı App üzerinden
+  ([kurulum rehberi](#github-app-faz-15))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -481,6 +484,120 @@ api.HandleFunc("POST /api/apps/{name}/domains", s.requireApp(store.RoleMember, s
 `lookupApp` çağırırsa yine korunur (GET/HEAD için viewer, diğerleri için member). Web arayüzünde
 `loadApp` aynı kuralı uygular.
 
+### GitHub App (Faz 15)
+
+Kişisel token, ayrı OAuth App ve repo başına webhook yerine **tek bir GitHub App**. Kullanıcı arayüzde
+*Import from GitHub* → *Install GitHub App* der, GitHub'da repoları seçer, platforma döner; seçtiği repolar
+listede görünür ve tek tıkla uygulama oluşur, production branch'inin son commit'i ilk deploy olarak
+kuyruğa girer. Yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmez: webhook App'e aittir, push'lar
+ve PR'lar kurulumun kapsadığı her repodan gelir.
+
+**1. App'i oluşturma** (github.com → sağ üstteki profil resmi → *Settings* → en altta *Developer settings* →
+*GitHub Apps* → *New GitHub App*; organizasyon adına: organizasyon sayfası → *Settings* → *Developer settings*
+→ *GitHub Apps* → *New GitHub App*):
+
+| Alan | Değer |
+|---|---|
+| *GitHub App name* | ör. `paas-ornek`; URL adı (*slug*) buradan türetilir: `github.com/apps/paas-ornek` |
+| *Homepage URL* | `PAAS_PUBLIC_URL` (ör. `https://paas.example.com`) |
+| *Callback URL* | `<PAAS_PUBLIC_URL>/auth/github/callback` (giriş ve kurulum doğrulaması aynı adresi kullanır) |
+| *Expire user authorization tokens* | açık kalabilir (kullanıcı token'ı saklanmaz, yalnızca o istekte kullanılır) |
+| *Request user authorization (OAuth) during installation* | **kapalı**: açıkken GitHub *Setup URL*'i devre dışı bırakır; doğrulama aşağıdaki PKCE'li akışla yapılır |
+| *Enable Device Flow* | kapalı |
+| *Setup URL* | `<PAAS_PUBLIC_URL>/github/setup` |
+| *Redirect on update* | **açık** (repo seçimi değişince kullanıcı import sayfasına döner) |
+| *Webhook* → *Active* | açık |
+| *Webhook URL* | `<PAAS_PUBLIC_URL>/webhooks/github` |
+| *Webhook secret* | `PAAS_GITHUB_WEBHOOK_SECRET` ile aynı değer |
+
+*Permissions* → *Repository permissions*:
+
+| İzin | Seviye | Neden |
+|---|---|---|
+| *Contents* | Read-only | commit SHA'sıyla clone, branch head'i, varsayılan branch |
+| *Commit statuses* | Read and write | `paas/deploy` durumu |
+| *Pull requests* | Read and write | PR'daki "Preview hazır" yorumu |
+| *Metadata* | Read-only | zorunlu (GitHub kendisi seçer) |
+
+*Organization permissions* → *Members*: Read-only, **yalnızca** `PAAS_ALLOWED_GITHUB_ORG` kullanılıyorsa
+(girişte organizasyon üyeliği kontrolü). *Account permissions*: hiçbiri.
+
+*Subscribe to events*: **Push** ve **Pull request**. `installation` ve `installation_repositories` olayları
+App'lere her zaman gönderilir; bunlar için işaretlenecek kutu yoktur.
+
+*Where can this GitHub App be installed?*: **Only on this account**: App yalnızca onu oluşturan kullanıcı
+veya organizasyona kurulabilir (platform tek bir organizasyonun repolarını deploy ediyorsa doğru seçim).
+**Any account**: başka kullanıcılar ve organizasyonlar da kurabilir (platformu farklı GitHub hesaplarına
+açıyorsanız). İki durumda da kimin giriş yapabileceğini Faz 13'ün izin listeleri belirler; bir kurulumun
+repoları yalnızca onu bağlayan ekibe listelenir.
+
+*Create GitHub App* → açılan *General* sayfasında:
+
+| GitHub'daki değer | Ortam değişkeni |
+|---|---|
+| *App ID* | `PAAS_GITHUB_APP_ID` |
+| *Private keys* → *Generate a private key* (inen `.pem` dosyası) | `PAAS_GITHUB_APP_PRIVATE_KEY_FILE` (dosya yolu) veya `PAAS_GITHUB_APP_PRIVATE_KEY` (PEM içeriği) |
+| URL'deki ad (`github.com/apps/<slug>`) | `PAAS_GITHUB_APP_SLUG` |
+| *Client ID* | `PAAS_GITHUB_OAUTH_CLIENT_ID` |
+| *Client secrets* → *Generate a new client secret* | `PAAS_GITHUB_OAUTH_CLIENT_SECRET` |
+
+App'in Client ID / secret'ı **ayrı OAuth App'in yerini alır**: "Sign in with GitHub" aynı App üzerinden
+çalışır (aynı callback, aynı PKCE akışı); Faz 13'teki OAuth App silinebilir. Private key yalnızca kontrol
+düzleminde durur; clone, commit status ve PR yorumu için ondan kısa ömürlü kurulum token'ları üretilir.
+
+**2. Kurulumun ekibe bağlanması** (güvenlik açısından kritik adım): bir kurulumun repoları yalnızca o
+kurulumu bağlayan (*claim*) ekibe import için sunulur. Kurulum numarasını bilmek hiçbir şey kanıtlamaz
+(numaralar ardışıktır ve URL'lerde görünür), bu yüzden bağlama kullanıcının kendi GitHub hesabıyla
+doğrulanır:
+
+```
+/import → /github/install?team=<slug>      member+; {ekip, kullanıcı} 30 dk geçerli, HMAC imzalı state'e
+        → github.com/apps/<slug>/installations/new?state=…      kullanıcı repoları seçer
+        → /github/setup?installation_id=…&setup_action=install|update&state=…
+              state doğrulanır; OAuth state + PKCE doğrulayıcı + kurulum + ekip + kullanıcı
+              10 dk'lık imzalı çereze (paas_ghclaim, SameSite=Lax, yalnızca /auth/github yolu)
+        → github.com/login/oauth/authorize (PKCE S256; App'le daha önce giriş yapıldıysa onay sorulmaz)
+        → /auth/github/callback   kod → taze kullanıcı token'ı, ardından:
+              1. kullanıcı ekipte hâlâ member+ mı?
+              2. GET /user: token, state'teki platform kullanıcısının GitHub hesabına mı ait?
+              3. GET /user/installations bu kurulumu listeliyor mu?
+              4. satır yoksa (installation webhook'u henüz gelmedi) GitHub'ın yanıtından oluşturulur;
+                 kullanıcının görebildiği repolar eklenir (GET /user/installations/{id}/repositories)
+              5. ClaimInstallation → /import?ok=github
+```
+
+- GitHub'dan dönüş siteler arası bir yönlendirmedir, `SameSite=Strict` oturum çerezi gönderilmez. Akışı
+  kimin başlattığını imzalı state, GitHub'da kimin onayladığını token söyler; ikisi aynı hesap olmalıdır.
+  Başkasının kurulum numarasıyla gelen saldırganın token'ı o kurulumu listelemez → **403**, hiçbir şey
+  kaydedilmez. Token yalnızca bu çağrılar için kullanılır, saklanmaz.
+- Başka bir ekibe bağlı bir kurulumu taşımak o ekipte de member+ olmayı gerektirir (aksi halde **409**).
+- State'siz bir *Setup URL* ziyareti (GitHub'daki *Configure* sayfasından *Redirect on update*) hiçbir şeyi
+  değiştirmez, import sayfasına döner; repo değişiklikleri `installation_repositories` webhook'uyla gelir.
+  Platform dışından kurulmuş, henüz bağlanmamış bir kurulum için import sayfasında *Install GitHub App*'e
+  tıklayın: GitHub mevcut kurulumu gösterir ve kaydedince state ile geri gönderir.
+- GitHub girişi kapalıysa (geliştirme modu) `/github/setup` bu doğrulamayı yapamaz ve nedenini açıklar.
+
+**3. Import:** `/import` sayfası (uygulamalar listesindeki *Import from GitHub* düğmesi) ekiplerin
+kurulumlarındaki repoları hesap adına göre gruplar, zaten import edilmiş repolarda uygulamaya bağlantı
+gösterir. Uygulama adı repo adından türetilir (`My_Site.v2` → `my-site-v2`; rakamla başlıyorsa `app-`
+öneki alır); production branch'i boş bırakılırsa repo'nun varsayılan branch'idir; ikisi de formda
+değiştirilebilir. Birden fazla ekipte member olan kullanıcı kurulum düğmesinin yanında ekibi seçer.
+Viewer'lar listeyi görür ama import edemez. API karşılığı:
+
+```bash
+curl -s -H "$H" localhost:8080/api/github/repos
+curl -s -H "$H" -d '{"repo":"acme/web"}' localhost:8080/api/apps/import
+# {"app":{…,"name":"web"},"deployment":{"id":12,"commit_sha":"…","status":"queued",…}}
+```
+
+İlk deploy, push webhook'unun kullandığı kuyruk kaydıyla (`EnqueueDeployment`) oluşur; production alias'ı
+her zamanki kurallarla verilir. Branch head'i okunamazsa uygulama yine oluşur, yanıtta `warning` döner ve
+ilk push deploy eder.
+
+**Eski yol:** `PAAS_GITHUB_TOKEN` (PAT) + repo başına el ile webhook, geliştirme ve App'siz kurulumlar için
+çalışmaya devam eder (bkz. [Gerçek GitHub'a bağlamak](#gerçek-githuba-bağlamak)). App yapılandırılmamışsa
+import sayfası bu yolu anlatır; arayüzdeki *New app* formu her iki durumda da kullanılabilir.
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -547,6 +664,8 @@ Kaldırmak için: `scripts/k3d-up.sh down`.
 
 ### Gerçek GitHub'a bağlamak
 
+GitHub App ile repo başına ayar gerekmez: bkz. [GitHub App (Faz 15)](#github-app-faz-15). App'siz yol:
+
 Repo → Settings → Webhooks → Add webhook:
 - **Payload URL:** `https://<sunucun>/webhooks/github` (yerelde test için ngrok veya Cloudflare Tunnel)
 - **Content type:** `application/json`
@@ -566,6 +685,8 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | POST | `/webhooks/github` | GitHub webhook alıcısı (imza ile korunur) |
 | POST | `/api/apps` | `{"name","repo","production_branch"?,"team"?}` — ekip verilmezse member olunan ilk ekip |
 | GET | `/api/apps` | Uygulamalar |
+| GET | `/api/github/repos` | Ekiplerin GitHub App kurulumlarındaki repolar (`team`, `can_import`; zaten import edildiyse `app`) |
+| POST | `/api/apps/import` | `{"repo","name"?,"team"?,"production_branch"?}` — member+; uygulamayı oluşturur, ilk deploy'u kuyruğa koyar (`201`, `{"app","deployment"?,"warning"?}`); import edilemeyen repo `404`, çakışma `409` |
 | GET | `/api/apps/{name}` | Uygulama + alias'lar |
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |

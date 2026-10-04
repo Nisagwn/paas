@@ -54,6 +54,12 @@ type Server struct {
 	// GitHub enables "Sign in with GitHub"; nil is dev mode (token login).
 	GitHub *auth.GitHubLogin
 
+	// Faz 15 (github.go). GitHubAppSlug is the App's URL name
+	// (github.com/apps/<slug>); empty hides the install button. GitHubApp
+	// reads repositories for imports; nil creates apps without a deployment.
+	GitHubAppSlug string
+	GitHubApp     api.RepoInspector
+
 	pages map[string]*template.Template
 }
 
@@ -81,7 +87,7 @@ func (s *Server) Handler() http.Handler {
 	if s.Auth == nil {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
-	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect"} {
+	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html"))
 	}
@@ -116,6 +122,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /tokens", s.authed(s.tokensPage))
 	mux.Handle("POST /tokens", s.authed(s.createToken))
 	mux.Handle("POST /tokens/revoke", s.authed(s.revokeToken))
+	// Faz 15: GitHub App install, setup URL and import (github.go). The
+	// setup URL is a redirect from github.com and carries no session.
+	mux.Handle("GET /github/install", s.authed(s.githubInstall))
+	mux.HandleFunc("GET /github/setup", s.githubSetup)
+	mux.Handle("GET /import", s.authed(s.importPage))
+	mux.Handle("POST /import", s.authed(s.importApp))
 	mux.Handle("/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusNotFound, "Page not found.")
 	}))
@@ -258,6 +270,11 @@ var flashes = map[string]string{
 	"team":     "Team created.",
 	"member":   "Team members updated.",
 	"revoked":  "Token revoked.",
+	// Faz 15.
+	"imported":       "App imported from GitHub. Its first deployment is queued.",
+	"imported-idle":  "App imported. Push to its production branch to deploy it.",
+	"github":         "GitHub App installation linked to your team. Its repositories are listed below.",
+	"github-updated": "GitHub App settings saved. Repository changes appear once GitHub notifies the platform.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {

@@ -11,6 +11,8 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,11 +34,15 @@ type fakeGitHub struct {
 	users     map[string]int64    // login → id
 	orgs      map[string][]string // login → orgs
 	exchanges int
+	// Faz 15: installation ids each login can access, and their repositories.
+	installs map[string][]int64
+	repos    map[int64][]map[string]any
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	f := &fakeGitHub{t: t, users: map[string]int64{"root": 1, "orgie": 2, "stranger": 3, "friend": 4},
-		orgs: map[string][]string{"orgie": {"other", "ACME"}, "stranger": {"evil"}}}
+		orgs:     map[string][]string{"orgie": {"other", "ACME"}, "stranger": {"evil"}},
+		installs: map[string][]int64{}, repos: map[int64][]map[string]any{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -74,6 +80,25 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 		json.NewEncoder(w).Encode(out)
 	})
 	mux.HandleFunc("GET /users/{login}", func(w http.ResponseWriter, r *http.Request) { user(w, r.PathValue("login")) })
+	mux.HandleFunc("GET /user/installations", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		out := []map[string]any{}
+		for _, id := range f.installs[authed(r)] {
+			out = append(out, map[string]any{"id": id, "account": map[string]string{"login": "acme", "type": "Organization"}})
+		}
+		json.NewEncoder(w).Encode(map[string]any{"total_count": len(out), "installations": out})
+	})
+	mux.HandleFunc("GET /user/installations/{id}/repositories", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if !slices.Contains(f.installs[authed(r)], id) {
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"total_count": len(f.repos[id]), "repositories": f.repos[id]})
+	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
@@ -82,6 +107,7 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 type oauthUI struct {
 	*ui
 	gh *fakeGitHub
+	s  *web.Server
 }
 
 func setupOAuth(t *testing.T) *oauthUI {
@@ -90,7 +116,7 @@ func setupOAuth(t *testing.T) *oauthUI {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	sessions := auth.NewWithKey(strings.Repeat("s", 32), "") // no legacy token
 	s := &web.Server{
-		Store: st, Sessions: sessions, Domain: "paas.test", Log: log,
+		Store: st, Sessions: sessions, Domain: "paas.test", Log: log, GitHubAppSlug: "paas-test",
 		Auth: &auth.Authenticator{Store: st, Sessions: sessions, OAuth: true, Log: log,
 			Users: auth.GitHubDirectory{Client: github.New(gh.srv.URL, "", log)}},
 	}
@@ -102,7 +128,7 @@ func setupOAuth(t *testing.T) *oauthUI {
 	}
 	srv.Config.Handler = s.Handler()
 	t.Cleanup(srv.Close)
-	return &oauthUI{ui: &ui{t: t, st: st, srv: srv, client: newClient()}, gh: gh}
+	return &oauthUI{ui: &ui{t: t, st: st, srv: srv, client: newClient()}, gh: gh, s: s}
 }
 
 func newClient() *http.Client {
