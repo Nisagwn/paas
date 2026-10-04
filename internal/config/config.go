@@ -16,7 +16,8 @@ type Config struct {
 	DatabaseURL string
 	// Base domain for generated hostnames, e.g. "paas.example.com".
 	Domain string
-	// Bearer token required for /api/* endpoints.
+	// Legacy admin/break-glass bearer token for /api/* (Faz 13: optional
+	// when GitHub login is configured; empty disables it).
 	APIToken string
 	// Shared secret configured on the GitHub webhook.
 	GitHubWebhookSecret string
@@ -88,6 +89,53 @@ type Config struct {
 
 	// Faz 12: custom domains (domains.go).
 	Domains DomainConfig
+	// Faz 13: users and teams (see loadUsers).
+	// Signs session cookies; empty derives a key from APIToken.
+	SessionKey string
+	// GitHub OAuth App for the web login; both empty = dev mode (token login).
+	GitHubOAuthClientID, GitHubOAuthClientSecret string
+	// Where users authorize the OAuth App (GitHub Enterprise: https://<host>).
+	GitHubWebURL string
+	// Who may sign in, besides users invited to a team. Logins and orgs are
+	// compared case-insensitively.
+	AllowedGitHubUsers []string
+	AllowedGitHubOrgs  []string
+	// Always allowed; made owners of the "default" team at sign-in.
+	AdminGitHubLogins []string
+}
+
+// OAuthEnabled reports whether GitHub login is configured.
+func (c Config) OAuthEnabled() bool { return c.GitHubOAuthClientID != "" }
+
+// loadUsers reads the Faz 13 settings. PAAS_API_TOKEN is required in dev
+// mode (it is the only way in); with GitHub login it is optional, and the
+// session key must then come from PAAS_SESSION_KEY or the token.
+func (c *Config) loadUsers() error {
+	c.SessionKey = os.Getenv("PAAS_SESSION_KEY")
+	c.GitHubOAuthClientID = os.Getenv("PAAS_GITHUB_OAUTH_CLIENT_ID")
+	c.GitHubOAuthClientSecret = os.Getenv("PAAS_GITHUB_OAUTH_CLIENT_SECRET")
+	c.GitHubWebURL = strings.TrimRight(getenv("PAAS_GITHUB_WEB_URL", "https://github.com"), "/")
+	c.AllowedGitHubUsers = splitList(os.Getenv("PAAS_ALLOWED_GITHUB_USERS"))
+	c.AllowedGitHubOrgs = splitList(os.Getenv("PAAS_ALLOWED_GITHUB_ORG"))
+	c.AdminGitHubLogins = splitList(os.Getenv("PAAS_ADMIN_GITHUB_LOGINS"))
+	if (c.GitHubOAuthClientID == "") != (c.GitHubOAuthClientSecret == "") {
+		return errors.New("set both PAAS_GITHUB_OAUTH_CLIENT_ID and PAAS_GITHUB_OAUTH_CLIENT_SECRET, or neither")
+	}
+	if c.SessionKey != "" && len(c.SessionKey) < 32 {
+		return errors.New("PAAS_SESSION_KEY must be at least 32 characters")
+	}
+	if c.OAuthEnabled() && c.APIToken == "" && c.SessionKey == "" {
+		return errors.New("GitHub login without PAAS_API_TOKEN needs PAAS_SESSION_KEY")
+	}
+	return nil
+}
+
+func splitList(v string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == ' ' }) {
+		out = append(out, strings.TrimPrefix(f, "@"))
+	}
+	return out
 }
 
 // loadLifecycle reads the Faz 7 settings.
@@ -203,12 +251,15 @@ func Load() (Config, error) {
 	if err := c.loadDomains(); err != nil {
 		return c, err
 	}
+	if err := c.loadUsers(); err != nil {
+		return c, err
+	}
 
 	var missing []string
 	if c.DatabaseURL == "" {
 		missing = append(missing, "PAAS_DATABASE_URL")
 	}
-	if c.APIToken == "" {
+	if c.APIToken == "" && !c.OAuthEnabled() {
 		missing = append(missing, "PAAS_API_TOKEN")
 	}
 	if c.GitHubWebhookSecret == "" {

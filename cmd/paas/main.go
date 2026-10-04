@@ -88,7 +88,6 @@ func run(log *slog.Logger) error {
 
 	// Faz 5: live logs, runtime logs and the web UI.
 	hub := store.NewHub(cfg.DatabaseURL, log)
-	sessions := auth.New(cfg.APIToken)
 	runtimeLogs, _ := applier.(api.RuntimeLogs) // only the Kubernetes deployer
 
 	// Faz 12: custom domain verification; routes follow production.
@@ -102,9 +101,11 @@ func run(log *slog.Logger) error {
 	if certs, ok := applier.(domains.Certificates); ok {
 		verifier.Certs = certs
 	}
+	// Faz 13: users, teams and GitHub login.
+	sessions, authn, ghLogin := newAuth(cfg, st, log)
 	ui := &web.Server{
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
-		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier,
+		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
 	}
 
 	// Long-lived streams (SSE) end when shutdown starts instead of holding it up.
@@ -116,6 +117,7 @@ func run(log *slog.Logger) error {
 			Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
 			WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
 			Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
+			Auth: authn,
 		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return reqCtx },
@@ -187,6 +189,36 @@ func run(log *slog.Logger) error {
 	}
 	wg.Wait() // let in-flight deployments finish
 	return nil
+}
+
+// newAuth wires sessions, the authenticator and, when an OAuth App is
+// configured, GitHub login. Without one the UI offers the token login.
+func newAuth(cfg config.Config, st *store.Store, log *slog.Logger) (*auth.Sessions, *auth.Authenticator, *auth.GitHubLogin) {
+	sessions := auth.NewWithKey(cfg.SessionKey, cfg.APIToken)
+	// New members are resolved through GitHub's public API (with
+	// PAAS_GITHUB_TOKEN when set, for a higher rate limit).
+	authn := &auth.Authenticator{
+		Store: st, Sessions: sessions, OAuth: cfg.OAuthEnabled(), Log: log,
+		Users: auth.GitHubDirectory{Client: github.New(cfg.GitHubAPIURL, cfg.GitHubToken, log)},
+	}
+	if !cfg.OAuthEnabled() {
+		log.Warn("GitHub login not configured: the web UI accepts the API token (development mode)")
+		return sessions, authn, nil
+	}
+	gl := &auth.GitHubLogin{
+		App: &github.OAuthApp{
+			ClientID: cfg.GitHubOAuthClientID, ClientSecret: cfg.GitHubOAuthClientSecret, WebURL: cfg.GitHubWebURL,
+		},
+		APIURL: cfg.GitHubAPIURL, RedirectURI: cfg.PublicURL + "/auth/github/callback",
+		Admins: cfg.AdminGitHubLogins, AllowedUsers: cfg.AllowedGitHubUsers, AllowedOrgs: cfg.AllowedGitHubOrgs, Log: log,
+	}
+	log.Info("github login enabled", "callback", gl.RedirectURI, "admins", len(gl.Admins),
+		"allowed_users", len(gl.AllowedUsers), "allowed_orgs", gl.AllowedOrgs, "legacy_token", cfg.APIToken != "")
+	if len(gl.Admins)+len(gl.AllowedUsers)+len(gl.AllowedOrgs) == 0 {
+		log.Warn("no GitHub allowlist: only users already added to a team can sign in " +
+			"(set PAAS_ADMIN_GITHUB_LOGINS to bootstrap the first owner)")
+	}
+	return sessions, authn, gl
 }
 
 // retirerOf returns the stage that deletes a deployment's objects.

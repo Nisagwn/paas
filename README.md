@@ -267,14 +267,17 @@ bir adın bu platforma bağlanmasına izin verir.
 
 ### Web arayüzü ve canlı loglar (Faz 5)
 
-Arayüz `/` adresinde: API token'ı ile bir kez giriş yapılır. Sayfalar:
+Arayüz `/` adresinde: GitHub ile giriş yapılır (geliştirme modunda API token'ı ile; bkz.
+[Kullanıcılar ve ekipler](#kullanıcılar-ve-ekipler-faz-13)). Sayfalar:
 
 - **Uygulamalar:** liste, her birinin son deploy durumu, yeni uygulama formu
 - **Uygulama:** alias'lar, deploy geçmişi, tek tıkla rollback, ortam değişkeni anahtarları (değerler asla gösterilmez)
 - **Deployment** (`/deployments/{id}`): canlı build logu, bitince durum rozeti güncellenir; Kubernetes'te pod logları
+- **Ekipler** (`/teams`): ekip oluşturma, üyeler ve roller; **Tokens** (`/tokens`): kişisel API token'ları
 
-Güvenlik: oturum, API token'ından türetilen anahtarla HMAC imzalı, sunucuda durum tutmayan bir
-çerezdir (`HttpOnly`, `SameSite=Strict`, HTTPS'te `Secure`); token değişince tüm oturumlar düşer.
+Güvenlik: oturum, `PAAS_SESSION_KEY` (yoksa API token'ından türetilen) anahtarla HMAC imzalı, sunucuda
+durum tutmayan bir çerezdir (`HttpOnly`, `SameSite=Strict`, HTTPS'te `Secure`); anahtar değişince tüm
+oturumlar düşer.
 Değişiklik yapan her form oturuma bağlı bir CSRF token'ı ve aynı-origin kontrolünden geçer.
 Sayfalar sıkı bir CSP (istek başına nonce) ile sunulur.
 
@@ -354,6 +357,80 @@ go run ./cmd/paas-envkey rotate     # düz metinleri şifreler, eski anahtardaki
   ve değerleri düz metin saklar — yalnızca yerel geliştirme içindir. Anahtar kaybı, şifreli env
   değerlerinin kaybıdır; anahtarı veritabanı yedeğinden ayrı yedekle.
 
+### Kullanıcılar ve ekipler (Faz 13)
+
+Uygulamalar bir **ekibe** aittir; kullanıcılar GitHub hesaplarıyla giriş yapar ve her ekipte bir rolleri
+vardır. Bir ekip yalnızca kendi uygulamalarını görür: başka ekibin uygulaması veya deployment'ı,
+hiç yokmuş gibi **404** döner (isimler sızmaz). Migration 007 mevcut tüm uygulamaları `default`
+ekibine taşır.
+
+| Rol | Yetki |
+|---|---|
+| `viewer` | okuma: uygulamalar, deployment'lar, build ve pod logları, SSE akışları, env anahtarları, ekip üyeleri |
+| `member` | + deploy'u etkileyen işlemler: rollback, ortam değişkenleri, ekipte uygulama oluşturma |
+| `owner` | + ekip yönetimi: üye ekleme/çıkarma, rol değiştirme (son owner düşürülemez) |
+
+Webhook ucu değişmedi (HMAC imzası). Yetersiz rol **403**, ekip dışı **404**, kimliksiz istek **401** alır.
+
+**GitHub OAuth App oluşturma**
+
+1. github.com → *Settings* → *Developer settings* → *OAuth Apps* → *New OAuth App*
+   (bir organizasyon adına: organizasyon *Settings* → *Developer settings* → *OAuth Apps*).
+2. *Homepage URL*: `PAAS_PUBLIC_URL` (ör. `https://paas.example.com`).
+3. *Authorization callback URL*: `<PAAS_PUBLIC_URL>/auth/github/callback`
+   (yerelde ör. `http://localhost:8080/auth/github/callback`, o zaman `PAAS_PUBLIC_URL=http://localhost:8080`).
+4. *Register application* → *Client ID*'yi `PAAS_GITHUB_OAUTH_CLIENT_ID`'ye yazın, *Generate a new client
+   secret* ile üretilen sırrı `PAAS_GITHUB_OAUTH_CLIENT_SECRET`'e yazın.
+
+Akış: yetkilendirme kodu + PKCE (S256); `state`, PKCE doğrulayıcısı ve dönüş yolu 10 dakikalık, HMAC
+imzalı bir çerezde (`SameSite=Lax`, yalnızca `/auth/github` yolunda) tutulur, callback bu çerezle eşleşmeyen
+isteği reddeder. GitHub erişim token'ı yalnızca girişte `/user` (ve gerekirse `/user/orgs`) için kullanılır,
+saklanmaz. İzin kapsamı boştur (herkese açık profil); organizasyon kontrolü açıksa `read:org` istenir.
+
+**Kim giriş yapabilir** (hiçbiri ayarlanmamışsa yalnızca bir ekibe eklenmiş kullanıcılar; rastgele bir
+GitHub hesabı asla giremez):
+
+| Değişken | Anlamı |
+|---|---|
+| `PAAS_ADMIN_GITHUB_LOGINS` | Her zaman girebilir ve her girişte `default` ekibinin **owner**'ı yapılır (ilk kurulum) |
+| `PAAS_ALLOWED_GITHUB_USERS` | Virgülle ayrılmış GitHub kullanıcı adları |
+| `PAAS_ALLOWED_GITHUB_ORG` | Bu organizasyon(lar)ın üyeleri (`/user/orgs` ile kontrol, `read:org` kapsamı) |
+| (davet) | Bir ekip owner'ının eklediği kullanıcılar, listelerde olmasalar da girebilir |
+
+**İlk kurulum (bootstrap):** "ilk giren owner olur" yerine `PAAS_ADMIN_GITHUB_LOGINS` seçildi: ilk girişi
+kimin yapacağı bir yarışa bırakılmaz ve kural yapılandırmadan okunabilir. Admin olmadan da kurulum
+mümkündür: eski API token'ı ile `PUT /api/teams/default/members/<login>` `{"role":"owner"}`.
+
+**Oturumlar:** imzalı, durumsuz çerez artık kullanıcı kimliği ve bitiş zamanı taşır
+(`<bitiş>.<kullanıcı id>.<nonce>.<HMAC>`). Anahtar `PAAS_SESSION_KEY` (en az 32 karakter), yoksa
+`PAAS_API_TOKEN`'dan türetilir. Silinmiş kullanıcının oturumu geçersizdir; her istekte kullanıcı ve rolü
+veritabanından okunur, rol değişikliği anında etkilidir.
+
+**Kişisel API token'ları:** arayüzde *Tokens* sayfası veya `POST /api/tokens`. Biçim `paas_` + 256 bit
+rastgele değer (base64url); yalnızca **bir kez** gösterilir, veritabanında SHA-256 özeti saklanır (değer
+rastgele olduğu için yavaş bir hash gerekmez). Listede ad, ilk karakterler (`paas_ab12cd…`), oluşturma,
+son kullanım (dakikada en fazla bir yazma) ve bitiş zamanı görünür. İsteğe bağlı süre (1–3650 gün);
+süresi dolmuş veya iptal edilmiş token **401** alır. Token sahibinin rollerini taşır.
+
+**Eski `PAAS_API_TOKEN`:** admin / acil durum (break-glass) token'ı olarak çalışmaya devam eder: tüm
+ekiplerde owner yetkisi, kullanıcısı olmadığı için kişisel token'ı yoktur; uygulama oluştururken ekip
+verilmezse `default` ekibi kullanılır. GitHub girişi yapılandırılmışsa **boş bırakılabilir** (o zaman
+devre dışıdır; oturum anahtarı için `PAAS_SESSION_KEY` zorunlu olur). GitHub girişi yoksa (geliştirme
+modu) zorunludur ve arayüzdeki token giriş formu admin oturumu açar; GitHub girişi açıkken bu form
+kapalıdır ve admin oturum çerezleri reddedilir.
+
+**Yeni uçları korumak:** uygulama başına her uç tek bir sarmalayıcıyla korunur
+(`internal/api/access.go`):
+
+```go
+api.HandleFunc("GET /api/apps/{name}/domains", s.requireApp(store.RoleViewer, s.listDomains))
+api.HandleFunc("POST /api/apps/{name}/domains", s.requireApp(store.RoleMember, s.addDomain))
+```
+
+İşleyici `s.lookupApp(w, r)` ile önceden kontrol edilmiş uygulamayı alır. Sarmalanmamış bir işleyici
+`lookupApp` çağırırsa yine korunur (GET/HEAD için viewer, diğerleri için member). Web arayüzünde
+`loadApp` aynı kuralı uygular.
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -429,13 +506,15 @@ Repo → Settings → Webhooks → Add webhook:
 
 ## API
 
-Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
+Tüm `/api/*` uçları `Authorization: Bearer <token>` ister: kişisel token (`paas_…`) veya admin token'ı
+(`PAAS_API_TOKEN`). GET istekleri arayüzün oturum çereziyle de çalışır. Uygulama uçları ekip rolüne
+göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanıcılar-ve-ekipler-faz-13)).
 
 | Yöntem | Yol | Açıklama |
 |---|---|---|
 | GET | `/healthz` | Sağlık kontrolü (veritabanına ping atar) |
 | POST | `/webhooks/github` | GitHub webhook alıcısı (imza ile korunur) |
-| POST | `/api/apps` | `{"name","repo","production_branch"?}` |
+| POST | `/api/apps` | `{"name","repo","production_branch"?,"team"?}` — ekip verilmezse member olunan ilk ekip |
 | GET | `/api/apps` | Uygulamalar |
 | GET | `/api/apps/{name}` | Uygulama + alias'lar |
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
@@ -450,6 +529,15 @@ Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 | POST | `/api/apps/{name}/domains` | `{"hostname"}` — ekler ve hemen bir kez denetler (`201`) |
 | POST | `/api/apps/{name}/domains/{hostname}/verify` | DNS'i şimdi denetler |
 | DELETE | `/api/apps/{name}/domains/{hostname}` | Alan adını ve `Ingress`'ini kaldırır (`204`) |
+| GET | `/api/me` | Çağıran ve ekipleri (rolleriyle) |
+| GET | `/api/teams` | Görülebilen ekipler |
+| POST | `/api/teams` | `{"slug","name"?}` — oluşturan owner olur |
+| GET | `/api/teams/{slug}` | Ekip + üyeler (viewer) |
+| PUT | `/api/teams/{slug}/members/{login}` | `{"role":"owner\|member\|viewer"}` — GitHub kullanıcısı ekler / rolü değiştirir (owner) |
+| DELETE | `/api/teams/{slug}/members/{login}` | Üyeyi çıkarır (owner; herkes kendisi ayrılabilir) |
+| GET | `/api/tokens` | Kişisel token'lar (değerleri değil) |
+| POST | `/api/tokens` | `{"name","expires_in_days"?}` — `token` alanı yalnızca bu yanıtta |
+| DELETE | `/api/tokens/{id}` | Token'ı iptal eder |
 
 ## Proje yapısı
 

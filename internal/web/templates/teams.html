@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="head"><div>
+  <h1>Teams</h1>
+  <p class="sub">Apps belong to a team. Viewers read, members deploy and change settings, owners manage the team.</p>
+</div></div>
+
+<details class="card pad" style="margin-bottom:20px" {{if .Data.Form}}open{{end}}>
+  <summary><strong>New team</strong></summary>
+  <form method="post" action="/teams" style="margin-top:14px">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="row">
+      <div><label for="slug">Slug</label>
+        <input id="slug" name="slug" value="{{.Data.Form.Slug}}" placeholder="frontend" pattern="[a-z][a-z0-9-]{1,30}" required></div>
+      <div><label for="tname">Name</label>
+        <input id="tname" name="name" value="{{.Data.Form.Name}}" placeholder="Frontend"></div>
+      <div style="flex:0"><button class="primary" type="submit">Create</button></div>
+    </div>
+  </form>
+</details>
+
+<div class="card">
+{{with .Data.Teams}}
+  <table>
+    <thead><tr><th>Team</th><th>Slug</th><th>Your role</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr><td><a href="/teams/{{.Slug}}"><strong>{{.Name}}</strong></a></td>
+        <td class="mono muted">{{.Slug}}</td><td><span class="tag">{{.Role}}</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">You are not in any team yet. Create one, or ask an owner to add you.</div>
+{{end}}
+</div>
+{{end}}

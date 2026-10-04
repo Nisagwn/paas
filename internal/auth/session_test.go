@@ -37,10 +37,16 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Fatal("session signed with an old token must be rejected")
 	}
 
-	// Tampering with expiry or nonce breaks the signature.
+	// Tampering with expiry, user id or nonce breaks the signature.
 	c, _ := r.Cookie(CookieName)
 	parts := strings.Split(c.Value, ".")
-	for _, v := range []string{"9999999999." + parts[1] + "." + parts[2], parts[0] + ".x." + parts[2], "garbage"} {
+	for _, v := range []string{
+		"9999999999." + parts[1] + "." + parts[2] + "." + parts[3],
+		parts[0] + ".7." + parts[2] + "." + parts[3],
+		parts[0] + "." + parts[1] + ".x." + parts[3],
+		parts[0] + "." + parts[2] + "." + parts[3], // old 3-part format
+		"garbage",
+	} {
 		bad := httptest.NewRequest("GET", "/", nil)
 		bad.AddCookie(&http.Cookie{Name: CookieName, Value: v})
 		if s.Valid(bad) {

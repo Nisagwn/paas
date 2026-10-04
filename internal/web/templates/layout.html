@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
 <title>{{.Title}} · paas</title>
+{{block "head" .}}{{end}}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 13H1z' fill='%23111'/%3E%3C/svg%3E">
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" nonce="{{.Nonce}}"></script>
 <style>
@@ -72,6 +73,8 @@ button.link { border: 0; background: none; padding: 0; color: var(--muted); }
 button.small { padding: 3px 10px; font-size: 13px; }
 input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); width: 100%; }
+select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
 input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
@@ -102,6 +105,9 @@ form.inline { display: inline; }
   {{if .LoggedIn}}
   <nav>
     <a href="/">Apps</a>
+    <a href="/teams">Teams</a>
+    <a href="/tokens">Tokens</a>
+    <span class="muted small">{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}}</span>
     <form class="inline" method="post" action="/logout">
       <input type="hidden" name="csrf" value="{{.CSRF}}">
       <button class="link" type="submit">Log out</button>

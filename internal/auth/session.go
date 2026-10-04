@@ -1,14 +1,17 @@
-// Package auth implements browser sessions for the web UI.
+// Package auth implements authentication for the API and the web UI:
+// browser sessions, personal API tokens, the legacy admin token, and the
+// principal (who is calling) that authorization decisions are made for.
 //
-// A user logs in once with the API token and receives a stateless, signed
-// cookie:
+// A browser session is a stateless, signed cookie:
 //
-//	paas_session = <expiry unix>.<random nonce, base64url>.<HMAC-SHA256, base64url>
+//	paas_session = <expiry unix>.<user id>.<random nonce>.<HMAC-SHA256>
 //
-// The HMAC key is derived from the API token, so sessions survive restarts,
-// work across replicas without shared state, and all become invalid when
-// the token is rotated. The CSRF token for forms is HMAC(key, "csrf"+nonce):
-// bound to the session and never stored.
+// User id 0 is the admin principal (token login, dev mode only). The HMAC
+// key comes from PAAS_SESSION_KEY, or is derived from the API token when
+// that is unset, so sessions survive restarts, work across replicas without
+// shared state, and all become invalid when the key is rotated. The CSRF
+// token for forms is HMAC(key, "csrf"+nonce): bound to the session and
+// never stored.
 package auth
 
 import (
@@ -43,16 +46,28 @@ type Sessions struct {
 }
 
 // New derives the signing key from the API token.
-func New(apiToken string) *Sessions {
-	m := hmac.New(sha256.New, []byte(apiToken))
-	m.Write([]byte("paas session key v1"))
+func New(apiToken string) *Sessions { return NewWithKey("", apiToken) }
+
+// NewWithKey signs sessions with sessionKey (PAAS_SESSION_KEY), or with a
+// key derived from apiToken when sessionKey is empty. apiToken is also the
+// legacy admin token accepted by CheckToken ("" disables it).
+func NewWithKey(sessionKey, apiToken string) *Sessions {
+	secret, label := apiToken, "paas session key v2"
+	if sessionKey != "" {
+		secret, label = sessionKey, "paas session key v2 (dedicated)"
+	}
+	m := hmac.New(sha256.New, []byte(secret))
+	m.Write([]byte(label))
 	return &Sessions{token: apiToken, key: m.Sum(nil), TTL: DefaultTTL, now: time.Now}
 }
 
-// CheckToken compares a presented API token in constant time.
+// CheckToken compares a presented legacy API token in constant time.
 func (s *Sessions) CheckToken(token string) bool {
-	return token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
+	return token != "" && s.token != "" && subtle.ConstantTimeCompare([]byte(token), []byte(s.token)) == 1
 }
+
+// HasToken reports whether a legacy API token is configured.
+func (s *Sessions) HasToken() bool { return s.token != "" }
 
 func (s *Sessions) mac(parts ...string) []byte {
 	m := hmac.New(sha256.New, s.key)
@@ -60,14 +75,18 @@ func (s *Sessions) mac(parts ...string) []byte {
 	return m.Sum(nil)
 }
 
-// Issue sets a new session cookie.
-func (s *Sessions) Issue(w http.ResponseWriter, r *http.Request) {
+// Issue sets a new admin session cookie (token login).
+func (s *Sessions) Issue(w http.ResponseWriter, r *http.Request) { s.IssueUser(w, r, 0) }
+
+// IssueUser sets a new session cookie for a user (0: admin).
+func (s *Sessions) IssueUser(w http.ResponseWriter, r *http.Request, userID int64) {
 	nonce := make([]byte, 16)
 	rand.Read(nonce)
 	exp := strconv.FormatInt(s.now().Add(s.TTL).Unix(), 10)
+	uid := strconv.FormatInt(userID, 10)
 	n := b64.EncodeToString(nonce)
 	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: exp + "." + n + "." + b64.EncodeToString(s.mac(exp, n)),
+		Name: CookieName, Value: exp + "." + uid + "." + n + "." + b64.EncodeToString(s.mac("session", exp, uid, n)),
 		Path: "/", MaxAge: int(s.TTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: IsTLS(r),
 	})
@@ -81,31 +100,72 @@ func (s *Sessions) Clear(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// nonce returns the nonce of a valid, unexpired session cookie.
-func (s *Sessions) nonce(r *http.Request) (string, bool) {
+// parse returns the user id and nonce of a valid, unexpired session cookie.
+func (s *Sessions) parse(r *http.Request) (int64, string, bool) {
 	c, err := r.Cookie(CookieName)
 	if err != nil {
-		return "", false
+		return 0, "", false
 	}
 	parts := strings.Split(c.Value, ".")
-	if len(parts) != 3 {
-		return "", false
+	if len(parts) != 4 {
+		return 0, "", false
 	}
-	sig, err := b64.DecodeString(parts[2])
-	if err != nil || !hmac.Equal(sig, s.mac(parts[0], parts[1])) {
-		return "", false
+	sig, err := b64.DecodeString(parts[3])
+	if err != nil || !hmac.Equal(sig, s.mac("session", parts[0], parts[1], parts[2])) {
+		return 0, "", false
 	}
 	exp, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || s.now().Unix() >= exp {
-		return "", false
+		return 0, "", false
 	}
-	return parts[1], true
+	uid, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || uid < 0 {
+		return 0, "", false
+	}
+	return uid, parts[2], true
+}
+
+func (s *Sessions) nonce(r *http.Request) (string, bool) {
+	_, n, ok := s.parse(r)
+	return n, ok
 }
 
 // Valid reports whether r carries a valid session cookie.
 func (s *Sessions) Valid(r *http.Request) bool {
 	_, ok := s.nonce(r)
 	return ok
+}
+
+// User returns the user id of r's valid session (0: admin session).
+func (s *Sessions) User(r *http.Request) (int64, bool) {
+	uid, _, ok := s.parse(r)
+	return uid, ok
+}
+
+// Seal signs value for purpose with an expiry; Open verifies it. Used for
+// short-lived cookies such as the OAuth state.
+func (s *Sessions) Seal(purpose, value string, ttl time.Duration) string {
+	exp := strconv.FormatInt(s.now().Add(ttl).Unix(), 10)
+	v := b64.EncodeToString([]byte(value))
+	return exp + "." + v + "." + b64.EncodeToString(s.mac("seal", purpose, exp, v))
+}
+
+// Open returns the value of an unexpired string sealed for purpose.
+func (s *Sessions) Open(purpose, sealed string) (string, bool) {
+	parts := strings.Split(sealed, ".")
+	if len(parts) != 3 {
+		return "", false
+	}
+	sig, err := b64.DecodeString(parts[2])
+	if err != nil || !hmac.Equal(sig, s.mac("seal", purpose, parts[0], parts[1])) {
+		return "", false
+	}
+	exp, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || s.now().Unix() >= exp {
+		return "", false
+	}
+	v, err := b64.DecodeString(parts[1])
+	return string(v), err == nil
 }
 
 // CSRFToken returns the form token for r's session, or "" without one.
