@@ -125,5 +125,12 @@ queued → building → deploying → ready
 - Dockerfile frontend'inin sabitlenmesi / kaldırılması (her build'deki ~2 s'lik sabit maliyet)
 - **Çıktı:** değişiklik olmayan build'ler belirgin şekilde kısa
 
+### Faz 15 — GitHub App (migration 009)
+- Kişisel token, OAuth App ve repo başına webhook yerine tek bir GitHub App
+- Kurulum olayları (`installation`, `installation_repositories`) veritabanına; kısa ömürlü kurulum token'larıyla clone, commit status ve PR yorumu
+- "Install" → repoları seç → arayüzde listeden "Import": uygulama oluşur, ilk deploy başlar
+- GitHub ile giriş aynı App üzerinden; eski token + webhook yolu yedek olarak çalışır
+- **Çıktı:** yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmiyor
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.
