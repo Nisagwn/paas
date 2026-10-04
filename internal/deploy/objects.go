@@ -148,6 +148,13 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 			}},
 		},
 	}
+	// Faz 11: the activator (control plane) proxies woken requests to pods.
+	if a := k.cfg.ActivatorNamespace; a != "" {
+		policy.Spec.Ingress[0].From = append(policy.Spec.Ingress[0].From, networkingv1.NetworkPolicyPeer{
+			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": a}},
+			PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "paas"}},
+		})
+	}
 	if _, err := apply(ctx, k.client.NetworkingV1().NetworkPolicies(ns), policyName, policy,
 		func(have *networkingv1.NetworkPolicy) bool {
 			if equality.Semantic.DeepEqual(have.Spec, policy.Spec) {
@@ -330,7 +337,8 @@ func (k *Kubernetes) ensureDeployment(ctx context.Context, d store.Deployment, i
 	return apply(ctx, k.client.AppsV1().Deployments(want.Namespace), want.Name, want,
 		func(have *appsv1.Deployment) bool {
 			c := have.Spec.Template.Spec.Containers
-			if len(c) == 1 && c[0].Image == image && have.Spec.Template.Annotations[AnnotEnvHash] == envHash {
+			asleep := have.Spec.Replicas != nil && *have.Spec.Replicas == 0
+			if len(c) == 1 && c[0].Image == image && have.Spec.Template.Annotations[AnnotEnvHash] == envHash && !asleep {
 				return false // a retry of the same deployment: leave the rollout alone
 			}
 			have.Labels, have.Annotations = want.Labels, want.Annotations

@@ -61,6 +61,8 @@ type Deployment struct {
 	RetiredAt    *time.Time `json:"retired_at,omitempty"`
 	RetireReason string     `json:"retire_reason,omitempty"`
 	Attempts     int        `json:"attempts"`
+	// Faz 11: set while the deployment is scaled to zero (scale.go).
+	SleepingSince *time.Time `json:"sleeping_since,omitempty"`
 }
 
 type Alias struct {
@@ -214,12 +216,14 @@ func (s *Store) getApp(ctx context.Context, where string, arg any) (App, error) 
 // ---- deployments ----
 
 const deploymentCols = `d.id, d.app_id, a.name, a.repo_full_name, d.commit_sha, d.branch, d.commit_message, d.status,
-	d.error, d.image, d.created_at, d.started_at, d.finished_at, d.retired_at, d.retire_reason, d.attempts`
+	d.error, d.image, d.created_at, d.started_at, d.finished_at, d.retired_at, d.retire_reason, d.attempts,
+	d.sleeping_since`
 
 func scanDeployment(row interface{ Scan(...any) error }) (Deployment, error) {
 	var d Deployment
 	err := row.Scan(&d.ID, &d.AppID, &d.AppName, &d.Repo, &d.CommitSHA, &d.Branch, &d.CommitMessage, &d.Status,
-		&d.Error, &d.Image, &d.CreatedAt, &d.StartedAt, &d.FinishedAt, &d.RetiredAt, &d.RetireReason, &d.Attempts)
+		&d.Error, &d.Image, &d.CreatedAt, &d.StartedAt, &d.FinishedAt, &d.RetiredAt, &d.RetireReason, &d.Attempts,
+		&d.SleepingSince)
 	return d, err
 }
 

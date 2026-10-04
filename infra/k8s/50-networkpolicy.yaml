@@ -1,7 +1,10 @@
 # k3s enforces NetworkPolicies (embedded kube-router). Only the control plane
 # may talk to Postgres and to buildkitd; app pods in app-* namespaces cannot.
 # The control plane itself is reached by Traefik (kube-system) and has no
-# ingress policy.
+# ingress policy; that includes the activator port (8081) that sleeping
+# deployments' Services point at. App namespaces get their policy from the
+# control plane; it admits kube-system and, with scale to zero, the paas
+# control plane pods (activator → woken pod).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

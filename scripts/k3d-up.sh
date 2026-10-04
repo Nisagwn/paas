@@ -44,3 +44,8 @@ api_port=$(docker port "k3d-$cluster-serverlb" 6443/tcp | head -1 | sed 's/.*://
 kubectl config set-cluster "k3d-$cluster" --server "https://127.0.0.1:$api_port" >/dev/null
 kubectl get nodes
 echo "ready: registry localhost:$port, apps at http://<host>.localtest.me"
+# Scale to zero with the control plane on the host: Traefik reaches the
+# activator at the host's address inside the cluster (host.k3d.internal).
+# k3s's Traefik exports the Prometheus metrics idle detection needs by default.
+host_ip=$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.NodeHosts}' | awk '/host.k3d.internal/ {print $1}')
+echo "scale to zero: PAAS_ACTIVATOR_IP=$host_ip PAAS_ACTIVATOR_UPSTREAM=http://127.0.0.1:80"

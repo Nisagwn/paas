@@ -71,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
 	api.HandleFunc("GET /api/apps/{name}/env", s.getEnv)
 	api.HandleFunc("PUT /api/apps/{name}/env", s.putEnv)
+	api.HandleFunc("GET /api/apps/{name}/scale-to-zero", s.getScaleToZero)
+	api.HandleFunc("PUT /api/apps/{name}/scale-to-zero", s.putScaleToZero)
 	api.HandleFunc("GET /api/deployments/{id}", s.getDeployment)
 	api.HandleFunc("GET /api/deployments/{id}/logs", s.deploymentLogs)
 	api.HandleFunc("GET /api/deployments/{id}/logs/stream", s.streamLogs)
@@ -207,10 +209,13 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request) {
 type deploymentView struct {
 	store.Deployment
 	URL string `json:"url"`
+	// Sleeping: scaled to zero; the next request wakes it (Faz 11).
+	Sleeping bool `json:"sleeping"`
 }
 
 func (s *Server) deploymentView(d store.Deployment) deploymentView {
-	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain))}
+	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
+		Sleeping: d.Status == store.StatusReady && d.SleepingSince != nil}
 }
 
 func (s *Server) listDeployments(w http.ResponseWriter, r *http.Request) {

@@ -12,7 +12,8 @@
     {{range .}}
       <tr>
         <td><a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{.Status}}</span></a>
-          {{if .Production}}<span class="tag prod">production</span>{{end}}</td>
+          {{if .Production}}<span class="tag prod">production</span>{{end}}
+          {{if and (eq .Status "ready") .SleepingSince}}<span class="tag" title="Scaled to zero {{ago .SleepingSince}}; the next request wakes it">sleeping</span>{{end}}</td>
         <td>
           <a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a>
           <div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
