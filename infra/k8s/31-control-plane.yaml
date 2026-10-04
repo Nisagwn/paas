@@ -39,6 +39,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # Scale to zero: Traefik reaches the activator at <pod IP>:8081
+            # through the EndpointSlice of a sleeping deployment's Service.
+            - name: activator
+              containerPort: 8081
           env:
             - name: PAAS_ADDR
               value: ":8080"
@@ -78,6 +82,21 @@ spec:
               value: "true"
             - name: PAAS_ROUTE_SYNC_INTERVAL
               value: 1m
+            # Scale to zero (Faz 11): idle deployments sleep after 30m; the
+            # activator wakes them and proxies the held request to the pod.
+            - name: PAAS_SCALE_TO_ZERO_AFTER
+              value: 30m
+            - name: PAAS_ACTIVATOR_ADDR
+              value: ":8081"
+            - name: PAAS_ACTIVATOR_UPSTREAM
+              value: pod
+            - name: PAAS_ACTIVATOR_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            # App NetworkPolicies admit the control plane (activator → pod).
+            - name: PAAS_CONTROL_PLANE_NAMESPACE
+              valueFrom:
+                fieldRef: { fieldPath: metadata.namespace }
             - name: PAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: paas, key: database-url }

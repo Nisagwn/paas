@@ -116,6 +116,32 @@ Bu koşu iki hata buldu ve düzeltildi: crash mesajı yalnızca stack trace'in s
 | Kubernetes testleri | client-go fake clientset |
 | Gerçek build testleri | `make test-build`: üç örnek gerçekten build edilir, çalıştırılır, HTTP yanıtı kontrol edilir |
 
+## 6. Sıfıra ölçekleme (k3d)
+
+Bölüm 4'teki küme; kontrol düzlemi host'ta, `PAAS_SCALE_TO_ZERO_AFTER=1m`,
+`PAAS_SCALE_INTERVAL=10s`, `PAAS_ACTIVATOR_UPSTREAM=http://127.0.0.1:80` (istek uyandırmadan
+sonra Traefik üzerinden yeniden gönderilir). Uygulama `examples/node-hello`; bir production
+(`main`) ve bir preview (`feature`) deploy'u. Gecikme `curl` ile, istemcinin gördüğü toplam süre.
+
+| Senaryo | Sonuç |
+|---|---|
+| Son istekten sonra uyuma | 60–81 s (1 dk + en fazla bir kontrol aralığı); production izin yokken uyanık kaldı |
+| Soğuk istek, deploy adresi (`<sha7>-s0-blog`) | 5.35 s, 4.52 s, 4.08 s — hepsi 200 |
+| Soğuk istek, preview alias'ı (`feature-s0-blog`) | 7.47 s, 5.17 s — 200 |
+| Soğuk istek, production (izin açıkken) | 4.21 s — 200 |
+| Uyandırma süresi (aktivatör logu: replicas=1 → Deployment hazır → Service geri) | 3.8–4.9 s |
+| Uyandırmadan hemen sonraki istek | 0.3–0.95 s (Traefik yapılandırmayı güncelleyene kadar aktivatör üzerinden) |
+| Sıcak istek | 0.06–0.3 s |
+| 10 eşzamanlı soğuk istek (biri gövdeli POST) | 10/10 × 200, 4.5–5.2 s; tek bir uyandırma |
+| Production izni geri alındı | ölçekleyici uyuyan production'ı bir sonraki turda uyandırdı (4.1 s) |
+
+Soğuk başlangıcın çoğu pod'un başlaması ve TCP readiness probe'udur (2 s aralık); kontrol
+düzleminin payı (Ingress araması, ölçekleme, Service geçişi, isteğin iletilmesi) yaklaşık
+0.4 s. Bu koşu bir hata buldu ve düzeltildi: Service selector'ı kaldırılınca Kubernetes eski
+`Endpoints` nesnesini ve EndpointSlice'ı silmiyor, yansıtma denetleyicisi de eski pod adresini
+yeni bir slice'a kopyalıyor; uyutma artık bunları siliyor, aksi halde Traefik isteklerin bir
+kısmını sonlanmış pod'a gönderirdi.
+
 ## Sınırlar
 
 - Ölçümler dizüstü bilgisayarda alındı; hedef EC2 (arm64, 2 vCPU, 4 GiB) üzerinde build süreleri

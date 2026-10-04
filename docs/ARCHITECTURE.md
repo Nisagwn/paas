@@ -73,6 +73,7 @@ flowchart LR
 | Yönlendirme | Alias'ları veritabanından Ingress'lere senkronlama, uzlaştırma | `internal/routing` |
 | Özel alan adları | DNS doğrulama döngüsü (CNAME / TXT), durum, bekleme süresi | `internal/domains` |
 | Temizlik | Saklama politikası, emekliye ayırma, nesne silme | `internal/cleanup` |
+| Sıfıra ölçekleme | Boşta olma tespiti (Traefik metrikleri), uyutma, aktivatör ile uyandırma | `internal/scale`, `internal/deploy/sleep.go` |
 | GitHub | Commit status, PR "Preview hazır" yorumu | `internal/github` |
 | Altyapı | VPC, EC2, EIP, Route 53, ECR, IAM, cloud-init | `infra/terraform`, `infra/k8s` |
 
@@ -153,6 +154,45 @@ stateDiagram-v2
     retired --> queued: aynı commit tekrar push'landı
     failed --> [*]
     retired --> [*]
+```
+
+### 5.1 Sıfıra ölçekleme (Faz 11)
+
+`ready` bir deploy kendi içinde uyanık ya da uyuyor olabilir; bu, durum makinesinin dışında,
+Kubernetes nesnelerinde tutulur (`deployments.sleeping_since` yalnızca API/arayüz için aynasıdır):
+
+```mermaid
+stateDiagram-v2
+    awake --> sleeping: Traefik sayacı PAAS_SCALE_TO_ZERO_AFTER boyunca değişmedi
+    sleeping --> waking: aktivatöre ilk istek / production izni kalktı
+    waking --> awake: pod hazır → Service pod'lara döner, bekletilen istek iletilir
+    waking --> sleeping: pod hazır olmadı (crash) → istemciye 503, trafik aktivatörde kalır
+```
+
+| Durum | Deployment | Service `d-<sha7>` | EndpointSlice |
+|---|---|---|---|
+| awake | 1 replika | selector → pod'lar | denetleyicinin |
+| sleeping | 0 replika, `paas/sleeping-since` | selector yok | `d-<sha7>-activator` → kontrol düzlemi `:8081` |
+
+Ingress'ler her durumda Service'i gösterir; yönlendirme senkronu, rollback ve temizlik uyku
+durumundan habersizdir. Emekliye ayrılan uyuyan bir deploy'un aktivatör EndpointSlice'ı
+Deployment'a ait olduğu için onunla birlikte silinir. Akış:
+
+```mermaid
+sequenceDiagram
+    participant U as İstemci
+    participant T as Traefik
+    participant A as Aktivatör (kontrol düzlemi)
+    participant K as Kubernetes API
+    U->>T: GET preview-blog.domain
+    T->>A: Service d-abc1234 → EndpointSlice (aktivatör)
+    A->>K: Ingress(host) → Deployment, replicas=1
+    loop 200 ms
+        A->>K: Deployment hazır mı?
+    end
+    A->>K: Service selector geri, aktivatör slice silinir
+    A->>T: istek pod'a (kümede doğrudan pod IP)
+    T-->>U: 200 (ilk yanıt birkaç saniye gecikmeli)
 ```
 
 ## 6. Veri modeli

@@ -73,6 +73,7 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
 - [x] Faz 12: özel alan adları: DNS doğrulaması (CNAME / TXT), alan adı başına Let's Encrypt sertifikası (HTTP-01), production ve rollback'i izler
+- [x] Faz 11: sıfıra ölçekleme: boştaki deploy'lar 0 replikaya iner, ilk istek bekletilip uyandırılan pod'a iletilir; production uygulama başına isteğe bağlı
 - [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
 - [x] Faz 9: Python (pip / uv / poetry; Django, FastAPI, Flask), Ruby (Rails, Rack), Java (Maven / Gradle) build'leri,
   her dilde `Procfile` `web:` desteği; hepsi sayısal root olmayan kullanıcıyla, örnekleri gerçek build testinde
@@ -229,6 +230,52 @@ bir adın bu platforma bağlanmasına izin verir.
 | `PAAS_DOMAIN_GRACE` | DNS'i bozulan alan adının sunulmaya devam ettiği süre (`72h`) |
 | `PAAS_DOMAIN_VERIFY` | `dns` (varsayılan) ya da `skip` (yalnızca geliştirme) |
 | `PAAS_CUSTOM_DOMAIN_ISSUER` | alan adı sertifikaları için ClusterIssuer (`letsencrypt-http01`) |
+
+### Sıfıra ölçekleme (Faz 11)
+
+`PAAS_SCALE_TO_ZERO_AFTER` (varsayılan `30m`) boyunca istek almayan deploy'lar 0 replikaya iner;
+ilk istek gelince uyanır. İstek bekletilir, pod hazır olunca ona iletilir: kullanıcı hata sayfası
+görmez, yalnızca ilk yanıt birkaç saniye gecikir (yerel k3d'de 4–7 s, bkz.
+[MEASUREMENTS.md](docs/MEASUREMENTS.md#6-sıfıra-ölçekleme-k3d)). Preview'ler ve production
+alias'ı göstermeyen eski deploy'lar her zaman uyuyabilir; production deploy'u yalnızca
+uygulama izin verirse:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/scale-to-zero \
+  -d '{"production": true}'
+```
+
+İzin geri alınırsa ya da uyuyan bir deploy'a rollback yapılırsa, ölçekleyici o production
+deploy'unu bir sonraki turda kendisi uyandırır. Uyuyan deploy'lar API'de `"sleeping": true`
+(`sleeping_since`), web arayüzünde **sleeping** etiketiyle görünür.
+
+**Nasıl çalışır** (kontrol düzlemi aktivatör olarak; KEDA gerekmez):
+
+1. **Boşta olma tespiti:** Ölçekleyici her turda (`PAAS_SCALE_INTERVAL`, varsayılan
+   `min(süre/4, 30s)`) Traefik'in servis başına `traefik_service_requests_total` sayaçlarını
+   okur (k3s'in Traefik'inde varsayılan açık, `:9100`; API sunucusunun pod proxy'si üzerinden).
+   Sayaç süre boyunca değişmemişse deploy boştadır. Her değişiklik (Traefik yeniden başlayınca
+   sıfırlanma dahil) etkinlik sayılır; sayaçlar okunamazsa hiçbir şey uyutulmaz.
+2. **Uyutma:** Deploy'un Service'inin selector'ı kaldırılır ve aynı Service'e kontrol
+   düzleminin aktivatör portunu gösteren bir EndpointSlice (`d-<sha7>-activator`) eklenir;
+   ardından Deployment 0 replikaya iner. Ingress'lere (deploy adresi, alias'lar, özel alan
+   adları) dokunulmaz, bu yüzden alias uzlaştırma döngüsü uyku durumunu bozamaz.
+3. **Uyandırma:** İstek Traefik → aktivatöre gelir. Aktivatör hostname'den Ingress'i ve
+   Deployment'ı bulur, 1 replikaya çıkarır, hazır olmasını bekler (200 ms aralıkla; çöken pod
+   hemen hata verir), Service'i pod'lara geri çevirir ve bekletilen isteği iletir. Aynı deploy
+   için gelen eşzamanlı istekler tek bir uyandırmayı paylaşır.
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_SCALE_TO_ZERO_AFTER` | boşta kalma süresi (varsayılan `30m`, `0` kapatır) |
+| `PAAS_SCALE_INTERVAL` | kontrol aralığı (boş = `min(süre/4, 30s)`) |
+| `PAAS_ACTIVATOR_ADDR` | aktivatörün dinlediği adres (varsayılan `:8081`) |
+| `PAAS_ACTIVATOR_IP` | Traefik'in aktivatöre ulaştığı IP; kümede pod IP'si (downward API), k3d'de `host.k3d.internal` adresi. Boşsa özellik kapalı kalır |
+| `PAAS_ACTIVATOR_UPSTREAM` | `pod` (kümede, isteği doğrudan pod'a iletir) ya da `http://127.0.0.1:80` (kontrol düzlemi kümenin dışında; istek Traefik üzerinden yeniden gönderilir) |
+| `PAAS_CONTROL_PLANE_NAMESPACE` | kümede: uygulama NetworkPolicy'leri kontrol düzlemi pod'larına izin verir (`pod` upstream'i için) |
+
+Yerel k3d ile: `scripts/k3d-up.sh` gereken `PAAS_ACTIVATOR_IP` değerini yazdırır;
+`PAAS_ACTIVATOR_UPSTREAM=http://127.0.0.1:80` kullanılır.
 
 ### Build nasıl çalışır
 
@@ -521,6 +568,8 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |
 | GET | `/api/apps/{name}/env` | `{"keys":[…]}` — değerler API'den asla okunmaz |
 | PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
+| GET | `/api/apps/{name}/scale-to-zero` | `{"production": bool}` — production deploy'u boştayken uyuyabilir mi |
+| PUT | `/api/apps/{name}/scale-to-zero` | `{"production": true\|false}` (preview'ler her zaman uyuyabilir) |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 | GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
@@ -554,6 +603,7 @@ internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker
 internal/deploy/      Kubernetes: namespace, kota, Secret, Deployment, Service, Ingress, rollout, loglar
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
 internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
+internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/web/         web arayüzü (html/template + htmx)
@@ -590,3 +640,14 @@ docs/                 mimari, rapor, ölçümler, arıza senaryoları, demo
 - **TCP readiness probe:** `/` rotası olmayan bir uygulama da hazır sayılır.
 - **Ortam değişkenleri Postgres'te şifreli:** API değerleri asla geri döndürmez; veritabanında AES-256-GCM
   ile şifreli (uygulama + değişken adına bağlı), Kubernetes tarafında Secret olarak durur (Faz 10).
+- **Sıfıra ölçeklemede KEDA değil, kontrol düzlemi aktivatör:** KEDA HTTP add-on'u her deploy
+  için bir HTTPScaledObject, araya giren bir interceptor proxy, ExternalName Service'ler ve
+  Traefik'te `allowExternalNameServices` ister; bu da tüm trafiğin (uyanıkken de) ek bir
+  atlamadan geçmesi ve kümeye üç yeni bileşen demek. Burada uyku durumu yalnızca Service'in
+  uç noktalarını değiştirir: uyanık deploy'un trafiği hiç değişmez, Ingress'lere dokunulmaz
+  (alias uzlaştırma, rollback ve özel alan adları aynen çalışır), boşta olma tespiti k3s'te
+  zaten açık olan Traefik metriklerinden gelir ve her durum geçişi fake clientset ile test
+  edilebilir. Bedeli: aktivatör kontrol düzleminde çalışır; kontrol düzlemi kapalıyken uyuyan
+  deploy'lar uyanamaz (uyanık olanlar etkilenmez).
+- **Ortam değişkenleri Postgres'te düz metin:** API değerleri asla geri döndürmez; Kubernetes
+  tarafında Secret olarak durur. Veritabanında şifreleme sonraki bir adım.

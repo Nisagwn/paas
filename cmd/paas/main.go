@@ -165,7 +165,12 @@ func run(log *slog.Logger) error {
 		verifier.Run(ctx)
 	}()
 
-	errCh := make(chan error, 1)
+	// Faz 11: scale idle deployments to zero; the activator wakes them.
+	errCh := make(chan error, 2)
+	activatorSrv, err := startScaler(ctx, cfg, st, applier, log, &wg, errCh)
+	if err != nil {
+		return err
+	}
 	go func() {
 		log.Info("listening", "addr", cfg.Addr, "domain", cfg.Domain,
 			"builder", cfg.Builder, "deployer", cfg.Deployer, "registry", cfg.Registry)
@@ -186,6 +191,9 @@ func run(log *slog.Logger) error {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("http shutdown", "err", err)
+	}
+	if activatorSrv != nil {
+		activatorSrv.Shutdown(shutdownCtx)
 	}
 	wg.Wait() // let in-flight deployments finish
 	return nil
@@ -272,6 +280,9 @@ func newPipeline(cfg config.Config, st *store.Store) (worker.Pipeline, routing.A
 			QuotaCPU: cfg.AppQuotaCPU, QuotaMemory: cfg.AppQuotaMemory, QuotaPods: cfg.AppQuotaPods,
 			RunAsNonRoot: cfg.AppRunAsNonRoot, RolloutTimeout: cfg.RolloutTimeout,
 			CustomDomainIssuer: cfg.Domains.Issuer,
+			ActivatorIP:        cfg.Scale.ActivatorIP, ActivatorPort: cfg.Scale.ActivatorPort,
+			ActivatorNamespace: activatorNamespace(cfg.Scale),
+			TraefikNamespace:   cfg.Scale.TraefikNamespace, TraefikMetricsPort: cfg.Scale.TraefikMetricsPort,
 		})
 		if err != nil {
 			return nil, nil, err

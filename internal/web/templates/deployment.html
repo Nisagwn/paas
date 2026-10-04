@@ -3,7 +3,8 @@
 <div class="head">
   <div>
     <p class="sub" style="margin:0"><a href="/">Apps</a> / <a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a> /</p>
-    <h1><span class="mono">{{short $d.CommitSHA}}</span> <span id="status" class="badge s-{{$d.Status}}">{{$d.Status}}</span></h1>
+    <h1><span class="mono">{{short $d.CommitSHA}}</span> <span id="status" class="badge s-{{$d.Status}}">{{$d.Status}}</span>
+      {{if and (eq $d.Status "ready") $d.SleepingSince}}<span class="tag" title="Scaled to zero; the next request wakes it">sleeping</span>{{end}}</h1>
     <p class="sub">{{firstLine $d.CommitMessage}}</p>
   </div>
   <div class="actions">

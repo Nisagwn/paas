@@ -47,6 +47,45 @@ rules:
   - apiGroups: [traefik.io]
     resources: [ingressroutes, middlewares]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Scale to zero (Faz 11): a sleeping deployment's Service points at the
+  # activator through an EndpointSlice paas maintains; the stale pod
+  # endpoints are deleted.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [endpoints]
+    verbs: [get, delete]
+---
+# Idle detection reads Traefik's Prometheus metrics through the API server's
+# pod proxy; only in kube-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: paas-traefik-metrics
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: paas
+rules:
+  - apiGroups: [""]
+    resources: [pods/proxy]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: paas-traefik-metrics
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: paas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: paas-traefik-metrics
+subjects:
+  - kind: ServiceAccount
+    name: paas
+    namespace: paas
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

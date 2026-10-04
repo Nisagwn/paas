@@ -102,6 +102,8 @@ type Config struct {
 	AllowedGitHubOrgs  []string
 	// Always allowed; made owners of the "default" team at sign-in.
 	AdminGitHubLogins []string
+	// Faz 11: scale to zero (see scale.go).
+	Scale Scale
 }
 
 // OAuthEnabled reports whether GitHub login is configured.
@@ -252,6 +254,9 @@ func Load() (Config, error) {
 		return c, err
 	}
 	if err := c.loadUsers(); err != nil {
+		return c, err
+	}
+	if err := c.loadScale(); err != nil {
 		return c, err
 	}
 

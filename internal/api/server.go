@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{name}/domains", s.requireApp(member, s.addDomain))
 	api.HandleFunc("POST /api/apps/{name}/domains/{hostname}/verify", s.requireApp(member, s.verifyDomain))
 	api.HandleFunc("DELETE /api/apps/{name}/domains/{hostname}", s.requireApp(member, s.deleteDomain))
+	api.HandleFunc("GET /api/apps/{name}/scale-to-zero", s.requireApp(viewer, s.getScaleToZero))
+	api.HandleFunc("PUT /api/apps/{name}/scale-to-zero", s.requireApp(member, s.putScaleToZero))
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
 	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	// Deployment endpoints check the deployment's app (lookupDeployment).
@@ -240,10 +242,13 @@ func (s *Server) getApp(w http.ResponseWriter, r *http.Request) {
 type deploymentView struct {
 	store.Deployment
 	URL string `json:"url"`
+	// Sleeping: scaled to zero; the next request wakes it (Faz 11).
+	Sleeping bool `json:"sleeping"`
 }
 
 func (s *Server) deploymentView(d store.Deployment) deploymentView {
-	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain))}
+	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
+		Sleeping: d.Status == store.StatusReady && d.SleepingSince != nil}
 }
 
 func (s *Server) listDeployments(w http.ResponseWriter, r *http.Request) {

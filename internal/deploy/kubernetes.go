@@ -12,6 +12,7 @@
 package deploy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -75,6 +76,18 @@ type Config struct {
 	RolloutTimeout time.Duration
 	// PollInterval between rollout checks. Zero means 2s.
 	PollInterval time.Duration
+
+	// Faz 11 (sleep.go, metrics.go). ActivatorIP:ActivatorPort is where the
+	// ingress controller reaches the activator; empty disables Sleep.
+	ActivatorIP   string
+	ActivatorPort int32
+	// ActivatorNamespace, if set, lets pods of that namespace labelled
+	// app.kubernetes.io/name=paas (the control plane) reach app pods, so the
+	// activator can proxy a woken request straight to the pod.
+	ActivatorNamespace string
+	// Where Traefik's metrics are read. Defaults: kube-system,
+	// app.kubernetes.io/name=traefik, port 9100.
+	TraefikNamespace, TraefikSelector, TraefikMetricsPort string
 }
 
 // DefaultConfig is sized for a 4 GiB node shared by many deployments.
@@ -142,6 +155,9 @@ func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, e
 	if k.cfg.PollInterval <= 0 {
 		k.cfg.PollInterval = 2 * time.Second
 	}
+	k.cfg.TraefikNamespace = cmp.Or(k.cfg.TraefikNamespace, "kube-system")
+	k.cfg.TraefikSelector = cmp.Or(k.cfg.TraefikSelector, "app.kubernetes.io/name=traefik")
+	k.cfg.TraefikMetricsPort = cmp.Or(k.cfg.TraefikMetricsPort, "9100")
 	return k, nil
 }
 
@@ -207,6 +223,10 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 	}
 	if _, err := k.ensureService(ctx, d, dep); err != nil {
 		return fmt.Errorf("service %s/%s: %w", ns, name, err)
+	}
+	// A redeploy of a sleeping deployment (crash recovery) runs it again.
+	if err := k.deleteActivatorSlice(ctx, ns, name); err != nil {
+		return err
 	}
 	// The Secret is created before the Deployment (pods need it at start),
 	// so it is attached to its owner afterwards for garbage collection.
