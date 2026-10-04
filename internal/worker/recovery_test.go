@@ -27,12 +27,13 @@ func TestRecoverOrphanedDeployment(t *testing.T) {
 	}
 	w := &worker.Worker{
 		Store: st, Pipeline: worker.DryRunPipeline{}, Domain: "paas.test",
-		StaleAfter: 100 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		StaleAfter: 300 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if got, _ := w.RecoverStale(ctx); len(got) != 0 {
 		t.Fatalf("recovered %v before the heartbeat went stale", got)
 	}
-	time.Sleep(250 * time.Millisecond)
+	// Generous margin: heartbeats use the database clock (see cleanup_test).
+	time.Sleep(1200 * time.Millisecond)
 
 	got, err := w.RecoverStale(ctx)
 	if err != nil || len(got) != 1 || got[0].ID != d.ID || got[0].Status != store.StatusQueued {
@@ -63,7 +64,8 @@ func TestRecoverGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 
 	st.ClaimNext(ctx)
-	time.Sleep(250 * time.Millisecond)
+	// Generous margin: heartbeats use the database clock (see cleanup_test).
+	time.Sleep(1200 * time.Millisecond)
 	got, err := w.RecoverStale(ctx)
 	if err != nil || len(got) != 1 || got[0].Status != store.StatusFailed {
 		t.Fatalf("recovered %+v, %v; want failed", got, err)

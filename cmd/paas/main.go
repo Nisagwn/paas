@@ -124,8 +124,13 @@ func run(log *slog.Logger) error {
 	ui := &web.Server{
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
-		// Faz 15 (import UI): GitHubAppSlug: cfg.GitHubApp.Slug, GitHubApp: ghApp
-		// (only when ghApp != nil, so the interface stays nil without an App).
+	}
+	// Faz 15: install link and import. Assigned only with an App, so the
+	// interfaces stay nil without one.
+	var inspector api.RepoInspector
+	if ghApp != nil {
+		inspector = ghApp
+		ui.GitHubAppSlug, ui.GitHubApp = cfg.GitHubApp.Slug, inspector
 	}
 
 	// Long-lived streams (SSE) end when shutdown starts instead of holding it up.
@@ -135,8 +140,7 @@ func run(log *slog.Logger) error {
 		Store: st, Router: apiRouter, Domain: cfg.Domain, Scheme: scheme, APIToken: cfg.APIToken,
 		WebhookSecret: cfg.GitHubWebhookSecret, Log: log, Cleanup: gc,
 		Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
-		Auth: authn,
-		// Faz 15 (import API): GitHubApp: ghApp (only when ghApp != nil).
+		Auth: authn, GitHubApp: inspector,
 	}
 	handler := apiSrv.Handler()
 	if ghApp != nil {
