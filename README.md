@@ -80,8 +80,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 12: özel alan adları: DNS doğrulaması (CNAME / TXT), alan adı başına Let's Encrypt sertifikası (HTTP-01), production ve rollback'i izler
 - [x] Faz 13: kullanıcılar ve ekipler: GitHub ile giriş (OAuth + PKCE), roller (owner / member / viewer),
   kişisel API token'ları, ekip dışı kaynaklar 404; eski `PAAS_API_TOKEN` acil durum admin token'ı
-- [x] Faz 14 (kısmen): üretilen Dockerfile'larda `# syntax=` satırı yok; yerleşik BuildKit frontend'i cache mount'u
-  destekliyor, her build'den frontend imajı çözümleme adımı düşüyor
+- [x] Faz 14: üretilen Dockerfile'larda `# syntax=` satırı yok; yerleşik BuildKit frontend'i cache mount'u
+  destekliyor, her build'den frontend imajı çözümleme adımı düşüyor: ılık build %18–34 kısa
+  ([ölçüm](docs/MEASUREMENTS.md#7-daha-hızlı-ılık-build-faz-14))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır

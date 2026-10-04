@@ -61,9 +61,8 @@ scripts/measure-builds.sh
 **Yorum:**
 - Cache mount'lar (`/root/.npm`, `/go/pkg/mod`, `/root/.cache/go-build`) sayesinde Go'da kod
   değişikliği sonrası build, soğuk build'in %22'si kadar sürüyor.
-- Ilık build'lerin ~2.2 s'lik tabanı büyük ölçüde sabit maliyettir: üretilen Dockerfile'lardaki
-  `# syntax=docker/dockerfile:1` satırı her build'de frontend imajını registry'de sorgular.
-  Frontend'i sabit bir digest'e bağlamak bu süreyi kısaltabilir (sonraki iş).
+- Bu tablo Faz 14'ten önce, `# syntax=docker/dockerfile:1` satırıyla alındı. Satır her build'de
+  frontend imajını registry'de sorgular; kaldırılınca ılık build ~0.5–1.4 s kısalır (bölüm 7).
 - Go imajı, distroless + statik ikili sayesinde 3 MB (Docker'ın raporladığı boyut).
   Küçük imaj, yeni bir düğümde ilk çekme süresini doğrudan kısaltır.
 - Uçtan uca bir push → `ready` örneği (Docker builder, dry-run deploy, `node-hello`):
@@ -141,6 +140,34 @@ düzleminin payı (Ingress araması, ölçekleme, Service geçişi, isteğin ile
 `Endpoints` nesnesini ve EndpointSlice'ı silmiyor, yansıtma denetleyicisi de eski pod adresini
 yeni bir slice'a kopyalıyor; uyutma artık bunları siliyor, aksi halde Traefik isteklerin bir
 kısmını sonlanmış pod'a gönderirdi.
+
+## 7. Daha hızlı ılık build (Faz 14)
+
+Üretilen Dockerfile'lar artık `# syntax=docker/dockerfile:1` satırıyla başlamıyor; BuildKit'in
+yerleşik frontend'i cache mount'ları (`RUN --mount=type=cache`) zaten destekliyor. Ölçüm: her örnek
+için aynı Dockerfile, satırlı ve satırsız, cache dolu, 7 koşu **dönüşümlü** (iki taraf aynı makine
+yüküyle karşılaşsın diye); medyan.
+
+```bash
+scripts/measure-frontend.sh 7
+```
+
+| Uygulama | Satırla | Satırsız | Kazanç |
+|---|---:|---:|---:|
+| `node-hello` | 4.49 s | 3.12 s | −1.37 s (%31) |
+| `go-hello` | 3.07 s | 2.53 s | −0.54 s (%18) |
+| `static-site` | 2.72 s | 2.04 s | −0.69 s (%25) |
+| `python-hello` | 2.88 s | 1.95 s | −0.94 s (%32) |
+| `ruby-hello` | 2.87 s | 2.11 s | −0.76 s (%27) |
+| `java-hello` | 2.79 s | 1.85 s | −0.94 s (%34) |
+
+**Yorum:**
+- Kazanç, build logundaki iki adımın düşmesinden gelir: `resolve image config for
+  docker.io/docker/dockerfile:1` (registry'ye bir ağ gidiş-dönüşü) ve frontend imajının yüklenmesi.
+  Bu yüzden kazanç ağ gecikmesiyle büyür; registry'ye uzak bir sunucuda daha belirgin olması beklenir.
+- Kod değişikliğinden sonraki build'ler de aynı sabit maliyeti taşıdığından, push → `ready` süresi
+  de aynı miktarda kısalır.
+- Ham sonuçlar: [`docs/measurements/frontend.tsv`](measurements/frontend.tsv).
 
 ## Sınırlar
 

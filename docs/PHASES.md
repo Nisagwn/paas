@@ -121,7 +121,7 @@ queued → building → deploying → ready
 - Her API ucu ve arayüz sayfası yetki kontrolünden geçer
 - **Çıktı:** bir ekip yalnızca kendi uygulamalarını görür ve yönetir
 
-### Faz 14 — Daha hızlı ılık build
+### Faz 14 — Daha hızlı ılık build ✅ (ılık build %18–34 kısa, bkz. MEASUREMENTS §7)
 - Dockerfile frontend'inin sabitlenmesi / kaldırılması (her build'deki ~2 s'lik sabit maliyet)
 - **Çıktı:** değişiklik olmayan build'ler belirgin şekilde kısa
 
