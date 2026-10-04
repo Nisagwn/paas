@@ -56,6 +56,9 @@ type Server struct {
 	// Cleanup is kicked after a branch deletion (cleanup.Collector); nil
 	// leaves route sync and object deletion to the periodic sweep.
 	Cleanup interface{ Kick(app string) }
+	// Domains checks a custom domain on demand (Faz 12); nil leaves new
+	// domains pending until the verifier loop runs.
+	Domains DomainChecker
 }
 
 func (s *Server) Handler() http.Handler {
@@ -71,6 +74,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/{name}/rollback", s.rollback)
 	api.HandleFunc("GET /api/apps/{name}/env", s.getEnv)
 	api.HandleFunc("PUT /api/apps/{name}/env", s.putEnv)
+	api.HandleFunc("GET /api/apps/{name}/domains", s.listDomains)
+	api.HandleFunc("POST /api/apps/{name}/domains", s.addDomain)
+	api.HandleFunc("POST /api/apps/{name}/domains/{hostname}/verify", s.verifyDomain)
+	api.HandleFunc("DELETE /api/apps/{name}/domains/{hostname}", s.deleteDomain)
 	api.HandleFunc("GET /api/deployments/{id}", s.getDeployment)
 	api.HandleFunc("GET /api/deployments/{id}/logs", s.deploymentLogs)
 	api.HandleFunc("GET /api/deployments/{id}/logs/stream", s.streamLogs)

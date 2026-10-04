@@ -45,6 +45,8 @@ type Server struct {
 	// RuntimeLogs shows the runtime log panel (Kubernetes deployer only).
 	RuntimeLogs bool
 	Log         *slog.Logger
+	// Domains checks custom domains on demand (Faz 12, optional).
+	Domains api.DomainChecker
 
 	pages map[string]*template.Template
 }
@@ -77,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	partials := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/partials.html"))
 	s.pages["deployments"] = partials.Lookup("deployments")
 	s.pages["env"] = partials.Lookup("env")
+	s.pages["domains"] = partials.Lookup("domains")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -89,6 +92,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /apps/{name}/rollback", s.authed(s.rollback))
 	mux.Handle("POST /apps/{name}/env", s.authed(s.setEnv))
 	mux.Handle("POST /apps/{name}/env/delete", s.authed(s.deleteEnv))
+	mux.Handle("POST /apps/{name}/domains", s.authed(s.addDomain))
+	mux.Handle("POST /apps/{name}/domains/verify", s.authed(s.verifyDomain))
+	mux.Handle("POST /apps/{name}/domains/delete", s.authed(s.deleteDomain))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	mux.Handle("/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusNotFound, "Page not found.")
@@ -164,7 +170,9 @@ type page struct {
 	Error    string
 	Domain   string
 	EnvError string // only set on htmx env fragments
-	Data     any
+	// DomainError is only set on htmx domain fragments.
+	DomainError string
+	Data        any
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
@@ -217,6 +225,7 @@ var flashes = map[string]string{
 	"created":  "App created. Point a GitHub push webhook at /webhooks/github to deploy it.",
 	"rollback": "Production now serves the selected deployment.",
 	"env":      "Environment updated. New values apply to the next deployment.",
+	"domain":   "Custom domains updated.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -366,6 +375,7 @@ type appDetail struct {
 	Active        bool // something is in progress: the table polls
 	EnvKeys       []string
 	HasProduction bool
+	Domains       []api.DomainView
 }
 
 type aliasRow struct {
@@ -431,7 +441,8 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 		v.EnvKeys = append(v.EnvKeys, k)
 	}
 	sort.Strings(v.EnvKeys)
-	return v, nil
+	v.Domains, err = s.domainViews(ctx, app)
+	return v, err
 }
 
 func (s *Server) appPage(w http.ResponseWriter, r *http.Request) {

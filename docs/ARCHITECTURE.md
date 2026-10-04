@@ -71,6 +71,7 @@ flowchart LR
 | Build | SHA ile clone, dil algılama, Dockerfile üretimi, BuildKit | `internal/build` |
 | Deploy | Namespace, kota, Secret, Deployment, Service, Ingress, hazır olma bekleme | `internal/deploy` |
 | Yönlendirme | Alias'ları veritabanından Ingress'lere senkronlama, uzlaştırma | `internal/routing` |
+| Özel alan adları | DNS doğrulama döngüsü (CNAME / TXT), durum, bekleme süresi | `internal/domains` |
 | Temizlik | Saklama politikası, emekliye ayırma, nesne silme | `internal/cleanup` |
 | GitHub | Commit status, PR "Preview hazır" yorumu | `internal/github` |
 | Altyapı | VPC, EC2, EIP, Route 53, ECR, IAM, cloud-init | `infra/terraform`, `infra/k8s` |
@@ -161,6 +162,7 @@ erDiagram
     apps ||--o{ deployments : "commit başına bir"
     apps ||--o{ aliases : ""
     apps ||--o{ app_env : ""
+    apps ||--o{ app_domains : "production'ı izler"
     deployments ||--o{ aliases : "hedef"
     deployments ||--o{ deployment_logs : ""
 
@@ -199,6 +201,15 @@ erDiagram
         text key
         text value
     }
+    app_domains {
+        bigint app_id FK
+        text hostname UK "www.ornek.com"
+        text status "pending|verified|active|error"
+        text verification_token "TXT _paas-challenge.<host>"
+        bool routed
+        timestamptz last_checked_at
+        timestamptz failing_since "bekleme süresi"
+    }
 ```
 
 ## 7. Adlandırma
@@ -211,3 +222,11 @@ Tüm host'lar tek etiketli ve `*.domain` altındadır; tek bir wildcard sertifik
 | Production alias | `<app>.<domain>` | `app-<app>/alias-<app>` |
 | Preview alias | `<branch>-<app>.<domain>` | `app-<app>/alias-<branch>-<app>` |
 | Kontrol düzlemi | `<domain>` | `paas/paas` |
+| Özel alan adı (Faz 12) | `www.ornek.com` | `app-<app>/domain-<host>-<hash>` (+ `-tls` Secret) |
+
+Özel alan adları `*.domain` dışında kalır. `internal/domains` doğrulayıcısı DNS'i (CNAME →
+`<app>.<domain>` ya da TXT `_paas-challenge.<host>`) denetler ve `routed` alanını yönetir;
+`AliasRoutes` yönlendirilen her alan adını production alias'ının hedefine giden `custom`
+türünde bir rota olarak döndürür. Böylece aynı senkron (`ApplyAliases`) hem alias'ları hem
+alan adlarını uygular ve rollback ikisini birlikte taşır. Alan adı `Ingress`'i kendi TLS
+Secret'ını ve `cert-manager.io/cluster-issuer` anotasyonunu taşır; sertifika HTTP-01 ile alınır.

@@ -104,6 +104,9 @@ func (k *Kubernetes) ApplyAliases(ctx context.Context, app string, routes []stor
 	keep := make(map[string]bool, len(routes))
 	for _, r := range routes {
 		name := aliasIngressName(r.Hostname)
+		if r.Kind == store.AliasCustom {
+			name = domainIngressName(r.Hostname)
+		}
 		keep[name] = true
 		lbl := map[string]string{
 			LabelManagedBy:    ManagedBy,
@@ -113,7 +116,11 @@ func (k *Kubernetes) ApplyAliases(ctx context.Context, app string, routes []stor
 			LabelDeploymentID: fmt.Sprint(r.DeploymentID),
 			LabelCommit:       r.CommitSHA,
 		}
-		if _, err := k.applyIngress(ctx, k.ingressObject(ns, name, r.Hostname, r.CommitSHA, lbl)); err != nil {
+		want := k.ingressObject(ns, name, r.Hostname, r.CommitSHA, lbl)
+		if r.Kind == store.AliasCustom {
+			k.customDomainTLS(want)
+		}
+		if _, err := k.applyIngress(ctx, want); err != nil {
 			return fmt.Errorf("alias %s: %w", r.Hostname, err)
 		}
 	}
@@ -134,6 +141,9 @@ func (k *Kubernetes) ApplyAliases(ctx context.Context, app string, routes []stor
 		err := ic.Delete(ctx, ing.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &ing.UID}})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("delete stale alias %s: %w", ing.Name, err)
+		}
+		if err := k.deleteDomainSecret(ctx, &ing); err != nil {
+			return fmt.Errorf("delete certificate secret of %s: %w", ing.Name, err)
 		}
 	}
 	return nil

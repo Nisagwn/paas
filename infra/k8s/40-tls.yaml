@@ -21,6 +21,32 @@ spec:
             region: ${AWS_REGION}
             hostedZoneID: ${HOSTED_ZONE_ID}
 ---
+# Custom domains (Faz 12) are outside the Route 53 zone, so each gets its
+# own certificate through HTTP-01. The control plane annotates a custom
+# domain's Ingress with cert-manager.io/cluster-issuer: letsencrypt-http01
+# (PAAS_CUSTOM_DOMAIN_ISSUER) and names a per-domain TLS Secret; the
+# ingress-shim then creates the Certificate. The solver Ingress is served
+# by Traefik on the plain-HTTP entry point, above the redirect below.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http01
+spec:
+  acme:
+    server: ${ACME_SERVER}
+    email: ${LETSENCRYPT_EMAIL}
+    privateKeySecretRef:
+      name: letsencrypt-http01-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+            ingressTemplate:
+              metadata:
+                annotations:
+                  traefik.ingress.kubernetes.io/router.entrypoints: web
+                  traefik.ingress.kubernetes.io/router.priority: "10000"
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -49,7 +75,9 @@ spec:
     secretName: wildcard-tls
 ---
 # HTTP → HTTPS for every host: a lowest-priority catch-all on the "web"
-# entry point.
+# entry point. ACME HTTP-01 challenges are excluded so that Let's Encrypt
+# reaches cert-manager's solver over plain HTTP (custom domains); the
+# solver Ingress also has a higher priority.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -69,7 +97,7 @@ spec:
   entryPoints: [web]
   routes:
     - kind: Rule
-      match: PathPrefix(`/`)
+      match: PathPrefix(`/`) && !PathPrefix(`/.well-known/acme-challenge/`)
       priority: 1
       middlewares:
         - name: redirect-https

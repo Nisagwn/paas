@@ -72,6 +72,7 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
+- [x] Faz 12: özel alan adları: DNS doğrulaması (CNAME / TXT), alan adı başına Let's Encrypt sertifikası (HTTP-01), production ve rollback'i izler
 - [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
 - [x] Faz 9: Python (pip / uv / poetry; Django, FastAPI, Flask), Ruby (Rails, Rack), Java (Maven / Gradle) build'leri,
   her dilde `Procfile` `web:` desteği; hepsi sayısal root olmayan kullanıcıyla, örnekleri gerçek build testinde
@@ -167,6 +168,67 @@ kalırsa `failed` olur. Ayrıntılar ve tüm arıza durumları: [docs/FAILURE-SC
 | `PAAS_PREVIEW_ALIAS_TTL` | hiç güncellenmeyen preview alias'ının kaldırılma süresi (varsayılan `0` = asla) |
 | `PAAS_GC_INTERVAL` | temizlik turu aralığı (varsayılan `10m`) |
 | `PAAS_WORKER_STALE_AFTER` | heartbeat'siz kalan deploy'un sahipsiz sayılma süresi (varsayılan `2m`) |
+
+### Özel alan adları (Faz 12)
+
+Bir uygulamaya kendi alan adınızı (ör. `www.ornek.com`) bağlayabilirsiniz. Alan adı DNS ile
+doğrulandıktan sonra uygulamanın **production** deploy'unu sunar ve production alias'ını izler:
+yeni bir production deploy'u da, rollback da alan adını aynı anda taşır.
+
+Ekleme: web arayüzünde uygulama sayfasındaki **Custom domains** bölümü ya da
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -d '{"hostname":"www.ornek.com"}' \
+  https://<domain>/api/apps/blog/domains
+```
+
+Yanıt (`dns_records`) oluşturulacak kayıtları listeler. **Birini** oluşturun:
+
+| Tür | Ad | Değer | Ne zaman |
+|---|---|---|---|
+| `CNAME` | `www.ornek.com` | `blog.<domain>` (ya da `<domain>`) | alt alan adları için önerilen yol; trafiği de yönlendirir |
+| `TXT` | `_paas-challenge.www.ornek.com` | yanıttaki `verification_token` | CNAME olamayan kök alan adları (`ornek.com`) için; ayrıca `A` (ya da `ALIAS`) kaydı `blog.<domain>` ile aynı adrese |
+
+Alan adı kuralları: tam nitelikli ad (en az iki etiket), harf büyüklüğü önemsizdir (ad normalize edilir), uluslararası adlar
+punycode (`xn--…`) biçiminde yazılır, joker (`*.`) ve platform alan adının altındaki adlar kabul
+edilmez. Bir ad tüm platformda tektir; uygulama başına en fazla 20 alan adı.
+
+Durumlar:
+
+| Durum | Anlamı |
+|---|---|
+| `pending` | DNS kaydı henüz bulunamadı; `error` neyin eksik olduğunu söyler. Her `PAAS_DOMAIN_CHECK_INTERVAL`'da (1 dk; bir günden eski olanlar saatte bir) yeniden denenir |
+| `verified` | DNS doğrulandı, `Ingress` oluşturuldu; sertifika bekleniyor (ya da henüz production deploy'u yok) |
+| `active` | Yönlendiriliyor ve sertifikası hazır. Her `PAAS_DOMAIN_RECHECK_INTERVAL`'da (1 sa) yeniden doğrulanır |
+| `error` | Doğrulanmış bir alan adının DNS kaydı kayboldu. `PAAS_DOMAIN_GRACE` (72 sa) boyunca sunulmaya devam eder, sonra `Ingress`'i kaldırılır; kayıt düzelince kendiliğinden geri gelir |
+
+Bekleme süresinin nedeni: geçici bir DNS sorunu ya da kısa bir sağlayıcı değişikliği canlı bir
+siteyi anında düşürmemeli; kalıcı olarak başka yere taşınan bir alan adı ise süre sonunda bırakılır.
+"Check now" düğmesi ve `POST /api/apps/{name}/domains/{hostname}/verify` döngüyü beklemeden denetler.
+
+**Sertifika:** platform adları wildcard sertifikayla (DNS-01) sunulur; özel alan adları bu
+bölgenin dışında olduğundan her biri kendi Let's Encrypt sertifikasını **HTTP-01** ile alır.
+Kontrol düzlemi alan adının `Ingress`'ine `cert-manager.io/cluster-issuer: letsencrypt-http01`
+(`PAAS_CUSTOM_DOMAIN_ISSUER`) anotasyonunu ve alan adına özel bir TLS Secret'ı yazar;
+cert-manager `Certificate`'i oluşturur, doğrulamayı Traefik'in `web` giriş noktasındaki geçici bir
+`Ingress` ile yapar ve sertifikayı süresi dolmadan yeniler. HTTP→HTTPS yönlendirmesi
+`/.well-known/acme-challenge/` yolunu hariç tutar ([infra/k8s/40-tls.yaml](infra/k8s/40-tls.yaml)).
+Sertifika hazır olana kadar (genellikle bir dakikadan kısa) HTTPS isteklerine platformun
+varsayılan sertifikası döner ve tarayıcı uyarı verir; durum bu sürede `verified` kalır.
+Alan adı silinince `Ingress`, `Certificate` ve TLS Secret'ı da silinir.
+`PAAS_INGRESS_TLS=false` iken alan adı düz HTTP ile sunulur, sertifika istenmez.
+
+`PAAS_DOMAIN_VERIFY=skip` DNS denetimini atlar ve eklenen her alan adını hemen yönlendirir.
+**Yalnızca geliştirme içindir** (ör. genel DNS'i olmayan bir k3d kümesi); üretimde başkasına ait
+bir adın bu platforma bağlanmasına izin verir.
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_DOMAIN_CHECK_INTERVAL` | bekleyen / doğrulanmış / hatalı alan adlarının denetim aralığı (`1m`) |
+| `PAAS_DOMAIN_RECHECK_INTERVAL` | `active` alan adlarının yeniden doğrulama aralığı (`1h`) |
+| `PAAS_DOMAIN_GRACE` | DNS'i bozulan alan adının sunulmaya devam ettiği süre (`72h`) |
+| `PAAS_DOMAIN_VERIFY` | `dns` (varsayılan) ya da `skip` (yalnızca geliştirme) |
+| `PAAS_CUSTOM_DOMAIN_ISSUER` | alan adı sertifikaları için ClusterIssuer (`letsencrypt-http01`) |
 
 ### Build nasıl çalışır
 
@@ -384,6 +446,10 @@ Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 | GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
 | GET | `/api/apps/{name}/deployments/{id}/runtime-logs?follow=1&tail=200` | Pod logları (yalnızca `kubernetes` deployer) |
+| GET | `/api/apps/{name}/domains` | Özel alan adları: durum, hata, oluşturulacak DNS kayıtları |
+| POST | `/api/apps/{name}/domains` | `{"hostname"}` — ekler ve hemen bir kez denetler (`201`) |
+| POST | `/api/apps/{name}/domains/{hostname}/verify` | DNS'i şimdi denetler |
+| DELETE | `/api/apps/{name}/domains/{hostname}` | Alan adını ve `Ingress`'ini kaldırır (`204`) |
 
 ## Proje yapısı
 
