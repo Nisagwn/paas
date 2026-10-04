@@ -1,7 +1,8 @@
 # paas control plane: API + GitHub webhook + build/deploy workers.
 # Secrets used here are created on the node, not stored in this repo:
-#   paas/paas          database-url, api-token, github-webhook-secret
-#                              (+ optional github-token for private repos)
+#   paas/paas          database-url, api-token, github-webhook-secret, env-key
+#                              (+ optional github-token for private repos,
+#                              optional env-old-keys during a key rotation)
 #   paas/ecr-docker-config config.json for buildctl, refreshed every 6 h
 #                              by the paas-ecr-auth systemd timer
 apiVersion: apps/v1
@@ -89,6 +90,13 @@ spec:
             - name: PAAS_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef: { name: paas, key: github-token, optional: true }
+            # Faz 10: AES-256 key for app env values (bootstrap.sh generates it).
+            - name: PAAS_ENV_KEY
+              valueFrom:
+                secretKeyRef: { name: paas, key: env-key }
+            - name: PAAS_ENV_OLD_KEYS
+              valueFrom:
+                secretKeyRef: { name: paas, key: env-old-keys, optional: true }
             # buildctl (docker/cli config loader) reads $DOCKER_CONFIG/config.json.
             - name: DOCKER_CONFIG
               value: /docker-config
