@@ -53,6 +53,9 @@ func run(log *slog.Logger) error {
 	if err := st.Migrate(ctx); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	if err := setupEnvEncryption(ctx, st, log); err != nil {
+		return err
+	}
 
 	pipeline, applier, err := newPipeline(cfg, st)
 	if err != nil {

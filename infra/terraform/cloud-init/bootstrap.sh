@@ -124,7 +124,16 @@ if ! kubectl -n paas get secret paas >/dev/null 2>&1; then
   kubectl -n paas create secret generic paas \
     --from-literal=database-url="postgres://paas:${pg_pass}@postgres.paas.svc.cluster.local:5432/paas?sslmode=disable" \
     --from-literal=api-token="$(openssl rand -hex 32)" \
-    --from-literal=github-webhook-secret="$(openssl rand -hex 32)"
+    --from-literal=github-webhook-secret="$(openssl rand -hex 32)" \
+    --from-literal=env-key="$(openssl rand -base64 32)"
+fi
+
+# Faz 10: AES-256 key for app env values. Added to an existing Secret only
+# when missing; never regenerated (losing it loses every encrypted value).
+if [ -z "$(kubectl -n paas get secret paas -o jsonpath='{.data.env-key}')" ]; then
+  log "generating env encryption key"
+  kubectl -n paas patch secret paas --type merge \
+    -p "{\"data\":{\"env-key\":\"$(openssl rand -base64 32 | tr -d '\n' | base64 -w0)\"}}"
 fi
 
 # --- 8. ECR credentials for buildctl (refreshed every 6 h) -------------------

@@ -72,6 +72,7 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 7: çökme sonrası kurtarma: worker heartbeat'i, sahipsiz deploy'lar yeniden kuyruğa (en fazla 2 deneme)
 - [x] Faz 7: k6 yük testleri ([loadtest/](loadtest/)), arıza senaryoları ([docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md))
 - [x] Faz 8: mimari belgesi, teknik rapor, ölçümler ve yeniden üretme script'leri, demo senaryosu
+- [x] Faz 10: env değerleri veritabanında AES-256-GCM ile şifreli, anahtar kimliğiyle rotasyon (`paas-envkey`)
 - [x] Yerel gerçek kümede (k3d) uçtan uca doğrulama: deploy, rollback (trafik altında 0 hata), hata ve temizlik senaryoları
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
@@ -241,6 +242,38 @@ public repolar için `public_repo`).
 | `PAAS_GITHUB_API_URL` | varsayılan `https://api.github.com`; GitHub Enterprise: `https://<host>/api/v3` |
 | `PAAS_PUBLIC_URL` | kontrol düzleminin dış adresi, bağlantılar buraya gider (varsayılan `https://<PAAS_DOMAIN>`) |
 
+### Ortam değişkenlerinin şifrelenmesi (Faz 10)
+
+Uygulama env değerleri Postgres'te AES-256-GCM ile şifreli durur (`internal/secret`). Her değer
+rastgele 12 baytlık nonce ile ayrı şifrelenir ve `v1:<anahtar kimliği>:<base64(nonce|şifreli metin)>`
+olarak `app_env.value` sütununa yazılır; `key_id` sütunu (migration 005) anahtarı gösterir, `NULL`
+düz metin demektir. Ek doğrulama verisi (AAD) uygulama kimliği + değişken adıdır: bir şifreli değer
+başka bir uygulamaya ya da değişkene kopyalanırsa çözülemez. Şifreleme store katmanında yapılır;
+API, arayüz ve deployer değişmedi, Kubernetes `Secret`'ı yine çözülmüş değerlerle oluşur.
+
+```bash
+go run ./cmd/paas-envkey            # yeni anahtar yazdırır (stderr: anahtar kimliği)
+go run ./cmd/paas-envkey status     # anahtar kimliği başına değer sayısı (PAAS_DATABASE_URL)
+go run ./cmd/paas-envkey rotate     # düz metinleri şifreler, eski anahtardakileri yenisine taşır
+```
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_ENV_KEY` | base64 32 bayt; kimlik `sha256(anahtar)`'ın ilk 8 hex karakteri ya da açıkça `kimlik:base64` |
+| `PAAS_ENV_OLD_KEYS` | virgülle ayrılmış eski anahtarlar; yalnızca çözmek için kullanılır |
+
+- **Açılışta:** kontrol düzlemi migration'lardan sonra düz metin değerleri şifreler ve eski
+  anahtarlardaki değerleri güncel anahtarla yeniden şifreler (tek transaction, idempotent; güncel
+  anahtardaki satırlara dokunulmaz). Tanınmayan bir anahtar kimliği varsa açılmaz.
+- **Rotasyon:** yeni anahtarı `PAAS_ENV_KEY`'e, eskisini `PAAS_ENV_OLD_KEYS`'e koy, yeniden başlat
+  (ya da `paas-envkey rotate` çalıştır); `status` eski anahtarda değer kalmadığını gösterince eski
+  anahtarı listeden çıkar. Kontrol düzleminin tek kopyası varsayılır: rotasyon sırasında eski
+  yapılandırmayla çalışan bir kopya yeni değerleri okuyamaz.
+- **Anahtar yoksa:** veritabanında şifreli değer varsa kontrol düzlemi açılmayı reddeder
+  (değerler okunamaz, yeni düz metin yazmak karışıklık yaratır). Şifreli değer yoksa uyarı loglar
+  ve değerleri düz metin saklar — yalnızca yerel geliştirme içindir. Anahtar kaybı, şifreli env
+  değerlerinin kaybıdır; anahtarı veritabanı yedeğinden ayrı yedekle.
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -339,6 +372,7 @@ Tüm `/api/*` uçları `Authorization: Bearer <PAAS_API_TOKEN>` ister.
 ```
 cmd/paas/             giriş noktası: API, worker'lar, routing, cleanup tek süreçte; graceful shutdown
 cmd/paas-dockerfile/  bir dizin için üretilecek Dockerfile'ı yazdırır (go run ./cmd/paas-dockerfile <dizin>)
+cmd/paas-envkey/      env şifreleme anahtarı üretir, durumunu gösterir, rotasyon yapar
 internal/config/      ortam değişkenleri
 internal/api/         HTTP uçları, SSE log akışı
 internal/webhook/     GitHub imza doğrulama, push / pull_request ayrıştırma
@@ -352,6 +386,7 @@ internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/web/         web arayüzü (html/template + htmx)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
+internal/secret/      env değerleri için AES-256-GCM, anahtar halkası ve rotasyon
 internal/testdb/      testler için temiz veritabanı
 examples/             otomatik algılanan örnek uygulamalar (Node, Go, statik)
 infra/                Terraform (AWS) ve Kubernetes manifest'leri
@@ -381,5 +416,5 @@ docs/                 mimari, rapor, ölçümler, arıza senaryoları, demo
   fake clientset ile test edilmesi kolay. Kalıcı hatalarda (`ImagePullBackOff`,
   `CrashLoopBackOff`, `CreateContainerConfigError`, kota aşımı) zaman aşımı beklenmez.
 - **TCP readiness probe:** `/` rotası olmayan bir uygulama da hazır sayılır.
-- **Ortam değişkenleri Postgres'te düz metin:** API değerleri asla geri döndürmez; Kubernetes
-  tarafında Secret olarak durur. Veritabanında şifreleme sonraki bir adım.
+- **Ortam değişkenleri Postgres'te şifreli:** API değerleri asla geri döndürmez; veritabanında AES-256-GCM
+  ile şifreli (uygulama + değişken adına bağlı), Kubernetes tarafında Secret olarak durur (Faz 10).

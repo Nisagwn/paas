@@ -239,14 +239,17 @@ Açıkça belirtilmesi gerekenler:
 - **Tek düğüm:** Postgres ve build cache düğümün diskinde; düğüm kaybı veri kaybıdır.
 - **Tek kontrol düzlemi kopyası varsayılır;** çok kopyada yönlendirme senkronları arasında
   kısa yarışlar olabilir (uzlaştırma döngüsü düzeltir).
-- **Env değerleri veritabanında düz metin;** şifreleme sonraki iştir.
+- **Env değerleri veritabanında şifreli (Faz 10):** AES-256-GCM, değer başına rastgele nonce,
+  uygulama + değişken adına bağlı; anahtar `PAAS_ENV_KEY` ile verilir, rotasyon desteklenir. Anahtar
+  ortam değişkeni olarak (Kubernetes Secret) durur, KMS ile sarılmaz; anahtarı ele geçiren veritabanı
+  dökümünü de çözebilir. Anahtar kaybı şifreli değerlerin kaybıdır.
 - **Fork'lardan açılan PR'lar** preview yorumu almaz.
 
 ## 10. Gelecek çalışmalar
 
 1. Gerçek küme üzerinde kurulum, uçtan uca doğrulama ve ölçümlerin tekrarı.
 2. Sıfıra ölçekleme (KEDA HTTP add-on): kullanılmayan preview'ler kaynak tüketmez.
-3. Env değerlerinin şifrelenmesi (KMS) ve ekip bazlı yetkilendirme.
+3. Env şifreleme anahtarının KMS ile sarılması (zarf şifreleme) ve ekip bazlı yetkilendirme.
 4. Özel alan adları (HTTP-01 ya da DNS doğrulamalı sertifikalar).
 5. Yönetilen veritabanı (RDS) ve çok düğümlü küme.
 6. Dockerfile frontend'inin digest'e sabitlenmesi (ılık build'lerdeki ~2 s'lik sabit maliyet).

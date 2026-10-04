@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+
+	"github.com/nisagwn/paas/internal/secret"
 )
 
 var (
@@ -79,6 +81,8 @@ type LogLine struct {
 
 type Store struct {
 	db *sql.DB
+	// Faz 10: encrypts app_env values; nil stores plaintext (envcrypt.go).
+	env *secret.Keyring
 }
 
 func Open(ctx context.Context, url string) (*Store, error) {
@@ -424,9 +428,9 @@ func (s *Store) ListAliases(ctx context.Context, appID int64) ([]Alias, error) {
 
 // ---- environment variables ----
 
-// AppEnv returns all environment variables of an app.
+// AppEnv returns all environment variables of an app, decrypted.
 func (s *Store) AppEnv(ctx context.Context, appID int64) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM app_env WHERE app_id = $1`, appID)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value, key_id FROM app_env WHERE app_id = $1`, appID)
 	if err != nil {
 		return nil, err
 	}
@@ -434,10 +438,13 @@ func (s *Store) AppEnv(ctx context.Context, appID int64) (map[string]string, err
 	env := map[string]string{}
 	for rows.Next() {
 		var k, v string
-		if err := rows.Scan(&k, &v); err != nil {
+		var keyID sql.NullString
+		if err := rows.Scan(&k, &v, &keyID); err != nil {
 			return nil, err
 		}
-		env[k] = v
+		if env[k], err = s.openEnv(appID, k, v, keyID); err != nil {
+			return nil, err
+		}
 	}
 	return env, rows.Err()
 }
@@ -454,10 +461,15 @@ func (s *Store) UpdateAppEnv(ctx context.Context, appID int64, changes map[strin
 		if v == nil {
 			_, err = tx.ExecContext(ctx, `DELETE FROM app_env WHERE app_id = $1 AND key = $2`, appID, k)
 		} else {
+			value, keyID, serr := s.sealEnv(appID, k, *v)
+			if serr != nil {
+				return serr
+			}
 			_, err = tx.ExecContext(ctx, `
-				INSERT INTO app_env (app_id, key, value) VALUES ($1, $2, $3)
-				ON CONFLICT (app_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-				appID, k, *v)
+				INSERT INTO app_env (app_id, key, value, key_id) VALUES ($1, $2, $3, $4)
+				ON CONFLICT (app_id, key) DO UPDATE
+				SET value = EXCLUDED.value, key_id = EXCLUDED.key_id, updated_at = now()`,
+				appID, k, value, keyID)
 		}
 		if err != nil {
 			return err
