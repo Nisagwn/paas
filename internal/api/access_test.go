@@ -141,6 +141,9 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"GET", "/api/apps/blog/analytics?range=1h", nil, read, nil},
 		{"GET", "/api/apps/blog/health", nil, read, nil},
 		{"GET", "/api/apps/blog/usage", nil, read, nil},
+		// Faz 16 build settings: reading is viewer, changes are member.
+		{"GET", "/api/apps/blog/settings", nil, read, nil},
+		{"PUT", "/api/apps/blog/settings", func(string) any { return map[string]string{"framework": "nextjs"} }, write, nil},
 		// Faz 12 custom domains: reading is viewer, changes are member.
 		{"GET", "/api/apps/blog/domains", nil, read, nil},
 		{"POST", "/api/apps/blog/domains", func(w string) any { return map[string]string{"hostname": "www-" + w + ".example.com"} },

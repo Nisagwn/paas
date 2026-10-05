@@ -113,6 +113,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{name}/analytics", s.requireApp(viewer, s.getAnalytics))
 	api.HandleFunc("GET /api/apps/{name}/health", s.requireApp(viewer, s.getHealth))
 	api.HandleFunc("GET /api/apps/{name}/usage", s.requireApp(viewer, s.getUsage))
+	// Faz 16: build settings (settings.go).
+	api.HandleFunc("GET /api/apps/{name}/settings", s.requireApp(viewer, s.getSettings))
+	api.HandleFunc("PUT /api/apps/{name}/settings", s.requireApp(member, s.putSettings))
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
 	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	// Deployment endpoints check the deployment's app (lookupDeployment).

@@ -21,7 +21,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "detected: %s\n", plan.Summary)
+	fmt.Fprintf(os.Stderr, "framework: %s\ndetected: %s\n", plan.Framework, plan.Summary)
 	if plan.Dockerfile == "" {
 		fmt.Fprintln(os.Stderr, "the repository brings its own Dockerfile; it is used as is")
 		return

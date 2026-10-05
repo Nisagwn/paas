@@ -185,8 +185,8 @@ func (e *env) aliases() map[string]any {
 
 type failingPipeline struct{ worker.DryRunPipeline }
 
-func (failingPipeline) Build(context.Context, store.Deployment, worker.Logger) (string, error) {
-	return "", errors.New("npm install exited with code 1")
+func (failingPipeline) Build(context.Context, store.Deployment, store.BuildSettings, worker.Logger) (worker.BuildResult, error) {
+	return worker.BuildResult{}, errors.New("npm install exited with code 1")
 }
 
 func TestFailedBuildCannotReceiveTraffic(t *testing.T) {

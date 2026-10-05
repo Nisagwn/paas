@@ -132,6 +132,15 @@ queued → building → deploying → ready
 - GitHub ile giriş aynı App üzerinden; eski token + webhook yolu yedek olarak çalışır
 - **Çıktı:** yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmiyor
 
+### Faz 16 — Proje ayarları ve framework presetleri (migration 010) ✅
+- Uygulama başına build ayarları (Vercel'in "Build & Development Settings"i): kök dizin (monorepo),
+  framework seçimi, install / build / start komutları, çıktı dizini, Node sürümü; API `GET/PUT /api/apps/{name}/settings`
+- Framework preset'leri: Next.js (standalone / export / `next start`), Vite, Create React App, Astro (statik / node),
+  SvelteKit (node / static adapter), Nuxt (SSR / generate), Remix, React Router, NestJS, Express
+- Algılanan framework build logunda (`framework: Next.js`), deployment kaydında ve ayarlarda
+- Next.js ve Vite örnekleri gerçek build testinde
+- **Çıktı:** monorepo'daki bir Next.js uygulaması tek ayarla, Dockerfile'sız deploy ediliyor
+
 ### Faz 18 — `paas` komut satırı aracı ✅ (sahte API sunucusuna karşı test edildi)
 - `cmd/paas-cli` (ikili adı `paas`) ve test edilebilir `internal/cli` paketi; yalnızca standart kütüphane
 - `paas login` kişisel API token'ını `GET /api/me` ile doğrular, URL ve token'ı `os.UserConfigDir()/paas/config.json`'a (`0600`) yazar; `logout`, `whoami`
