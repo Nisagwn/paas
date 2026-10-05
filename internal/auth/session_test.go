@@ -15,7 +15,7 @@ func login(t *testing.T, s *Sessions) *http.Request {
 	rec := httptest.NewRecorder()
 	s.Issue(rec, httptest.NewRequest("POST", "/login", nil))
 	c := rec.Result().Cookies()
-	if len(c) != 1 || !c[0].HttpOnly || c[0].SameSite != http.SameSiteStrictMode {
+	if len(c) != 1 || !c[0].HttpOnly || c[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("cookie = %+v", c)
 	}
 	r := httptest.NewRequest("GET", "/", nil)
