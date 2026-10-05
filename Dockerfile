@@ -1,11 +1,14 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.24-alpine AS build
+# The compiler runs natively and cross-compiles: no emulation when building
+# the arm64 image on an x86-64 machine.
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/paas ./cmd/paas
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/paas ./cmd/paas
 
 # Only the buildctl client; buildkitd itself runs as a separate rootless pod.
 FROM moby/buildkit:v0.20.2 AS buildkit

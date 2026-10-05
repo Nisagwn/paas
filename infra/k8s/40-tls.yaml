@@ -1,28 +1,6 @@
-# Wildcard TLS for every hostname of the platform: <domain> and *.<domain>
-# (deployment URLs, production and preview aliases are all single labels).
-#
-# cert-manager solves DNS-01 in Route 53 with the node's instance role
-# ("ambient credentials": no access keys in the cluster). The certificate
-# lives next to Traefik in kube-system and is Traefik's default certificate,
-# so app IngressRoutes only need `tls: {}`.
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt
-spec:
-  acme:
-    server: ${ACME_SERVER}
-    email: ${LETSENCRYPT_EMAIL}
-    privateKeySecretRef:
-      name: letsencrypt-account-key
-    solvers:
-      - dns01:
-          route53:
-            region: ${AWS_REGION}
-            hostedZoneID: ${HOSTED_ZONE_ID}
----
-# Custom domains (Faz 12) are outside the Route 53 zone, so each gets its
-# own certificate through HTTP-01. The control plane annotates a custom
+# Per-host certificates through HTTP-01: custom domains (Faz 12), and every
+# host when the platform runs without a wildcard (dns_provider = "duckdns",
+# PAAS_INGRESS_CERT_ISSUER). The wildcard setup is in 41-tls-wildcard.yaml. The control plane annotates a custom
 # domain's Ingress with cert-manager.io/cluster-issuer: letsencrypt-http01
 # (PAAS_CUSTOM_DOMAIN_ISSUER) and names a per-domain TLS Secret; the
 # ingress-shim then creates the Certificate. The solver Ingress is served
@@ -47,32 +25,24 @@ spec:
                   traefik.ingress.kubernetes.io/router.entrypoints: web
                   traefik.ingress.kubernetes.io/router.priority: "10000"
 ---
+# The control plane's host. Its own certificate in both setups: DNS-01 from
+# "letsencrypt" with Route 53, HTTP-01 otherwise (APEX_ISSUER).
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: wildcard
-  namespace: kube-system
+  name: paas-apex
+  namespace: paas
 spec:
-  secretName: wildcard-tls
+  secretName: paas-apex-tls
   dnsNames:
     - "${DOMAIN}"
-    - "*.${DOMAIN}"
   issuerRef:
     kind: ClusterIssuer
-    name: letsencrypt
+    name: ${APEX_ISSUER}
   privateKey:
     algorithm: ECDSA
     size: 256
     rotationPolicy: Always
----
-apiVersion: traefik.io/v1alpha1
-kind: TLSStore
-metadata:
-  name: default # Traefik only honours the store named "default"
-  namespace: kube-system
-spec:
-  defaultCertificate:
-    secretName: wildcard-tls
 ---
 # HTTP → HTTPS for every host: a lowest-priority catch-all on the "web"
 # entry point. ACME HTTP-01 challenges are excluded so that Let's Encrypt
@@ -105,3 +75,4 @@ spec:
         # Never reached (the middleware answers); Traefik requires a service.
         - name: noop@internal
           kind: TraefikService
+

@@ -4,6 +4,10 @@ region         = "eu-central-1"
 domain         = "paas.example.com"
 hosted_zone_id = "Z0123456789ABCDEFGHIJ" # zone of example.com (or of paas.example.com)
 
+# Or a free DuckDNS name (no Route 53; per-host certificates, see infra/README.md):
+# dns_provider = "duckdns"
+# domain       = "you.duckdns.org"
+
 letsencrypt_email       = "you@example.com"
 letsencrypt_environment = "staging" # switch to "production" once everything works
 

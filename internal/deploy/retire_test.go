@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stesting "k8s.io/client-go/testing"
@@ -71,5 +72,29 @@ func TestRetireMissingNamespaceAndForeignObjects(t *testing.T) {
 	}
 	if _, err := cs.AppsV1().Deployments(ns).Get(ctx, name, metav1.GetOptions{}); err != nil {
 		t.Fatalf("foreign retire deleted the deployment: %v", err)
+	}
+}
+
+// With per-host certificates, retiring a deployment removes its Secret too.
+func TestRetireDeletesCertificateSecret(t *testing.T) {
+	k, cs := newDeployer(t, nil, 5*time.Second)
+	k.cfg.TLS, k.cfg.CertIssuer = true, "letsencrypt-http01"
+	becomeAvailable(t, cs)
+	var l logs
+	ctx := context.Background()
+	if err := k.Deploy(ctx, dep, image, l.log); err != nil {
+		t.Fatalf("deploy: %v: %s", err, &l)
+	}
+	ing, _ := cs.NetworkingV1().Ingresses(ns).Get(ctx, name, metav1.GetOptions{})
+	if len(ing.Spec.TLS) != 1 || ing.Spec.TLS[0].SecretName != name+"-tls" {
+		t.Fatalf("deployment ingress tls: %+v", ing.Spec.TLS)
+	}
+	// cert-manager would have issued it.
+	cs.CoreV1().Secrets(ns).Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name + "-tls", Namespace: ns}}, metav1.CreateOptions{})
+	if err := k.Retire(ctx, dep); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.CoreV1().Secrets(ns).Get(ctx, name+"-tls", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("certificate secret still there: %v", err)
 	}
 }

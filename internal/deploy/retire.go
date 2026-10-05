@@ -29,17 +29,27 @@ func (k *Kubernetes) Retire(ctx context.Context, d store.Deployment) error {
 
 	dc := k.client.AppsV1().Deployments(ns)
 	dep, err := dc.Get(ctx, name, metav1.GetOptions{})
+	// ours: no newer deployment of the same commit took over the name.
+	ours := apierrors.IsNotFound(err)
 	switch {
-	case apierrors.IsNotFound(err):
+	case ours:
 	case err != nil:
 		return fmt.Errorf("deployment %s/%s: %w", ns, name, err)
 	case dep.Labels[LabelDeploymentID] == id:
+		ours = true
 		err := dc.Delete(ctx, name, metav1.DeleteOptions{
 			PropagationPolicy: ptr(metav1.DeletePropagationBackground),
 			Preconditions:     &metav1.Preconditions{UID: &dep.UID},
 		})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("delete deployment %s/%s: %w", ns, name, err)
+		}
+	}
+	// The per-host certificate of <sha7>-<app> (CertIssuer).
+	if ours && k.cfg.CertIssuer != "" {
+		tls := certSecretName(name)
+		if err := k.client.CoreV1().Secrets(ns).Delete(ctx, tls, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("delete certificate secret %s/%s: %w", ns, tls, err)
 		}
 	}
 

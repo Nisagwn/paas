@@ -63,6 +63,10 @@ type Config struct {
 	// CustomDomainIssuer is the cert-manager ClusterIssuer for custom
 	// domains (Faz 12). Empty means DefaultCustomDomainIssuer.
 	CustomDomainIssuer string
+	// CertIssuer, when set, gives every route its own certificate from this
+	// cert-manager ClusterIssuer instead of the wildcard default, e.g. on a
+	// DuckDNS name where a wildcard (DNS-01) is not possible.
+	CertIssuer string
 	// Per container.
 	CPURequest, CPULimit       string
 	MemoryRequest, MemoryLimit string

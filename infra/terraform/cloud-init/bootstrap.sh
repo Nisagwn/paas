@@ -89,7 +89,7 @@ retry 5 helm upgrade --install cert-manager cert-manager \
   --version "${CERT_MANAGER_VERSION}" \
   --namespace cert-manager --create-namespace \
   --set crds.enabled=true \
-  --set 'extraArgs={--dns01-recursive-nameservers-only,--dns01-recursive-nameservers=1.1.1.1:53\,8.8.8.8:53}' \
+  --set 'extraArgs={--dns01-recursive-nameservers-only,--dns01-recursive-nameservers=1.1.1.1:53\,8.8.8.8:53,--enable-certificate-owner-ref=true}' \
   --wait --timeout 10m
 
 # The controller needs the instance role for Route 53 (ambient credentials).
@@ -156,4 +156,4 @@ log "applying manifests"
 # cert-manager's webhook may need a moment before it admits Issuers.
 retry 24 kubectl apply -f "${MANIFESTS}"
 
-log "done. Certificate status: kubectl -n kube-system get certificate wildcard"
+log "done. Certificates: kubectl get certificate -A"

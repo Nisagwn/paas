@@ -20,9 +20,26 @@ variable "domain" {
   }
 }
 
-variable "hosted_zone_id" {
-  description = "Route 53 hosted zone that contains var.domain (the zone of the domain itself or of a parent, e.g. example.com)."
+variable "dns_provider" {
+  description = "\"route53\": records in var.hosted_zone_id and one wildcard certificate (DNS-01). \"duckdns\": a DuckDNS name (e.g. \"you.duckdns.org\") pointed at the Elastic IP after apply, and one certificate per host (HTTP-01)."
   type        = string
+  default     = "route53"
+
+  validation {
+    condition     = contains(["route53", "duckdns"], var.dns_provider)
+    error_message = "dns_provider must be \"route53\" or \"duckdns\"."
+  }
+}
+
+variable "hosted_zone_id" {
+  description = "Route 53 hosted zone that contains var.domain (the zone of the domain itself or of a parent, e.g. example.com). Only for dns_provider = \"route53\"."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.dns_provider != "route53" || var.hosted_zone_id != ""
+    error_message = "hosted_zone_id is required when dns_provider is \"route53\"."
+  }
 }
 
 variable "letsencrypt_email" {

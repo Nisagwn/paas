@@ -78,11 +78,16 @@ spec:
             - name: PAAS_APP_RUN_AS_NON_ROOT
               value: "true"
             # App routes: plain Ingress objects served by k3s's Traefik, TLS
-            # from the default wildcard certificate (40-tls.yaml).
+            # from the default wildcard certificate (41-tls-wildcard.yaml) or
+            # per host (PAAS_INGRESS_CERT_ISSUER).
             - name: PAAS_INGRESS_CLASS
               value: traefik
             - name: PAAS_INGRESS_TLS
               value: "true"
+            # Empty: the wildcard certificate. Otherwise one certificate per
+            # host from this ClusterIssuer (DuckDNS setup).
+            - name: PAAS_INGRESS_CERT_ISSUER
+              value: "${INGRESS_CERT_ISSUER}"
             - name: PAAS_ROUTE_SYNC_INTERVAL
               value: 1m
             # Scale to zero (Faz 11): idle deployments sleep after 30m; the
@@ -128,6 +133,9 @@ spec:
             - name: PAAS_GITHUB_OAUTH_CLIENT_ID
               valueFrom:
                 secretKeyRef: { name: paas, key: github-oauth-client-id, optional: true }
+            - name: PAAS_ADMIN_GITHUB_LOGINS
+              valueFrom:
+                secretKeyRef: { name: paas, key: admin-github-logins, optional: true }
             - name: PAAS_GITHUB_OAUTH_CLIENT_SECRET
               valueFrom:
                 secretKeyRef: { name: paas, key: github-oauth-client-secret, optional: true }
@@ -218,4 +226,5 @@ spec:
       services:
         - name: paas
           port: 80
-  tls: {}
+  tls:
+    secretName: paas-apex-tls # 40-tls.yaml

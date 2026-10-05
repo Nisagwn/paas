@@ -2,6 +2,8 @@ package deploy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -18,7 +20,9 @@ import (
 // Routing uses plain networking.k8s.io/v1 Ingress objects. Traefik (bundled
 // with k3s) serves them, but any ingress controller would; no CRDs needed.
 // TLS: an Ingress lists its host under spec.tls without a secretName, so
-// Traefik answers with its default certificate, the wildcard *.domain.
+// Traefik answers with its default certificate, the wildcard *.domain. With
+// Config.CertIssuer each Ingress names its own Secret instead and cert-manager
+// issues one certificate per host.
 const (
 	LabelRoute     = "paas/route" // "deployment" or "alias"
 	LabelAliasKind = "paas/alias-kind"
@@ -36,6 +40,10 @@ func (k *Kubernetes) ingressObject(ns, name, host, sha string, lbl map[string]st
 	if k.cfg.TLS {
 		annot = map[string]string{annotEntryPoints: "websecure", annotRouterTLS: "true"}
 		tls = []networkingv1.IngressTLS{{Hosts: []string{host}}}
+		if k.cfg.CertIssuer != "" {
+			annot[AnnotClusterIssuer] = k.cfg.CertIssuer
+			tls[0].SecretName = certSecretName(name)
+		}
 	}
 	ing := &networkingv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: lbl, Annotations: annot},
@@ -60,6 +68,16 @@ func (k *Kubernetes) ingressObject(ns, name, host, sha string, lbl map[string]st
 		ing.Spec.IngressClassName = ptr(k.cfg.IngressClass)
 	}
 	return ing
+}
+
+// certSecretName names the per-host certificate Secret of an Ingress.
+// cert-manager uses it as a label value, so it stays within 63 characters.
+func certSecretName(ingress string) string {
+	if len(ingress) <= 59 {
+		return ingress + "-tls"
+	}
+	sum := sha256.Sum256([]byte(ingress))
+	return ingress[:50] + "-" + hex.EncodeToString(sum[:])[:8] + "-tls"
 }
 
 func (k *Kubernetes) applyIngress(ctx context.Context, want *networkingv1.Ingress) (*networkingv1.Ingress, error) {

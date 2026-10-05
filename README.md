@@ -119,6 +119,12 @@ API `502` ile bildirir ve bir sonraki uzlaştırma uygular.
 Standart `networking.k8s.io/v1 Ingress` kullanılır (Traefik CRD'si değil): CRD gerekmez,
 client-go ile tipli ve test edilebilir, başka bir ingress controller ile de çalışır.
 TLS bölümünde `secretName` olmadığı için Traefik varsayılan (wildcard) sertifikayı sunar.
+Wildcard alınamayan adlarda (ör. DuckDNS) `PAAS_INGRESS_CERT_ISSUER=letsencrypt-http01` ile her
+route kendi `<ingress>-tls` Secret'ını adlandırır ve cert-manager host başına HTTP-01 sertifikası
+alır. Rollback yalnızca backend'i değiştirdiği için sertifika yeniden alınmaz; emekliye ayrılan
+deploy'un ve kaldırılan alias'ın Secret'ı silinir. Let's Encrypt kayıtlı alan adı başına haftada
+50 yeni sertifika verir (her yeni deploy adresi bir sertifika); yeni bir deploy adresine ilk HTTPS
+isteği sertifika çıkana kadar ~10–30 s bekleyebilir.
 
 | Değişken | Açıklama |
 |---|---|

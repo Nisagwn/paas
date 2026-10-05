@@ -31,6 +31,10 @@ resource "aws_eip" "node" {
 }
 
 locals {
+  # route53: one wildcard certificate (DNS-01, 41-tls-wildcard.yaml).
+  # duckdns: one certificate per host (HTTP-01), no wildcard manifest.
+  route53 = var.dns_provider == "route53"
+
   acme_server = {
     staging    = "https://acme-staging-v02.api.letsencrypt.org/directory"
     production = "https://acme-v02.api.letsencrypt.org/directory"
@@ -48,10 +52,13 @@ locals {
     PAAS_REGISTRY       = "${local.ecr_registry}/${var.ecr_app_prefix}"
     CONTROL_PLANE_IMAGE = "${aws_ecr_repository.control_plane.repository_url}:${var.control_plane_image_tag}"
     PAAS_DEPLOYER       = var.control_plane_deployer
+    # The control plane's own host and, without a wildcard, every app host.
+    APEX_ISSUER         = local.route53 ? "letsencrypt" : "letsencrypt-http01"
+    INGRESS_CERT_ISSUER = local.route53 ? "" : "letsencrypt-http01"
   }
 
   k8s_dir   = "${path.module}/../k8s"
-  manifests = sort(fileset(local.k8s_dir, "*.yaml"))
+  manifests = [for f in sort(fileset(local.k8s_dir, "*.yaml")) : f if local.route53 || f != "41-tls-wildcard.yaml"]
 
   # Non-secret settings for the bootstrap scripts. Secrets (DB password, API
   # token, webhook secret) are generated on the node and never pass through

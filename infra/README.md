@@ -126,8 +126,13 @@ ile bağlanılır; NetworkPolicy yalnızca kontrol düzlemi pod'una izin verir.
 
 - Terraform ≥ 1.6, AWS CLI v2, Docker (buildx ile), `kubectl` (isteğe bağlı)
 - AWS hesabı ve yönetici yetkili kimlik bilgileri (`aws configure` / `AWS_PROFILE`)
-- Route 53'te bir hosted zone (ör. `example.com`); platform alan adı bu zone'un
-  kendisi ya da alt alan adı olabilir (ör. `paas.example.com`)
+- Alan adı, iki seçenekten biri:
+  - **Route 53** (`dns_provider = "route53"`, varsayılan): bir hosted zone (ör. `example.com`);
+    platform alan adı bu zone'un kendisi ya da alt alan adı olabilir (ör. `paas.example.com`).
+    Tek bir wildcard sertifika (DNS-01).
+  - **DuckDNS** (`dns_provider = "duckdns"`): ücretsiz bir `<ad>.duckdns.org` adı ve hesabın
+    token'ı. DuckDNS her alt adı aynı IP'ye çözer; sertifikalar host başına alınır (HTTP-01,
+    `PAAS_INGRESS_CERT_ISSUER`). Route 53 ve alan adı satın alma gerekmez.
 - Bir SSH anahtar çifti (`ssh-keygen -t ed25519`)
 - Kendi genel IP'niz: `curl -s https://checkip.amazonaws.com`
 
@@ -139,6 +144,12 @@ cp terraform.tfvars.example terraform.tfvars   # değerleri doldurun
 terraform init
 terraform plan -out tfplan
 terraform apply tfplan
+```
+
+DuckDNS ile `apply`'dan sonra adı Elastic IP'ye yönlendirin (token yalnızca yerelde kalır):
+
+```bash
+curl "https://www.duckdns.org/update?domains=<ad>&token=$DUCKDNS_TOKEN&ip=$(terraform output -raw public_ip)"
 ```
 
 `apply` birkaç dakikada biter; node bootstrap'i (k3s, cert-manager, manifest'ler)

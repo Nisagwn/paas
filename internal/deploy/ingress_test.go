@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -124,5 +126,70 @@ func TestApplyAliasesNoNamespace(t *testing.T) {
 	k, _ := newDeployer(t, nil, time.Second)
 	if err := k.ApplyAliases(context.Background(), "ghost", nil); err != nil {
 		t.Fatalf("app without deployments: %v", err)
+	}
+}
+
+// With CertIssuer every route names its own certificate Secret; the default
+// (wildcard) mode stays without one.
+func TestPerHostCertificates(t *testing.T) {
+	ctx := context.Background()
+	cs := fake.NewClientset()
+	cfg := DefaultConfig()
+	cfg.Domain, cfg.TLS, cfg.CertIssuer = "paas.test", true, "letsencrypt-http01"
+	k, err := New(cs, nil, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ic := cs.NetworkingV1().Ingresses(ns)
+	shaA, shaB := strings.Repeat("a", 40), strings.Repeat("b", 40)
+
+	want := func(ing *networkingv1.Ingress, secret string) {
+		t.Helper()
+		if ing.Annotations[AnnotClusterIssuer] != "letsencrypt-http01" || len(ing.Spec.TLS) != 1 ||
+			ing.Spec.TLS[0].SecretName != secret || ing.Spec.TLS[0].Hosts[0] != ing.Spec.Rules[0].Host {
+			t.Fatalf("%s: annotations=%v tls=%+v, want secret %s", ing.Name, ing.Annotations, ing.Spec.TLS, secret)
+		}
+	}
+	want(k.ingressObject(ns, "d-aaaaaaa", "aaaaaaa-blog.paas.test", shaA, nil), "d-aaaaaaa-tls")
+
+	prod := store.AliasRoute{Hostname: "blog.paas.test", Kind: store.AliasProduction, Branch: "main", DeploymentID: 1, CommitSHA: shaA}
+	if err := k.ApplyAliases(ctx, "blog", []store.AliasRoute{prod}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := ic.Get(ctx, "alias-blog", metav1.GetOptions{})
+	want(p, "alias-blog-tls")
+
+	// Rollback moves the backend only: same host, same Secret, no new certificate.
+	prod.DeploymentID, prod.CommitSHA = 2, shaB
+	if err := k.ApplyAliases(ctx, "blog", []store.AliasRoute{prod}); err != nil {
+		t.Fatal(err)
+	}
+	p2, _ := ic.Get(ctx, "alias-blog", metav1.GetOptions{})
+	want(p2, "alias-blog-tls")
+	if backend(p2) != "d-bbbbbbb" || p2.UID != p.UID {
+		t.Fatalf("after rollback: backend %s, same object %v", backend(p2), p2.UID == p.UID)
+	}
+
+	// A removed alias takes its certificate Secret with it.
+	cs.CoreV1().Secrets(ns).Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "alias-blog-tls", Namespace: ns}}, metav1.CreateOptions{})
+	if err := k.ApplyAliases(ctx, "blog", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.CoreV1().Secrets(ns).Get(ctx, "alias-blog-tls", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("certificate secret of a removed alias: %v", err)
+	}
+
+	// Names stay valid label values (≤ 63) for long branch aliases.
+	long := "alias-" + strings.Repeat("x", 57)
+	if s := certSecretName(long); len(s) > 63 || !strings.HasSuffix(s, "-tls") || s == certSecretName(long+"y") {
+		t.Fatalf("certSecretName(%d chars) = %q", len(long), s)
+	}
+
+	// Default mode: unchanged, the wildcard certificate serves.
+	cfg.CertIssuer = ""
+	k, _ = New(fake.NewClientset(), nil, cfg)
+	ing := k.ingressObject(ns, "d-aaaaaaa", "aaaaaaa-blog.paas.test", shaA, nil)
+	if ing.Annotations[AnnotClusterIssuer] != "" || ing.Spec.TLS[0].SecretName != "" {
+		t.Fatalf("wildcard mode: annotations=%v tls=%+v", ing.Annotations, ing.Spec.TLS)
 	}
 }

@@ -61,10 +61,11 @@ func (k *Kubernetes) customDomainTLS(ing *networkingv1.Ingress) {
 }
 
 // deleteDomainSecret removes the certificate Secret of a deleted custom
-// domain Ingress; cert-manager deletes the Certificate with the Ingress
-// but leaves the Secret behind.
+// domain Ingress, or of any alias with a per-host certificate (CertIssuer);
+// cert-manager deletes the Certificate with the Ingress but, without its
+// owner-ref option, leaves the Secret behind.
 func (k *Kubernetes) deleteDomainSecret(ctx context.Context, ing *networkingv1.Ingress) error {
-	if ing.Labels[LabelAliasKind] != store.AliasCustom {
+	if ing.Labels[LabelAliasKind] != store.AliasCustom && k.cfg.CertIssuer == "" {
 		return nil
 	}
 	for _, t := range ing.Spec.TLS {

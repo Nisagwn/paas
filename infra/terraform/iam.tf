@@ -117,6 +117,7 @@ resource "aws_iam_role_policy" "ecr" {
 }
 
 resource "aws_iam_role_policy" "route53" {
+  count  = local.route53 ? 1 : 0
   name   = "route53-dns01"
   role   = aws_iam_role.node.id
   policy = data.aws_iam_policy_document.route53.json

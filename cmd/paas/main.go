@@ -342,8 +342,8 @@ func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSour
 			MemoryRequest: cfg.AppMemoryRequest, MemoryLimit: cfg.AppMemoryLimit,
 			QuotaCPU: cfg.AppQuotaCPU, QuotaMemory: cfg.AppQuotaMemory, QuotaPods: cfg.AppQuotaPods,
 			RunAsNonRoot: cfg.AppRunAsNonRoot, RolloutTimeout: cfg.RolloutTimeout,
-			CustomDomainIssuer: cfg.Domains.Issuer,
-			ActivatorIP:        cfg.Scale.ActivatorIP, ActivatorPort: cfg.Scale.ActivatorPort,
+			CustomDomainIssuer: cfg.Domains.Issuer, CertIssuer: cfg.IngressCertIssuer,
+			ActivatorIP: cfg.Scale.ActivatorIP, ActivatorPort: cfg.Scale.ActivatorPort,
 			ActivatorNamespace: activatorNamespace(cfg.Scale),
 			TraefikNamespace:   cfg.Scale.TraefikNamespace, TraefikMetricsPort: cfg.Scale.TraefikMetricsPort,
 		})

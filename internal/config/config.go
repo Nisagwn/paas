@@ -57,6 +57,9 @@ type Config struct {
 	IngressClass string
 	// Serve app routes over HTTPS with the default wildcard certificate.
 	IngressTLS bool
+	// cert-manager ClusterIssuer for one certificate per route instead of
+	// the wildcard (e.g. on a DuckDNS name); empty keeps the wildcard.
+	IngressCertIssuer string
 	// How often alias routes are reconciled with the database.
 	RouteSyncInterval time.Duration
 	// Bounds a whole deployment (build + deploy).
@@ -202,6 +205,7 @@ func Load() (Config, error) {
 		RolloutTimeout:      3 * time.Minute,
 		IngressClass:        getenv("PAAS_INGRESS_CLASS", "traefik"),
 		IngressTLS:          os.Getenv("PAAS_INGRESS_TLS") != "false",
+		IngressCertIssuer:   os.Getenv("PAAS_INGRESS_CERT_ISSUER"),
 		RouteSyncInterval:   time.Minute,
 		PollInterval:        2 * time.Second,
 		Workers:             2,
