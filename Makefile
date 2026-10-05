@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: db registry buildkitd run test test-build test-unit build vet clean
+.PHONY: db registry buildkitd run test test-build test-unit build cli vet clean
 
 db:            ## start PostgreSQL in Docker
 	docker compose up -d --wait postgres
@@ -17,6 +17,9 @@ run: db registry  ## run the control plane locally
 
 build:
 	CGO_ENABLED=0 go build -o bin/paas ./cmd/paas
+
+cli:           ## build the paas CLI (Faz 18) into bin/paas-cli
+	CGO_ENABLED=0 go build -o bin/paas-cli ./cmd/paas-cli
 
 vet:
 	go vet ./...
