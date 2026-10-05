@@ -33,6 +33,9 @@ const DefaultMaxAttempts = 2
 // recovered as orphaned (heartbeat too old) and queued again.
 var errLeaseLost = errors.New("deployment was taken over after a missed heartbeat")
 
+// errCanceled cancels a run whose deployment a user canceled (Faz 17).
+var errCanceled = errors.New("deployment canceled by a user")
+
 func (w *Worker) maxAttempts() int {
 	if w.MaxAttempts > 0 {
 		return w.MaxAttempts
@@ -47,13 +50,18 @@ func (w *Worker) kick(app string) {
 }
 
 // startHeartbeat refreshes the deployment's heartbeat every StaleAfter/4
-// until the returned stop is called. If the claim was lost, it cancels the
-// run with errLeaseLost so two workers never keep running one deployment.
+// (every CancelPoll without heartbeats) until the returned stop is called.
+// If the claim was lost, it cancels the run with errLeaseLost so two workers
+// never keep running one deployment; if a user canceled the deployment, it
+// cancels the run with errCanceled.
 func (w *Worker) startHeartbeat(ctx context.Context, d store.Deployment, cancel context.CancelCauseFunc) (stop func()) {
-	if w.StaleAfter <= 0 {
-		return func() {}
+	interval := w.CancelPoll
+	if interval <= 0 {
+		interval = 2 * time.Second
 	}
-	interval := max(w.StaleAfter/4, 10*time.Millisecond)
+	if w.StaleAfter > 0 {
+		interval = max(w.StaleAfter/4, 10*time.Millisecond)
+	}
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -69,15 +77,19 @@ func (w *Worker) startHeartbeat(ctx context.Context, d store.Deployment, cancel 
 				return
 			case <-t.C:
 			}
-			ok, err := w.Store.Heartbeat(ctx, d.ID, d.Attempts)
+			st, err := w.Store.Beat(ctx, d.ID, d.Attempts)
 			if err != nil {
 				// A database blip; the next beat retries. Only a heartbeat
 				// missing for StaleAfter makes the deployment an orphan.
 				w.Log.Warn("heartbeat", "deployment", d.ID, "err", err)
 				continue
 			}
-			if !ok {
+			if !st.Owned {
 				cancel(errLeaseLost)
+				return
+			}
+			if st.CancelRequested {
+				cancel(errCanceled)
 				return
 			}
 		}
@@ -109,6 +121,8 @@ func (w *Worker) RecoverStale(ctx context.Context) ([]store.Recovered, error) {
 				w.StaleAfter, r.Attempts, limit)
 		case store.StatusFailed:
 			w.logLine(ctx, r.ID, "ERROR: %s", reason)
+		case store.StatusCanceled:
+			w.logLine(ctx, r.ID, "==> worker stopped responding; the deployment had been canceled")
 		default:
 			w.logLine(ctx, r.ID, "==> worker stopped responding; the branch was deleted meanwhile, deployment retired")
 		}

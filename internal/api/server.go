@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/nisagwn/paas/internal/auth"
@@ -89,6 +88,9 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.healthz)
 	mux.HandleFunc("POST /webhooks/github", s.githubWebhook)
+	// Faz 17: deploy hooks authenticate with the secret in the path only,
+	// so they bypass s.authenticate (more specific than "/api/").
+	mux.HandleFunc("POST /api/hooks/deploy/{token}", s.triggerHook)
 
 	api := http.NewServeMux()
 	api.HandleFunc("POST /api/apps", s.createApp)
@@ -116,6 +118,15 @@ func (s *Server) Handler() http.Handler {
 	// Faz 16: build settings (settings.go).
 	api.HandleFunc("GET /api/apps/{name}/settings", s.requireApp(viewer, s.getSettings))
 	api.HandleFunc("PUT /api/apps/{name}/settings", s.requireApp(member, s.putSettings))
+	// Faz 17: promote, redeploy, deploy hooks (controls.go). Hooks are
+	// secrets, so even listing them needs member.
+	api.HandleFunc("POST /api/apps/{name}/promote", s.requireApp(member, s.promote))
+	api.HandleFunc("POST /api/apps/{name}/deployments/{id}/redeploy", s.requireApp(member, s.redeploy))
+	api.HandleFunc("GET /api/apps/{name}/hooks", s.requireApp(member, s.listHooks))
+	api.HandleFunc("POST /api/apps/{name}/hooks", s.requireApp(member, s.createHook))
+	api.HandleFunc("DELETE /api/apps/{name}/hooks/{id}", s.requireApp(member, s.deleteHook))
+	// Checks member on the deployment's app (lookupDeploymentAs).
+	api.HandleFunc("POST /api/deployments/{id}/cancel", s.cancelDeployment)
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
 	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	// Deployment endpoints check the deployment's app (lookupDeployment).
@@ -269,7 +280,7 @@ type deploymentView struct {
 }
 
 func (s *Server) deploymentView(d store.Deployment) deploymentView {
-	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
+	return deploymentView{Deployment: d, URL: naming.URL(s.Scheme, d.Host(s.Domain)),
 		Sleeping: d.Status == store.StatusReady && d.SleepingSince != nil}
 }
 
@@ -377,22 +388,27 @@ var envKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,254}$`)
 const maxEnvValue = 32 << 10 // all values of an app share one 1 MiB Secret
 
 type envView struct {
-	// Keys only: values are write-only through the API.
+	// Variable names in any environment. Values are write-only through the API.
 	Keys []string `json:"keys"`
+	// Faz 17: every stored row with its environment. Target "all" means
+	// both environments (rows written without a target).
+	Vars []store.EnvVar `json:"vars"`
 }
 
 func (s *Server) envView(w http.ResponseWriter, r *http.Request, appID int64) {
-	env, err := s.Store.AppEnv(r.Context(), appID)
+	vars, err := s.Store.ListEnv(r.Context(), appID)
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
+	keys := []string{}
+	for _, v := range vars {
+		if len(keys) == 0 || keys[len(keys)-1] != v.Key { // sorted by key
+			keys = append(keys, v.Key)
+		}
 	}
 	sort.Strings(keys)
-	writeJSON(w, http.StatusOK, envView{Keys: keys})
+	writeJSON(w, http.StatusOK, envView{Keys: keys, Vars: vars})
 }
 
 func (s *Server) getEnv(w http.ResponseWriter, r *http.Request) {
@@ -403,36 +419,95 @@ func (s *Server) getEnv(w http.ResponseWriter, r *http.Request) {
 	s.envView(w, r, app.ID)
 }
 
-// putEnv merges {"KEY": "value", "OLD": null} into the app's variables;
-// null deletes. Changes apply to deployments created afterwards.
+// envScopedRequest is the Faz 17 form of PUT /env.
+type envScopedRequest struct {
+	// Target: "production", "preview", or "all"/"" for both environments.
+	Target string `json:"target"`
+	// GitBranch narrows a preview variable to one branch.
+	GitBranch string             `json:"git_branch"`
+	Vars      map[string]*string `json:"vars"`
+}
+
+// parseEnvChanges accepts both bodies of PUT /env:
+//
+//	{"KEY": "value", "OLD": null}                      both environments
+//	{"target": "preview", "git_branch": "feature/x",
+//	 "vars": {"KEY": "value", "OLD": null}}             one environment
+//
+// The second form is recognized by "vars" holding an object (a variable
+// named "vars" in the first form holds a string or null).
+func parseEnvChanges(r *http.Request) ([]store.EnvChange, error) {
+	var raw map[string]json.RawMessage
+	if err := decodeJSON(r, &raw); err != nil {
+		return nil, err
+	}
+	var req envScopedRequest
+	if v, ok := raw["vars"]; ok && len(v) > 0 && v[0] == '{' {
+		for k := range raw {
+			if k != "vars" && k != "target" && k != "git_branch" {
+				return nil, errors.New("unknown field " + strconv.Quote(k) + " next to \"vars\"")
+			}
+		}
+		b, _ := json.Marshal(raw)
+		if err := json.Unmarshal(b, &req); err != nil {
+			return nil, errors.New("invalid JSON body: " + err.Error())
+		}
+	} else {
+		req.Vars = map[string]*string{}
+		for k, v := range raw {
+			var val *string
+			if err := json.Unmarshal(v, &val); err != nil {
+				return nil, errors.New("value of " + strconv.Quote(k) + " must be a string or null")
+			}
+			req.Vars[k] = val
+		}
+	}
+	if req.Target != "" && !store.ValidEnvTarget(req.Target) {
+		return nil, errors.New(`target must be "production", "preview" or "all"`)
+	}
+	if req.GitBranch != "" && req.Target != store.EnvPreview {
+		return nil, errors.New(`git_branch needs target "preview"`)
+	}
+	if len(req.GitBranch) > 255 {
+		return nil, errors.New("git_branch is too long")
+	}
+	keys := make([]string, 0, len(req.Vars))
+	for k := range req.Vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	changes := make([]store.EnvChange, 0, len(keys))
+	for _, k := range keys {
+		if err := CheckEnvVar(k, req.Vars[k]); err != nil {
+			return nil, err
+		}
+		changes = append(changes, store.EnvChange{Key: k, Value: req.Vars[k], Target: req.Target, GitBranch: req.GitBranch})
+	}
+	return changes, nil
+}
+
+// putEnv merges changes into the app's variables; null deletes. Without a
+// target the change applies to both environments. Changes apply to
+// deployments created afterwards.
 func (s *Server) putEnv(w http.ResponseWriter, r *http.Request) {
 	app, ok := s.lookupApp(w, r)
 	if !ok {
 		return
 	}
-	var changes map[string]*string
-	if err := decodeJSON(r, &changes); err != nil {
+	changes, err := parseEnvChanges(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	for k, v := range changes {
-		switch {
-		case !envKeyRe.MatchString(k):
-			writeError(w, http.StatusBadRequest, "invalid variable name "+strconv.Quote(k))
-			return
-		case k == "PORT" || strings.HasPrefix(k, "PAAS_"):
-			writeError(w, http.StatusBadRequest, k+" is set by the platform")
-			return
-		case v != nil && len(*v) > maxEnvValue:
-			writeError(w, http.StatusBadRequest, k+" is longer than 32 KiB")
-			return
-		}
-	}
-	if err := s.Store.UpdateAppEnv(r.Context(), app.ID, changes); err != nil {
+	if err := s.Store.ApplyEnvChanges(r.Context(), app.ID, changes); err != nil {
 		s.internalError(w, err)
 		return
 	}
-	s.Log.Info("env updated", "app", app.Name, "changed", len(changes))
+	target := ""
+	if len(changes) > 0 {
+		target = changes[0].Target
+	}
+	s.Log.Info("env updated", "app", app.Name, "changed", len(changes), "target", target)
 	s.envView(w, r, app.ID)
 }
 
@@ -484,6 +559,16 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.internalError(w, err)
+		return
+	}
+
+	// Faz 17: ignored build step. The commit stays undeployed; the branch
+	// keeps its previous deployment.
+	if push.SkipMarker != "" {
+		s.Log.Info("deployment skipped", "app", app.Name, "branch", push.Branch,
+			"sha", naming.ShortSHA(push.SHA), "marker", push.SkipMarker)
+		writeJSON(w, http.StatusAccepted, map[string]string{"result": "ignored",
+			"reason": "head commit message contains " + push.SkipMarker})
 		return
 	}
 

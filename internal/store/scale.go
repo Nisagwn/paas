@@ -16,6 +16,7 @@ type ScaleCandidate struct {
 	AppID         int64
 	AppName       string
 	CommitSHA     string
+	Generation    int
 	FinishedAt    time.Time
 	SleepingSince *time.Time
 	// Production: the app's production alias points at this deployment.
@@ -27,7 +28,7 @@ type ScaleCandidate struct {
 // ScaleCandidates returns every ready deployment that has not been retired.
 func (s *Store) ScaleCandidates(ctx context.Context) ([]ScaleCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT d.id, d.app_id, a.name, d.commit_sha, COALESCE(d.finished_at, d.created_at), d.sleeping_since,
+		SELECT d.id, d.app_id, a.name, d.commit_sha, d.generation, COALESCE(d.finished_at, d.created_at), d.sleeping_since,
 			EXISTS (SELECT 1 FROM aliases al WHERE al.deployment_id = d.id AND al.kind = 'production'),
 			a.scale_to_zero_production
 		FROM deployments d JOIN apps a ON a.id = d.app_id
@@ -40,7 +41,7 @@ func (s *Store) ScaleCandidates(ctx context.Context) ([]ScaleCandidate, error) {
 	out := []ScaleCandidate{}
 	for rows.Next() {
 		var c ScaleCandidate
-		if err := rows.Scan(&c.DeploymentID, &c.AppID, &c.AppName, &c.CommitSHA, &c.FinishedAt, &c.SleepingSince,
+		if err := rows.Scan(&c.DeploymentID, &c.AppID, &c.AppName, &c.CommitSHA, &c.Generation, &c.FinishedAt, &c.SleepingSince,
 			&c.Production, &c.ScaleProduction); err != nil {
 			return nil, err
 		}

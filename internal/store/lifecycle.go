@@ -30,11 +30,14 @@ var ErrRetired = errors.New("deployment is retired")
 // cleanup can never delete objects of the new attempt.
 func (s *Store) revive(ctx context.Context, id int64, branch, message string) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE deployments SET status = 'queued', branch = $2,
-			commit_message = COALESCE(NULLIF($3, ''), commit_message),
+		UPDATE deployments d SET status = 'queued', branch = $2,
+			target = CASE WHEN a.production_branch = $2 THEN 'production' ELSE 'preview' END,
+			cancel_requested_at = NULL,
+			commit_message = COALESCE(NULLIF($3, ''), d.commit_message),
 			error = '', image = '', started_at = NULL, finished_at = NULL,
 			retired_at = NULL, retire_reason = '', cleaned_at = NULL, attempts = 0, heartbeat_at = NULL
-		WHERE id = $1 AND status = 'retired' AND cleaned_at IS NOT NULL`, id, branch, message)
+		FROM apps a
+		WHERE d.id = $1 AND a.id = d.app_id AND d.status = 'retired' AND d.cleaned_at IS NOT NULL`, id, branch, message)
 	if err != nil {
 		return false, err
 	}
@@ -48,21 +51,15 @@ func (s *Store) revive(ctx context.Context, id int64, branch, message string) (b
 // alive. It reports false when the attempt lost its claim: the deployment was
 // recovered (queued again) or claimed by another worker in the meantime.
 func (s *Store) Heartbeat(ctx context.Context, id int64, attempt int) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE deployments SET heartbeat_at = now()
-		WHERE id = $1 AND attempts = $2 AND status <> 'queued'`, id, attempt)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n == 1, err
+	st, err := s.Beat(ctx, id, attempt)
+	return st.Owned, err
 }
 
 // Recovered describes a deployment taken back from a dead worker.
 type Recovered struct {
 	ID       int64
 	AppName  string
-	Status   string // queued (retried), failed (out of attempts) or retired
+	Status   string // queued (retried), failed (out of attempts), retired or canceled
 	Attempts int
 }
 
@@ -84,10 +81,14 @@ func (s *Store) RecoverStale(ctx context.Context, staleAfter time.Duration, maxA
 		)
 		UPDATE deployments d SET
 			status = CASE WHEN d.retired_at IS NOT NULL THEN 'retired'
+			              WHEN d.cancel_requested_at IS NOT NULL THEN 'canceled'
 			              WHEN d.attempts < $2 THEN 'queued' ELSE 'failed' END,
-			error = CASE WHEN d.retired_at IS NULL AND d.attempts >= $2 THEN $3 ELSE d.error END,
-			started_at = CASE WHEN d.retired_at IS NULL AND d.attempts < $2 THEN NULL ELSE d.started_at END,
-			finished_at = CASE WHEN d.retired_at IS NULL AND d.attempts < $2 THEN NULL ELSE now() END,
+			error = CASE WHEN d.retired_at IS NULL AND d.cancel_requested_at IS NOT NULL THEN '`+CanceledReason+`'
+			             WHEN d.retired_at IS NULL AND d.attempts >= $2 THEN $3 ELSE d.error END,
+			started_at = CASE WHEN d.retired_at IS NULL AND d.cancel_requested_at IS NULL AND d.attempts < $2
+			                  THEN NULL ELSE d.started_at END,
+			finished_at = CASE WHEN d.retired_at IS NULL AND d.cancel_requested_at IS NULL AND d.attempts < $2
+			                   THEN NULL ELSE now() END,
 			heartbeat_at = NULL
 		FROM stale, apps a
 		WHERE d.id = stale.id AND a.id = d.app_id
@@ -113,9 +114,10 @@ func (s *Store) RecoverStale(ctx context.Context, staleAfter time.Duration, maxA
 // RetireCandidates returns the app's ready deployments that the retention
 // policy no longer needs. A deployment any alias points at is never one.
 // Of the rest:
-//   - production branch: all but the newest keepProduction ready ones
-//     (rollback targets);
-//   - other branches: those finished more than previewTTL ago
+//   - production environment (the production branch, and promotions of
+//     Faz 17): all but the newest keepProduction ready ones (rollback
+//     targets);
+//   - preview environment: those finished more than previewTTL ago
 //     (previewTTL <= 0 keeps them).
 func (s *Store) RetireCandidates(ctx context.Context, appID int64, keepProduction int, previewTTL time.Duration) ([]Deployment, error) {
 	if keepProduction < 0 {
@@ -126,11 +128,11 @@ func (s *Store) RetireCandidates(ctx context.Context, appID int64, keepProductio
 		WHERE d.app_id = $1 AND d.status = 'ready'
 		  AND NOT EXISTS (SELECT 1 FROM aliases al WHERE al.deployment_id = d.id)
 		  AND (
-		    (d.branch = a.production_branch AND d.id NOT IN (
+		    (d.target = 'production' AND d.id NOT IN (
 		        SELECT p.id FROM deployments p
-		        WHERE p.app_id = $1 AND p.status = 'ready' AND p.branch = a.production_branch
+		        WHERE p.app_id = $1 AND p.status = 'ready' AND p.target = 'production'
 		        ORDER BY p.id DESC LIMIT $2))
-		    OR ($3::float8 > 0 AND d.branch <> a.production_branch
+		    OR ($3::float8 > 0 AND d.target = 'preview'
 		        AND d.finished_at < now() - make_interval(secs => $3::float8))
 		  )
 		ORDER BY d.id`, appID, keepProduction, previewTTL.Seconds())
@@ -168,12 +170,12 @@ func (s *Store) Retire(ctx context.Context, id int64, reason string) (bool, erro
 	return true, tx.Commit()
 }
 
-// PendingCleanup returns retired and failed deployments of the app whose
+// PendingCleanup returns retired, failed and canceled deployments of the app whose
 // cluster objects have not been confirmed deleted yet (oldest first).
 func (s *Store) PendingCleanup(ctx context.Context, appID int64, limit int) ([]Deployment, error) {
 	return s.queryDeployments(ctx, `
 		SELECT `+deploymentCols+` FROM deployments d JOIN apps a ON a.id = d.app_id
-		WHERE d.app_id = $1 AND d.status IN ('retired', 'failed') AND d.cleaned_at IS NULL
+		WHERE d.app_id = $1 AND d.status IN ('retired', 'failed', 'canceled') AND d.cleaned_at IS NULL
 		ORDER BY d.id LIMIT $2`, appID, limit)
 }
 
@@ -181,7 +183,7 @@ func (s *Store) PendingCleanup(ctx context.Context, appID int64, limit int) ([]D
 func (s *Store) MarkCleaned(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE deployments SET cleaned_at = now()
-		WHERE id = $1 AND status IN ('retired', 'failed') AND cleaned_at IS NULL`, id)
+		WHERE id = $1 AND status IN ('retired', 'failed', 'canceled') AND cleaned_at IS NULL`, id)
 	return err
 }
 
@@ -198,8 +200,10 @@ type BranchCleanup struct {
 }
 
 // DeleteBranch handles a deleted branch (or a closed pull request): its
-// preview alias goes away and its deployments are retired, all in one
-// transaction. The production branch is never passed here (callers check).
+// preview alias goes away and its preview deployments are retired, all in
+// one transaction. The production branch is never passed here (callers
+// check). Production deployments of the branch (Faz 17 promotions) are
+// left to the production retention rule.
 func (s *Store) DeleteBranch(ctx context.Context, appID int64, branch, reason string) (BranchCleanup, error) {
 	var bc BranchCleanup
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -225,25 +229,27 @@ func (s *Store) DeleteBranch(ctx context.Context, appID int64, branch, reason st
 	if err := count(&bc.Cancelled, `
 		UPDATE deployments SET status = 'retired', retired_at = now(), retire_reason = $3,
 			finished_at = now(), cleaned_at = now()
-		WHERE app_id = $1 AND branch = $2 AND status = 'queued'`, appID, branch, reason); err != nil {
+		WHERE app_id = $1 AND branch = $2 AND status = 'queued' AND target = 'preview'`, appID, branch, reason); err != nil {
 		return bc, err
 	}
 	// MarkReady turns these into retired instead of ready.
 	if err := count(&bc.InFlight, `
 		UPDATE deployments SET retired_at = now(), retire_reason = $3
-		WHERE app_id = $1 AND branch = $2 AND status IN ('building', 'deploying') AND retired_at IS NULL`,
+		WHERE app_id = $1 AND branch = $2 AND status IN ('building', 'deploying') AND retired_at IS NULL
+		  AND target = 'preview'`,
 		appID, branch, reason); err != nil {
 		return bc, err
 	}
 	// Lock first, then check aliases in a new statement (see Retire).
 	if _, err := tx.ExecContext(ctx, `
-		SELECT id FROM deployments WHERE app_id = $1 AND branch = $2 AND status = 'ready' ORDER BY id FOR UPDATE`,
+		SELECT id FROM deployments WHERE app_id = $1 AND branch = $2 AND status = 'ready' AND target = 'preview'
+		ORDER BY id FOR UPDATE`,
 		appID, branch); err != nil {
 		return bc, err
 	}
 	if err := count(&bc.Retired, `
 		UPDATE deployments d SET status = 'retired', retired_at = now(), retire_reason = $3
-		WHERE d.app_id = $1 AND d.branch = $2 AND d.status = 'ready'
+		WHERE d.app_id = $1 AND d.branch = $2 AND d.status = 'ready' AND d.target = 'preview'
 		  AND NOT EXISTS (SELECT 1 FROM aliases al WHERE al.deployment_id = d.id)`,
 		appID, branch, reason); err != nil {
 		return bc, err

@@ -107,6 +107,7 @@ func run(log *slog.Logger) error {
 	// Faz 5: live logs, runtime logs and the web UI.
 	hub := store.NewHub(cfg.DatabaseURL, log)
 	runtimeLogs, _ := applier.(api.RuntimeLogs) // only the Kubernetes deployer
+	var _ api.RuntimeLogs = (*deploy.Kubernetes)(nil)
 
 	// Faz 12: custom domain verification; routes follow production.
 	verifier := &domains.Verifier{

@@ -16,6 +16,12 @@ import (
 // names its key; without one values are stored as plaintext with a NULL
 // key_id. The associated data binds each ciphertext to its app and variable
 // name, so rows cannot be swapped between apps or keys.
+//
+// Faz 17: rows of a specific environment (production, preview, preview of
+// one branch) also bind target and branch, so a preview value cannot be
+// moved into a production row. Rows of target "all" without a branch keep
+// the Faz 10 associated data: every row written before Faz 17 is such a row
+// (migration 011), and its ciphertext stays valid without a rewrite.
 
 // ErrEnvKeyMissing is returned when encrypted env values exist but the
 // store has no keyring to read them.
@@ -25,16 +31,25 @@ var ErrEnvKeyMissing = errors.New("app env values are encrypted but PAAS_ENV_KEY
 // the ones it reads. nil keeps plaintext. Call it before serving requests.
 func (s *Store) SetEnvKeyring(k *secret.Keyring) { s.env = k }
 
-func envAAD(appID int64, key string) []byte {
-	return []byte("paas/app_env\x00" + strconv.FormatInt(appID, 10) + "\x00" + key)
+// envScope is the environment a variable row applies to.
+type envScope struct {
+	target, branch string
+}
+
+func envAAD(appID int64, key string, sc envScope) []byte {
+	aad := "paas/app_env\x00" + strconv.FormatInt(appID, 10) + "\x00" + key
+	if sc.target != EnvAll || sc.branch != "" {
+		aad += "\x00" + sc.target + "\x00" + sc.branch
+	}
+	return []byte(aad)
 }
 
 // sealEnv returns the stored form of a value and its key id (NULL = plaintext).
-func (s *Store) sealEnv(appID int64, key, value string) (string, sql.NullString, error) {
+func (s *Store) sealEnv(appID int64, key string, sc envScope, value string) (string, sql.NullString, error) {
 	if s.env == nil {
 		return value, sql.NullString{}, nil
 	}
-	ct, err := s.env.Encrypt([]byte(value), envAAD(appID, key))
+	ct, err := s.env.Encrypt([]byte(value), envAAD(appID, key, sc))
 	if err != nil {
 		return "", sql.NullString{}, err
 	}
@@ -42,14 +57,14 @@ func (s *Store) sealEnv(appID int64, key, value string) (string, sql.NullString,
 }
 
 // openEnv reverses sealEnv.
-func (s *Store) openEnv(appID int64, key, stored string, keyID sql.NullString) (string, error) {
+func (s *Store) openEnv(appID int64, key string, sc envScope, stored string, keyID sql.NullString) (string, error) {
 	if !keyID.Valid {
 		return stored, nil
 	}
 	if s.env == nil {
 		return "", ErrEnvKeyMissing
 	}
-	plain, err := s.env.Decrypt(stored, envAAD(appID, key))
+	plain, err := s.env.Decrypt(stored, envAAD(appID, key, sc))
 	if err != nil {
 		return "", fmt.Errorf("app %d env %s: %w", appID, key, err)
 	}
@@ -114,19 +129,20 @@ func (s *Store) ReencryptEnv(ctx context.Context) (int, error) {
 	type row struct {
 		appID      int64
 		key, value string
+		sc         envScope
 		keyID      sql.NullString
 	}
 	rows, err := tx.QueryContext(ctx, `
-		SELECT app_id, key, value, key_id FROM app_env
+		SELECT app_id, key, target, git_branch, value, key_id FROM app_env
 		WHERE key_id IS DISTINCT FROM $1
-		ORDER BY app_id, key FOR UPDATE`, s.env.CurrentID())
+		ORDER BY app_id, key, target, git_branch FOR UPDATE`, s.env.CurrentID())
 	if err != nil {
 		return 0, err
 	}
 	var todo []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.appID, &r.key, &r.value, &r.keyID); err != nil {
+		if err := rows.Scan(&r.appID, &r.key, &r.sc.target, &r.sc.branch, &r.value, &r.keyID); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -138,18 +154,19 @@ func (s *Store) ReencryptEnv(ctx context.Context) (int, error) {
 	}
 
 	for _, r := range todo {
-		plain, err := s.openEnv(r.appID, r.key, r.value, r.keyID)
+		plain, err := s.openEnv(r.appID, r.key, r.sc, r.value, r.keyID)
 		if err != nil {
 			return 0, err
 		}
-		value, keyID, err := s.sealEnv(r.appID, r.key, plain)
+		value, keyID, err := s.sealEnv(r.appID, r.key, r.sc, plain)
 		if err != nil {
 			return 0, err
 		}
 		// updated_at is left alone: the value itself did not change.
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE app_env SET value = $3, key_id = $4 WHERE app_id = $1 AND key = $2`,
-			r.appID, r.key, value, keyID); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE app_env SET value = $5, key_id = $6
+			WHERE app_id = $1 AND key = $2 AND target = $3 AND git_branch = $4`,
+			r.appID, r.key, r.sc.target, r.sc.branch, value, keyID); err != nil {
 			return 0, err
 		}
 	}

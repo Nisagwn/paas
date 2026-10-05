@@ -25,5 +25,6 @@ func (s *Store) LatestDeployments(ctx context.Context) (map[int64]Deployment, er
 
 // Finished reports whether a deployment reached a final status.
 func (d Deployment) Finished() bool {
-	return d.Status == StatusReady || d.Status == StatusFailed || d.Status == StatusRetired
+	return d.Status == StatusReady || d.Status == StatusFailed || d.Status == StatusRetired ||
+		d.Status == StatusCanceled
 }

@@ -62,6 +62,26 @@ type Push struct {
 	Branch  string
 	SHA     string
 	Message string
+	// SkipMarker is the ignored-build-step marker found in the head
+	// commit's full message ("[skip deploy]" or "[skip ci]"); empty when the
+	// push should deploy (Faz 17).
+	SkipMarker string
+}
+
+// SkipMarkers in a head commit message keep a push from deploying
+// (Vercel's ignored build step). They are matched case-insensitively
+// anywhere in the message, subject or body.
+var SkipMarkers = []string{"[skip deploy]", "[skip ci]"}
+
+// SkipMarker returns the first skip marker message contains, or "".
+func SkipMarker(message string) string {
+	lower := strings.ToLower(message)
+	for _, m := range SkipMarkers {
+		if strings.Contains(lower, m) {
+			return m
+		}
+	}
+	return ""
 }
 
 // ErrIgnored marks pushes that are valid but should not deploy
@@ -97,6 +117,7 @@ func ParsePush(body []byte) (Push, error) {
 	if ev.HeadCommit != nil {
 		// Keep only the subject line; full messages can be long.
 		p.Message, _, _ = strings.Cut(ev.HeadCommit.Message, "\n")
+		p.SkipMarker = SkipMarker(ev.HeadCommit.Message)
 	}
 	return p, nil
 }

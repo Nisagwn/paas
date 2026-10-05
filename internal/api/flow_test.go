@@ -268,7 +268,9 @@ func TestAppEnvAPI(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || strings.TrimSpace(string(body)) != `{"keys":["DB_URL"]}` {
+	// Faz 17: rows written without a target apply to both environments.
+	if resp.StatusCode != 200 || !strings.HasPrefix(string(body), `{"keys":["DB_URL"],"vars":[{"key":"DB_URL","target":"all",`) ||
+		strings.Contains(string(body), "postgres://secret") {
 		t.Fatalf("get env: %d %s", resp.StatusCode, body)
 	}
 

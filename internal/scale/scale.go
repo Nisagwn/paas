@@ -173,7 +173,7 @@ func (s *Scaler) Check(ctx context.Context) Result {
 
 	now := s.now()
 	for _, c := range cands {
-		w, ok := byKey[naming.Namespace(c.AppName)+"/"+naming.ResourceName(c.CommitSHA)]
+		w, ok := byKey[naming.Namespace(c.AppName)+"/"+naming.ObjectName(c.CommitSHA, c.Generation)]
 		if !ok || w.DeploymentID != c.DeploymentID {
 			continue // not deployed (yet), or a different commit with the same prefix
 		}

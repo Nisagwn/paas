@@ -10,6 +10,7 @@ package naming
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -67,6 +68,28 @@ func PreviewHost(branch, app, domain string) string {
 // ResourceName is the Kubernetes name used for a deployment's objects.
 func ResourceName(sha string) string {
 	return "d-" + ShortSHA(sha)
+}
+
+// DeploymentKey identifies one deployment of a commit (Faz 17): the short
+// SHA for the commit's first deployment (generation 0), "<sha7>-<n>" for
+// its n-th redeploy or promotion.
+func DeploymentKey(sha string, generation int) string {
+	if generation <= 0 {
+		return ShortSHA(sha)
+	}
+	return ShortSHA(sha) + "-" + strconv.Itoa(generation)
+}
+
+// ObjectName is the Kubernetes name of a deployment's objects;
+// ObjectName(sha, 0) == ResourceName(sha).
+func ObjectName(sha string, generation int) string {
+	return "d-" + DeploymentKey(sha, generation)
+}
+
+// InstanceHost is the immutable URL of a deployment of the given
+// generation; InstanceHost(sha, 0, ...) == DeploymentHost(sha, ...).
+func InstanceHost(sha string, generation int, app, domain string) string {
+	return DeploymentKey(sha, generation) + "-" + app + "." + domain
 }
 
 // Namespace is the Kubernetes namespace of an app.

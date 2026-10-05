@@ -25,7 +25,9 @@ type Notifier interface {
 // RuntimeLogs writes the container logs of a deployment's pod to w
 // (deploy.Kubernetes). With follow it returns when ctx ends or the pod stops.
 type RuntimeLogs interface {
-	RuntimeLogs(ctx context.Context, app, sha string, follow bool, tail int64, w io.Writer) error
+	// The deployment's own pods are read: several deployments of one commit
+	// may run at once (Faz 17 redeploy and promote).
+	RuntimeLogs(ctx context.Context, d store.Deployment, follow bool, tail int64, w io.Writer) error
 }
 
 // StreamTiming tunes the log streams; zero fields use the defaults.
@@ -287,7 +289,7 @@ func (s *Server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
 		defer close(hbDone)
 		out.heartbeat(ctx, s.Stream.withDefaults().Heartbeat)
 	}()
-	err = s.RuntimeLogs.RuntimeLogs(ctx, app.Name, d.CommitSHA, follow, tail, out)
+	err = s.RuntimeLogs.RuntimeLogs(ctx, d, follow, tail, out)
 	cancel()
 	<-hbDone // no writes after the handler returns
 	if r.Context().Err() != nil {
