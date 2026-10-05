@@ -15,7 +15,8 @@ import (
 // Roles are per team; an app belongs to one team:
 //
 //	viewer  read: apps, deployments, build/runtime logs, SSE streams, env keys
-//	member  + deploy-affecting changes: rollback, env, creating apps
+//	member  + deploy-affecting changes: rollback, env, creating apps,
+//	        promote, redeploy, cancel, deploy hooks (Faz 17)
 //	owner   + team management (members, roles)
 //
 // Apps and deployments of teams the caller is not in answer 404, exactly
@@ -110,6 +111,12 @@ func (s *Server) checkTeam(w http.ResponseWriter, r *http.Request, teamID int64,
 
 // lookupDeployment loads the {id} deployment if the caller may read its app.
 func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store.Deployment, bool) {
+	return s.lookupDeploymentAs(w, r, store.RoleViewer)
+}
+
+// lookupDeploymentAs loads the {id} deployment if the caller has role need
+// on its app's team (Faz 17: cancel needs member).
+func (s *Server) lookupDeploymentAs(w http.ResponseWriter, r *http.Request, need string) (store.Deployment, bool) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return store.Deployment{}, false
@@ -128,7 +135,7 @@ func (s *Server) lookupDeployment(w http.ResponseWriter, r *http.Request) (store
 		s.internalError(w, err)
 		return d, false
 	}
-	return d, s.checkTeam(w, r, app.TeamID, store.RoleViewer, "deployment not found")
+	return d, s.checkTeam(w, r, app.TeamID, need, "deployment not found")
 }
 
 // defaultRole is what an unwrapped per-app handler requires.

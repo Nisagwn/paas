@@ -11,6 +11,7 @@ import (
 	k8slabels "k8s.io/apimachinery/pkg/labels"
 
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/store"
 )
 
 // ContainerName is the app container of every deployment pod.
@@ -26,10 +27,13 @@ func (e NoPodsError) NotFound() bool { return true }
 // RuntimeLogs copies the container log of the deployment's newest pod to w:
 // the last tail lines, then, with follow, new lines until ctx ends or the
 // container stops.
-func (k *Kubernetes) RuntimeLogs(ctx context.Context, app, sha string, follow bool, tail int64, w io.Writer) error {
-	ns, name := naming.Namespace(app), naming.ResourceName(sha)
+//
+// Pods are selected by deployment id: a redeploy or promotion of the same
+// commit (Faz 17) runs its own pods next to the original's.
+func (k *Kubernetes) RuntimeLogs(ctx context.Context, d store.Deployment, follow bool, tail int64, w io.Writer) error {
+	ns, name := naming.Namespace(d.AppName), d.ObjectName()
 	pods, err := k.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: k8slabels.SelectorFromSet(map[string]string{LabelApp: app, LabelCommit: sha}).String(),
+		LabelSelector: k8slabels.SelectorFromSet(selector(d)).String(),
 	})
 	if err != nil {
 		return fmt.Errorf("list pods of %s/%s: %w", ns, name, err)

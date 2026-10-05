@@ -131,6 +131,22 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"GET", fmt.Sprintf("/api/deployments/%d/logs/stream", d), nil, read, nil},
 		{"PUT", "/api/apps/blog/env", func(string) any { return map[string]string{"KEY": "v"} }, write, nil},
 		{"POST", "/api/apps/blog/rollback", func(string) any { return map[string]int64{"deployment_id": d} }, write, nil},
+		// Faz 17: promote (d1 runs with production variables: alias move),
+		// redeploy, cancel (d2 is ready: authorized callers get 409), hooks.
+		{"POST", "/api/apps/blog/promote", func(string) any { return map[string]int64{"deployment_id": d} }, write, nil},
+		{"POST", fmt.Sprintf("/api/apps/blog/deployments/%d/redeploy", d), nil,
+			want{"anonymous": 401, "carol": 403, "bob": 202, "alice": 202, "dave": 404, "admin": 202}, nil},
+		{"POST", fmt.Sprintf("/api/deployments/%d/cancel", f.d2.ID), nil,
+			want{"anonymous": 401, "carol": 403, "bob": 409, "alice": 409, "dave": 404, "admin": 409}, nil},
+		{"GET", "/api/apps/blog/hooks", nil, write, nil},
+		{"POST", "/api/apps/blog/hooks", func(string) any { return map[string]string{"name": "cms"} },
+			want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201}, nil},
+		{"DELETE", "/api/apps/blog/hooks/999999", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 404, "alice": 404, "dave": 404, "admin": 404}, nil},
+		// The trigger URL has no caller: its token is the credential (501:
+		// no GitHub App in this fixture).
+		{"POST", "/api/hooks/deploy/paas_hook_x", nil,
+			want{"anonymous": 501, "carol": 501, "bob": 501, "alice": 501, "dave": 501, "admin": 501}, nil},
 		// Faz 11 scale to zero setting.
 		{"GET", "/api/apps/blog/scale-to-zero", nil, read, nil},
 		{"PUT", "/api/apps/blog/scale-to-zero", func(string) any { return map[string]bool{"production": false} }, write, nil},

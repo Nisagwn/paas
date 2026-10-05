@@ -20,8 +20,9 @@ deploy'a çevirmek demektir.
 
 ```
 queued → building → deploying → ready
-                 ↘            ↘
-                  failed       failed
+   ↘             ↘            ↘
+    canceled      failed       failed
+                  canceled     canceled      (Faz 17: kullanıcı iptali)
 ```
 
 ---
@@ -88,7 +89,7 @@ queued → building → deploying → ready
 
 ---
 
-## Kapsam genişlemesi (Faz 9–14)
+## Kapsam genişlemesi (Faz 9–17)
 
 İlk sürümün ardından, birbirinden bağımsız ilerleyebilen fazlar. Migration numaraları
 çakışmasın diye önceden ayrıldı.
@@ -131,6 +132,17 @@ queued → building → deploying → ready
 - "Install" → repoları seç → arayüzde listeden "Import": uygulama oluşur, ilk deploy başlar
 - GitHub ile giriş aynı App üzerinden; eski token + webhook yolu yedek olarak çalışır
 - **Çıktı:** yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmiyor
+
+### Faz 17 — Ortamlar ve deploy kontrolleri (migration 011) ✅ (Postgres'e karşı test edildi; kümede deneme bekliyor)
+- Ortama özel değişkenler: `production` / `preview` / `all`, preview için isteğe bağlı branch; en özel olan kazanır.
+  Eski satırlar `all` oldu ve şifreleme AAD'si değişmediği için yeniden yazılmadı; yeni hedeflerde AAD hedef + branch içerir
+- Promote: hazır preview, aynı imajla (build yok) production değişkenleriyle yeni bir deploy olarak production'a geçer
+- Redeploy: aynı commit, varsayılan imajı yeniden kullanır; `use_cache: false` yeniden build eder.
+  Bir commit'in kopyaları nesil numarası alır (`d-<sha7>-<n>`, `<sha7>-<n>-<app>`)
+- İptal: yeni `canceled` durumu; kuyruktaki hemen, çalışan heartbeat döngüsü üzerinden context iptaliyle
+- Deploy hook'ları: uygulama başına gizli URL (token'ın SHA-256'sı saklanır), branch'in son commit'ini deploy eder
+- Build'i atlama: head commit mesajında `[skip deploy]` / `[skip ci]` olan push'lar deploy edilmez
+- **Çıktı:** Vercel'deki ortam / promote / redeploy / cancel / deploy hook akışları API'den kullanılabiliyor
 
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

@@ -192,7 +192,7 @@ func selector(d store.Deployment) map[string]string {
 	return map[string]string{LabelApp: d.AppName, LabelDeploymentID: fmt.Sprint(d.ID)}
 }
 
-func secretName(d store.Deployment) string { return naming.ResourceName(d.CommitSHA) + "-env" }
+func secretName(d store.Deployment) string { return d.ObjectName() + "-env" }
 
 // envHash identifies an env snapshot, so a changed snapshot rolls the pods.
 func envHash(env map[string]string) string {
@@ -277,7 +277,7 @@ func ownerRef(dep *appsv1.Deployment) metav1.OwnerReference {
 }
 
 func (k *Kubernetes) deploymentObject(d store.Deployment, image, envHash string) *appsv1.Deployment {
-	ns, name := naming.Namespace(d.AppName), naming.ResourceName(d.CommitSHA)
+	ns, name := naming.Namespace(d.AppName), d.ObjectName()
 	lbl := labels(d)
 	annot := map[string]string{AnnotBranch: d.Branch, AnnotEnvHash: envHash}
 

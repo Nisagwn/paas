@@ -27,9 +27,9 @@ var dep = store.Deployment{ID: 42, AppID: 7, AppName: "blog", CommitSHA: sha[:40
 
 type envMap map[int64]map[string]string
 
-func (e envMap) AppEnv(_ context.Context, id int64) (map[string]string, error) {
+func (e envMap) DeploymentEnv(_ context.Context, d store.Deployment) (map[string]string, error) {
 	out := map[string]string{}
-	for k, v := range e[id] {
+	for k, v := range e[d.AppID] {
 		out[k] = v
 	}
 	return out, nil

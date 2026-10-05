@@ -45,9 +45,10 @@ const (
 	ManagedBy         = "paas"
 )
 
-// EnvSource provides an app's environment variables (store.Store).
+// EnvSource provides the environment variables a deployment runs with
+// (store.Store): those of its environment, production or preview (Faz 17).
 type EnvSource interface {
-	AppEnv(ctx context.Context, appID int64) (map[string]string, error)
+	DeploymentEnv(ctx context.Context, d store.Deployment) (map[string]string, error)
 }
 
 // Config holds the tunables. Quantities use Kubernetes syntax ("250m", "256Mi").
@@ -199,7 +200,7 @@ func (k *Kubernetes) Check() error {
 }
 
 func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image string, log worker.Logger) error {
-	ns, name := naming.Namespace(d.AppName), naming.ResourceName(d.CommitSHA)
+	ns, name := naming.Namespace(d.AppName), d.ObjectName()
 	log("==> deploying %s", image)
 
 	if err := k.ensureNamespace(ctx, d.AppName); err != nil {
@@ -211,7 +212,7 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 	env := map[string]string{}
 	if k.env != nil {
 		var err error
-		if env, err = k.env.AppEnv(ctx, d.AppID); err != nil {
+		if env, err = k.env.DeploymentEnv(ctx, d); err != nil {
 			return fmt.Errorf("load env: %w", err)
 		}
 	}
@@ -219,7 +220,7 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 	if err != nil {
 		return fmt.Errorf("secret %s/%s: %w", ns, name+"-env", err)
 	}
-	log("    secret %s: %d variable(s)", secret.Name, len(env))
+	log("    secret %s: %d variable(s) of the %s environment", secret.Name, len(env), d.Target)
 
 	dep, err := k.ensureDeployment(ctx, d, image, envHash(env))
 	if err != nil {

@@ -24,7 +24,7 @@ var _ worker.Retirer = (*Kubernetes)(nil)
 // commits sharing a 7-char prefix never delete each other. Missing objects
 // (already retired, or a build that never got to deploy) are not an error.
 func (k *Kubernetes) Retire(ctx context.Context, d store.Deployment) error {
-	ns, name := naming.Namespace(d.AppName), naming.ResourceName(d.CommitSHA)
+	ns, name := naming.Namespace(d.AppName), d.ObjectName()
 	id := fmt.Sprint(d.ID)
 
 	dc := k.client.AppsV1().Deployments(ns)

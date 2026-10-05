@@ -267,8 +267,8 @@ type fakeRuntime struct {
 	lines string
 }
 
-func (f *fakeRuntime) RuntimeLogs(_ context.Context, app, sha string, follow bool, tail int64, w io.Writer) error {
-	f.got = fmt.Sprintf("%s %s %v %d", app, sha[:7], follow, tail)
+func (f *fakeRuntime) RuntimeLogs(_ context.Context, d store.Deployment, follow bool, tail int64, w io.Writer) error {
+	f.got = fmt.Sprintf("%s %s %v %d", d.AppName, d.CommitSHA[:7], follow, tail)
 	if f.err != nil {
 		return f.err
 	}

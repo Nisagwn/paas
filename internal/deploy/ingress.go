@@ -33,8 +33,8 @@ const (
 	annotRouterTLS   = "traefik.ingress.kubernetes.io/router.tls"
 )
 
-// ingressObject routes host to the Service of the deployment with commit sha.
-func (k *Kubernetes) ingressObject(ns, name, host, sha string, lbl map[string]string) *networkingv1.Ingress {
+// ingressObject routes host to the deployment Service named service.
+func (k *Kubernetes) ingressObject(ns, name, host, service string, lbl map[string]string) *networkingv1.Ingress {
 	annot := map[string]string{annotEntryPoints: "web"}
 	var tls []networkingv1.IngressTLS
 	if k.cfg.TLS {
@@ -56,7 +56,7 @@ func (k *Kubernetes) ingressObject(ns, name, host, sha string, lbl map[string]st
 						Path:     "/",
 						PathType: ptr(networkingv1.PathTypePrefix),
 						Backend: networkingv1.IngressBackend{Service: &networkingv1.IngressServiceBackend{
-							Name: naming.ResourceName(sha),
+							Name: service,
 							Port: networkingv1.ServiceBackendPort{Name: "http"},
 						}},
 					}},
@@ -96,10 +96,10 @@ func (k *Kubernetes) applyIngress(ctx context.Context, want *networkingv1.Ingres
 // ensureDeploymentIngress serves the immutable <sha7>-<app>.<domain> URL.
 // The Deployment owns it, so deleting a deployment removes its route.
 func (k *Kubernetes) ensureDeploymentIngress(ctx context.Context, d store.Deployment, dep *appsv1.Deployment) (string, error) {
-	host := naming.DeploymentHost(d.CommitSHA, d.AppName, k.cfg.Domain)
+	host := d.Host(k.cfg.Domain)
 	lbl := labels(d)
 	lbl[LabelRoute] = RouteDeploy
-	want := k.ingressObject(dep.Namespace, dep.Name, host, d.CommitSHA, lbl)
+	want := k.ingressObject(dep.Namespace, dep.Name, host, dep.Name, lbl)
 	want.OwnerReferences = []metav1.OwnerReference{ownerRef(dep)}
 	_, err := k.applyIngress(ctx, want)
 	return host, err
@@ -134,7 +134,7 @@ func (k *Kubernetes) ApplyAliases(ctx context.Context, app string, routes []stor
 			LabelDeploymentID: fmt.Sprint(r.DeploymentID),
 			LabelCommit:       r.CommitSHA,
 		}
-		want := k.ingressObject(ns, name, r.Hostname, r.CommitSHA, lbl)
+		want := k.ingressObject(ns, name, r.Hostname, naming.ObjectName(r.CommitSHA, r.Generation), lbl)
 		if r.Kind == store.AliasCustom {
 			k.customDomainTLS(want)
 		}

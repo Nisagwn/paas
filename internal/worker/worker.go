@@ -1,6 +1,10 @@
 // Package worker pulls queued deployments and drives them through the pipeline:
 //
-//	queued → building → deploying → ready | failed
+//	queued → building → deploying → ready | failed | canceled
+//
+// Faz 17: a deployment queued with an image (redeploy or promotion of an
+// already built commit) skips the build; a canceled one stops at the next
+// heartbeat.
 package worker
 
 import (
@@ -57,7 +61,7 @@ type Notifier interface {
 
 // Result is the outcome of a deployment as passed to a Notifier.
 type Result struct {
-	// Status is store.StatusReady or store.StatusFailed.
+	// Status is store.StatusReady, store.StatusFailed or store.StatusCanceled.
 	Status string
 	// Error is the failure reason; empty when ready.
 	Error string
@@ -92,6 +96,10 @@ type Worker struct {
 	StaleAfter time.Duration
 	// MaxAttempts bounds claims of one deployment (DefaultMaxAttempts).
 	MaxAttempts int
+	// CancelPoll is how often a running deployment checks for a cancel
+	// request when heartbeats are off (StaleAfter == 0); default 2s. With
+	// heartbeats on, every heartbeat checks.
+	CancelPoll time.Duration
 }
 
 // Run starts Concurrency polling loops and blocks until ctx is cancelled and
@@ -170,6 +178,18 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		w.Log.Warn("deployment taken over", "deployment", d.ID, "app", d.AppName, "err", err)
 		return true, nil
 	}
+	if errors.Is(err, store.ErrCanceled) || (err != nil && errors.Is(context.Cause(runCtx), errCanceled)) {
+		failCtx, cancelFail := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancelFail()
+		w.Log.Info("deployment canceled", "deployment", d.ID, "app", d.AppName)
+		w.logLine(failCtx, d.ID, "==> canceled by a user")
+		// MarkFailed records canceled: cancel_requested_at is set.
+		mErr := w.Store.MarkFailed(failCtx, d.ID, store.CanceledReason)
+		res := w.result(ctx, d, store.StatusCanceled)
+		res.Error = store.CanceledReason
+		w.notify(ctx, d, func(nctx context.Context) error { return w.Notifier.DeploymentFinished(nctx, d, res) })
+		return true, mErr
+	}
 	if err != nil {
 		// runCtx may be the reason we failed (timeout), so record the failure
 		// with a fresh context; otherwise the row would stay "building" forever.
@@ -184,7 +204,7 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 		return true, mErr
 	}
 	w.Log.Info("deployment ready", "deployment", d.ID, "app", d.AppName,
-		"url", naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)))
+		"url", naming.URL(w.Scheme, d.Host(w.Domain)))
 	res := w.result(ctx, d, store.StatusReady)
 	if cur, err := w.Store.GetDeployment(ctx, d.ID); err == nil && cur.Status == store.StatusRetired {
 		// The branch was deleted meanwhile: there is no preview to announce.
@@ -199,15 +219,11 @@ func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
 func (w *Worker) result(ctx context.Context, d store.Deployment, status string) Result {
 	r := Result{
 		Status:     status,
-		URL:        naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)),
+		URL:        naming.URL(w.Scheme, d.Host(w.Domain)),
 		PreviewURL: naming.URL(w.Scheme, naming.PreviewHost(d.Branch, d.AppName, w.Domain)),
 	}
-	if status == store.StatusReady && w.Notifier != nil {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if app, err := w.Store.GetAppByName(ctx, d.AppName); err == nil && d.Branch == app.ProductionBranch {
-			r.ProductionURL = naming.URL(w.Scheme, naming.ProductionHost(d.AppName, w.Domain))
-		}
+	if status == store.StatusReady && d.Target == store.EnvProduction {
+		r.ProductionURL = naming.URL(w.Scheme, naming.ProductionHost(d.AppName, w.Domain))
 	}
 	return r
 }
@@ -240,14 +256,21 @@ func (w *Worker) notify(ctx context.Context, d store.Deployment, call func(conte
 
 func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	log := func(format string, args ...any) { w.logLine(ctx, d.ID, format, args...) }
-	log("==> deployment #%d: %s@%s (%s)", d.ID, d.AppName, naming.ShortSHA(d.CommitSHA), d.Branch)
+	log("==> deployment #%d: %s@%s (%s, %s environment)", d.ID, d.AppName, naming.ShortSHA(d.CommitSHA), d.Branch, d.Target)
 
-	image, err := w.Pipeline.Build(ctx, d, log)
-	if err != nil {
-		return fmt.Errorf("build: %w", err)
-	}
-	if err := w.Store.SetImage(ctx, d.ID, image); err != nil {
-		return err
+	image := d.Image
+	if image != "" {
+		// Redeploy or promotion of a built commit, or a retry after a
+		// crash that happened after the build: the pinned image is reused.
+		log("==> reusing image %s (no rebuild)", image)
+	} else {
+		var err error
+		if image, err = w.Pipeline.Build(ctx, d, log); err != nil {
+			return fmt.Errorf("build: %w", err)
+		}
+		if err := w.Store.SetImage(ctx, d.ID, image); err != nil {
+			return err
+		}
 	}
 
 	if err := w.Store.SetStatus(ctx, d.ID, store.StatusDeploying); err != nil {
@@ -261,18 +284,7 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	if err != nil {
 		return err
 	}
-	aliases := []store.AliasSpec{{
-		Hostname: naming.PreviewHost(d.Branch, d.AppName, w.Domain),
-		Kind:     store.AliasPreview,
-		Branch:   d.Branch,
-	}}
-	if d.Branch == app.ProductionBranch {
-		aliases = append(aliases, store.AliasSpec{
-			Hostname: naming.ProductionHost(d.AppName, w.Domain),
-			Kind:     store.AliasProduction,
-			Branch:   d.Branch,
-		})
-	}
+	aliases := Aliases(d, app.ProductionBranch, w.Domain)
 	if err := w.Store.MarkReady(ctx, d, aliases); errors.Is(err, store.ErrRetired) {
 		log("==> branch was deleted during the deployment; retired without aliases")
 		return nil
@@ -289,8 +301,34 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	for _, a := range aliases {
 		log("==> %s alias: %s", a.Kind, naming.URL(w.Scheme, a.Hostname))
 	}
-	log("==> ready: %s", naming.URL(w.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, w.Domain)))
+	log("==> ready: %s", naming.URL(w.Scheme, d.Host(w.Domain)))
 	return nil
+}
+
+// Aliases are the aliases a ready deployment takes (Faz 17):
+//   - the branch's preview alias when the deployment runs in the
+//     environment a push of its branch gets. A promoted copy of a preview
+//     (production variables on a non-production branch) does not take it:
+//     the branch preview keeps showing the preview build;
+//   - the production alias when the deployment's environment is production
+//     (a push to the production branch, a promotion, their redeploys).
+func Aliases(d store.Deployment, productionBranch, domain string) []store.AliasSpec {
+	var out []store.AliasSpec
+	if d.Target != store.EnvProduction || d.Branch == productionBranch {
+		out = append(out, store.AliasSpec{
+			Hostname: naming.PreviewHost(d.Branch, d.AppName, domain),
+			Kind:     store.AliasPreview,
+			Branch:   d.Branch,
+		})
+	}
+	if d.Target == store.EnvProduction {
+		out = append(out, store.AliasSpec{
+			Hostname: naming.ProductionHost(d.AppName, domain),
+			Kind:     store.AliasProduction,
+			Branch:   d.Branch,
+		})
+	}
+	return out
 }
 
 func (w *Worker) logLine(ctx context.Context, id int64, format string, args ...any) {

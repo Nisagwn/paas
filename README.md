@@ -86,6 +86,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 15: GitHub App: arayüzden "Install" → repoları seç → "Import" (uygulama oluşur, ilk deploy başlar);
   kurulumun ekibe bağlanması kullanıcının GitHub token'ıyla doğrulanır, giriş aynı App üzerinden
   ([kurulum rehberi](#github-app-faz-15))
+- [x] Faz 17: ortamlar ve deploy kontrolleri: production / preview (ve branch'e özel) değişkenler, build'siz
+  promote ve redeploy, kuyrukta ve çalışırken iptal (`canceled`), deploy hook'ları, `[skip deploy]` / `[skip ci]`
+  ([ayrıntılar](#ortamlar-ve-deploy-kontrolleri-faz-17))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -416,6 +419,94 @@ go run ./cmd/paas-envkey rotate     # düz metinleri şifreler, eski anahtardaki
   ve değerleri düz metin saklar — yalnızca yerel geliştirme içindir. Anahtar kaybı, şifreli env
   değerlerinin kaybıdır; anahtarı veritabanı yedeğinden ayrı yedekle.
 
+### Ortamlar ve deploy kontrolleri (Faz 17)
+
+Vercel'deki gibi iki ortam var: **production** (production branch'ine push'lar ve production'a
+yükseltilen deploy'lar) ve **preview** (diğer tüm branch'ler). Her deployment'ın `target` alanı hangi
+ortamda çalıştığını, `origin` alanı nereden geldiğini (`git`, `redeploy`, `promote`, `hook`) gösterir.
+
+**Ortama özel değişkenler.** `app_env` satırlarının bir hedefi var (migration 011):
+
+| `target` | Kimler görür |
+|---|---|
+| `all` | iki ortam da (Faz 17 öncesi tüm satırlar ve hedefsiz yazılan değişkenler) |
+| `production` | production deploy'ları |
+| `preview` | preview deploy'ları; `git_branch` verilirse yalnızca o branch'in deploy'ları |
+
+En özel olan kazanır: production için `all < production`, preview için
+`all < preview < preview + branch`. Eski satırlar iki hedefe kopyalanmadı, `all` oldu: `all` ve
+branch'siz satırların şifreleme AAD'si Faz 10'daki ile aynı (uygulama + değişken adı), böylece mevcut
+şifreli değerler yeniden yazılmadan okunmaya devam ediyor. Diğer hedeflerde AAD hedefi ve branch'i de
+içerir: bir preview değeri production satırına kopyalanırsa çözülmez. Anahtar rotasyonu
+(`paas-envkey rotate`) her satırı kendi AAD'siyle yeniden şifreler.
+
+```bash
+# hedefsiz (geriye uyumlu): iki ortam; production/preview satırlarının yerini alır, branch'e özel olanlar kalır
+curl -s -H "$H" -X PUT -d '{"SENTRY_DSN":"…"}' localhost:8080/api/apps/blog/env
+# yalnızca production
+curl -s -H "$H" -X PUT -d '{"target":"production","vars":{"DATABASE_URL":"postgres://prod…"}}' localhost:8080/api/apps/blog/env
+# yalnızca feature/x preview'leri; null siler
+curl -s -H "$H" -X PUT -d '{"target":"preview","git_branch":"feature/x","vars":{"FLAG":"on","ESKI":null}}' localhost:8080/api/apps/blog/env
+curl -s -H "$H" localhost:8080/api/apps/blog/env
+# {"keys":["DATABASE_URL","FLAG","SENTRY_DSN"],"vars":[{"key":"DATABASE_URL","target":"production",…},…]}
+```
+
+Hedefsiz `null` değişkeni her yerden (branch'e özel satırlar dahil) siler. Değişiklikler, eskisi
+gibi, sonradan oluşan deploy'lara uygulanır: her deploy kendi değişmez `Secret`'ını alır.
+
+**Promote (production'a yükselt).** `POST /api/apps/{name}/promote {"deployment_id"}` hazır bir
+preview deploy'unu yeniden build etmeden production'a alır. Değişkenler ortama göre farklı ve deploy
+başına değişmez bir `Secret`'a yazıldığı için alias'ı preview deploy'una çevirmek doğru olmazdı: o
+deploy preview değişkenleriyle çalışıyor. Bu yüzden aynı commit için yeni bir deployment satırı açılır:
+`target=production`, `origin=promote`, kaynağın digest ile sabitlenmiş imajı. Worker imajı hazır
+bulunca build adımını atlar (`==> reusing image … (no rebuild)`), production değişkenleriyle yeni bir
+`Secret` ve kendi nesnelerini oluşturur, hazır olunca production alias'ını taşır. Branch'in preview
+alias'ı preview build'inde kalır. Kaynak zaten production ortamındaysa (ör. eski bir production
+deploy'u) yeni deploy gerekmez, alias rollback'teki gibi anında taşınır (`"mode":"alias"`, `200`);
+diğer durumda yanıt `202` ve `"mode":"deployment"`'dır.
+
+Bir commit'in ikinci ve sonraki deploy'ları **nesil** (`generation`) numarası alır, adları ve URL'leri
+çakışmaz: ilk deploy `d-<sha7>` / `https://<sha7>-<app>.<domain>`, n'inci kopya `d-<sha7>-<n>` /
+`https://<sha7>-<n>-<app>.<domain>`. Push'lar her zaman 0. nesli bulur, yeniden teslim yine idempotenttir.
+
+**Redeploy.** `POST /api/apps/{name}/deployments/{id}/redeploy` bitmiş bir deploy'u aynı commit, branch ve
+ortamla yeniden çalıştırır (`202`). Varsayılan olarak imaj yeniden kullanılır; `{"use_cache": false}`
+yeniden build ettirir. Kuyrukta ya da çalışmakta olan bir deploy için `409` döner.
+
+**İptal.** `POST /api/deployments/{id}/cancel` (uygulamada member+). Durum makinesine `canceled` eklendi:
+
+```
+queued ──cancel──► canceled              (anında; hiçbir nesne oluşmadı)
+building / deploying ──cancel──► cancel_requested_at → worker'ın heartbeat döngüsü
+                                   context'i iptal eder → canceled (nesneler temizlenir)
+```
+
+Kuyruktaki deploy hemen `canceled` olur (`200`). Çalışan deploy'da istek veritabanına yazılır (`202`);
+worker heartbeat'te bayrağı görüp çalışmayı durdurur (heartbeat kapalıysa da 2 sn'de bir bakılır).
+Aynı anda `MarkReady`'ye ulaşan bir deploy alias almadan `canceled` biter; kısmen oluşmuş Kubernetes
+nesneleri temizlikçi tarafından silinir. Bitmiş bir deploy için `409`. `Finished()` `canceled`'ı da
+son durum sayar; GitHub commit status'u `error` ("Deploy iptal edildi") olur.
+
+**Deploy hook'ları.** Uygulama başına gizli URL'ler: bir CMS ya da cron çağırınca yapılandırılan
+branch'in son commit'i deploy edilir. Token yalnızca oluşturma yanıtında görünür, veritabanında
+SHA-256'sı saklanır. Tetikleme URL'si kimlik doğrulama istemez, token'ın kendisi kimliktir. Hook'ları
+listelemek, oluşturmak ve silmek member+ ister.
+
+```bash
+curl -s -H "$H" -d '{"name":"cms","branch":"main"}' localhost:8080/api/apps/blog/hooks
+# {"id":1,"name":"cms","branch":"main","prefix":"paas_hook_AbC123","token":"paas_hook_…","path":"/api/hooks/deploy/paas_hook_…"}
+curl -s -X POST localhost:8080/api/hooks/deploy/paas_hook_…
+```
+
+Branch head'i GitHub App üzerinden okunur (`BranchHead`); App yapılandırılmamışsa tetikleme `501`
+döner. Yeni commit her zamanki gibi kuyruğa girer (`201`). Head zaten deploy edildiyse yeniden build
+edilir (hook'lar genelde repo dışındaki içerik değişince çağrılır); o deploy hâlâ sürüyorsa onu döner
+(`200`). Bilinmeyen token `404`, okunamayan branch `502`.
+
+**Build'i atlama.** Push'un head commit mesajında (başlık ya da gövde; harf büyüklüğüne bakılmaz)
+`[skip deploy]` veya `[skip ci]` geçiyorsa webhook deploy oluşturmaz: `202 {"result":"ignored"}` döner
+ve loglanır; branch önceki deploy'unda kalır. Deploy hook'ları ve redeploy bu kurala bakmaz.
+
 ### Kullanıcılar ve ekipler (Faz 13)
 
 Uygulamalar bir **ekibe** aittir; kullanıcılar GitHub hesaplarıyla giriş yapar ve her ekipte bir rolleri
@@ -696,8 +787,15 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/apps/{name}` | Uygulama + alias'lar |
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |
-| GET | `/api/apps/{name}/env` | `{"keys":[…]}` — değerler API'den asla okunmaz |
-| PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
+| GET | `/api/apps/{name}/env` | `{"keys":[…],"vars":[{"key","target","git_branch"?,"updated_at"}]}` — değerler API'den asla okunmaz |
+| PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` (iki ortam) ya da `{"target":"production\|preview","git_branch"?,"vars":{…}}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
+| POST | `/api/apps/{name}/promote` | `{"deployment_id"}` — hazır preview'i build'siz production'a alır (`202`, yeni deploy) ya da production ortamındaki deploy'a alias'ı taşır (`200`) |
+| POST | `/api/apps/{name}/deployments/{id}/redeploy` | `{"use_cache"?: bool}` — aynı commit; varsayılan imajı yeniden kullanır, `false` yeniden build eder (`202`) |
+| POST | `/api/deployments/{id}/cancel` | Kuyruktakini hemen iptal eder (`200`), çalışana iptal isteği yazar (`202`); bitmişse `409` (member+) |
+| GET | `/api/apps/{name}/hooks` | Deploy hook'ları (token'sız; member+) |
+| POST | `/api/apps/{name}/hooks` | `{"name"?,"branch"?}` — `token` ve `path` yalnızca bu yanıtta (`201`; member+) |
+| DELETE | `/api/apps/{name}/hooks/{id}` | Hook'u siler (`204`; member+) |
+| POST | `/api/hooks/deploy/{token}` | Kimlik doğrulamasız; hook'un branch'inin son commit'ini deploy eder (`201`/`200`; GitHub App yoksa `501`) |
 | GET | `/api/apps/{name}/scale-to-zero` | `{"production": bool}` — production deploy'u boştayken uyuyabilir mi |
 | PUT | `/api/apps/{name}/scale-to-zero` | `{"production": true\|false}` (preview'ler her zaman uyuyabilir) |
 | GET | `/api/deployments/{id}` | Tek deployment |
