@@ -1,13 +1,13 @@
 {{define "content"}}
 {{$csrf := .CSRF}}
 <div class="head"><div>
-  <h1>API tokens</h1>
-  <p class="sub">Personal tokens for <code>/api/*</code>: <code>Authorization: Bearer paas_…</code>. A token has your roles.</p>
+  <h1>Token'lar</h1>
+  <p class="sub">Komut satırı ve CI için kişisel API token'ları; bir token senin yetkilerinle çalışır.</p>
 </div></div>
 
 {{with .Data.Created}}
 <div class="flash ok" role="status">
-  Copy the new token now; it is not shown again.
+  Yeni token'ı şimdi kopyala; bir daha gösterilmeyecek.
   <div class="mono" style="margin-top:8px;word-break:break-all"><code>{{.}}</code></div>
 </div>
 {{end}}
@@ -16,29 +16,29 @@
 <form class="card pad" method="post" action="/tokens" style="margin-bottom:20px">
   <input type="hidden" name="csrf" value="{{$csrf}}">
   <div class="row">
-    <div><label for="tname">Name</label><input id="tname" name="name" placeholder="ci" required maxlength="100"></div>
-    <div><label for="days">Expires in days (empty: never)</label><input id="days" name="expires_in_days" type="number" min="1" max="3650"></div>
-    <div style="flex:0"><button class="primary" type="submit">Create token</button></div>
+    <div><label for="tname">Ad</label><input id="tname" name="name" placeholder="ci" required maxlength="100"></div>
+    <div><label for="days">Geçerlilik (gün, boş: süresiz)</label><input id="days" name="expires_in_days" type="number" min="1" max="3650"></div>
+    <div style="flex:0"><button class="primary" type="submit">Token oluştur</button></div>
   </div>
 </form>
 
 <div class="card">
 {{with .Data.Tokens}}
   <table>
-    <thead><tr><th>Name</th><th>Token</th><th class="hide-sm">Created</th><th class="hide-sm">Last used</th><th>Expires</th><th></th></tr></thead>
+    <thead><tr><th>Ad</th><th>Token</th><th class="hide-sm">Oluşturuldu</th><th class="hide-sm">Son kullanım</th><th>Bitiş</th><th></th></tr></thead>
     <tbody>
     {{range .}}
       <tr>
         <td><strong>{{.Name}}</strong></td>
         <td class="mono muted">{{.Prefix}}…</td>
         <td class="hide-sm muted small">{{ago .CreatedAt}}</td>
-        <td class="hide-sm muted small">{{with .LastUsedAt}}{{ago .}}{{else}}never{{end}}</td>
-        <td class="muted small">{{with .ExpiresAt}}{{time .}}{{else}}never{{end}}</td>
+        <td class="hide-sm muted small">{{with .LastUsedAt}}{{ago .}}{{else}}hiç{{end}}</td>
+        <td class="muted small">{{with .ExpiresAt}}{{time .}}{{else}}süresiz{{end}}</td>
         <td style="text-align:right">
           <form class="inline" method="post" action="/tokens/revoke">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="id" value="{{.ID}}">
-            <button class="small danger" type="submit">Revoke</button>
+            <button class="small danger" type="submit">İptal et</button>
           </form>
         </td>
       </tr>
@@ -46,10 +46,10 @@
     </tbody>
   </table>
 {{else}}
-  <div class="empty">No tokens yet.</div>
+  <div class="empty">Henüz token yok.</div>
 {{end}}
 </div>
 {{else}}
-<div class="card empty">Personal tokens belong to a GitHub user. The admin uses <code>PAAS_API_TOKEN</code>.</div>
+<div class="card empty">Kişisel token'lar GitHub ile giriş yapan kullanıcılar içindir. Admin, <code>PAAS_API_TOKEN</code> kullanır.</div>
 {{end}}
 {{end}}

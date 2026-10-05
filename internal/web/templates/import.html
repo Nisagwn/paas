@@ -1,82 +1,85 @@
 {{define "content"}}
+{{/* Install links are links, not forms: CSP form-action 'self' would block the redirect to github.com. */}}
+{{$install := and .Data.InstallEnabled .Data.Teams}}
 <div class="head">
   <div>
-    <h1>Import from GitHub</h1>
-    <p class="sub">Repositories the GitHub App is installed on. Importing creates the app and deploys its production branch.</p>
+    <h1>GitHub'dan içe aktar</h1>
+    <p class="sub">Bir repo seç: proje oluşturulur ve {{if .Data.Deploys}}ilk deploy hemen başlar{{else}}ilk push'ta yayına alınır{{end}}.</p>
   </div>
-  {{if .Data.InstallEnabled}}{{with .Data.Teams}}
-  {{/* Links, not a form: CSP form-action 'self' would block the redirect to github.com. */}}
-  <div class="actions">
-    {{$label := "Install GitHub App"}}{{if $.Data.Groups}}{{$label = "Configure repositories"}}{{end}}
-    {{if gt (len .) 1}}
-    {{range .}}<a class="btn" href="/github/install?team={{.Slug}}">{{$label}} · {{.Name}}</a> {{end}}
-    {{else}}{{range .}}<a class="btn" href="/github/install?team={{.Slug}}">{{$label}}</a>{{end}}{{end}}
-  </div>
-  {{end}}{{end}}
 </div>
 
 {{if not .Data.Configured}}
 <div class="card pad" style="margin-bottom:20px">
-  <strong>No GitHub App is configured.</strong>
-  <p class="muted">Create apps with <a href="/">New app</a> on the apps page, then add a push webhook to the repository
-  pointing at <code>/webhooks/github</code> with the platform's webhook secret. The README section
-  "GitHub App (Faz 15)" describes the App setup that makes this page work.</p>
+  <strong>GitHub bağlantısı ayarlı değil.</strong>
+  <p class="muted" style="margin-bottom:0">Projeyi <a href="/">Projeler</a> sayfasındaki “Gelişmiş: elle ekle” bölümünden ekleyebilirsin.</p>
 </div>
 {{else if not .Data.GitHubLogin}}
 <div class="card pad" style="margin-bottom:20px">
-  <strong>GitHub sign-in is required to install the App.</strong>
-  <p class="muted">Linking an installation to a team is verified with your GitHub account. Set the App's client ID and
-  secret (<code>PAAS_GITHUB_OAUTH_CLIENT_ID</code>, <code>PAAS_GITHUB_OAUTH_CLIENT_SECRET</code>) and sign in with GitHub.</p>
+  <strong>Repo eklemek için GitHub ile giriş açık olmalı.</strong>
+  <p class="muted small" style="margin-bottom:0">Sunucuda <code>PAAS_GITHUB_OAUTH_CLIENT_ID</code> ve <code>PAAS_GITHUB_OAUTH_CLIENT_SECRET</code> ayarlanıp GitHub ile giriş yapılmalı.</p>
 </div>
 {{else if not .Data.Teams}}
 <div class="card pad" style="margin-bottom:20px">
-  <p class="muted" style="margin:0">You are a viewer in all your teams: you can see the repositories, but importing
-  and installing need the member role.</p>
+  <p class="muted" style="margin:0">Ekiplerinde yalnızca izleyicisin; içe aktarmak için üye rolü gerekir.</p>
 </div>
 {{end}}
 
-{{range .Data.Groups}}
-<h2>{{.Account}}</h2>
-<div class="card">
-  <table>
-    <thead><tr><th>Repository</th><th class="hide-sm">Team</th><th>Import</th></tr></thead>
-    <tbody>
-    {{range .Repos}}
-      <tr>
-        <td class="mono">{{.FullName}} {{if .Private}}<span class="tag">private</span>{{end}}</td>
-        <td class="hide-sm"><a href="/teams/{{.Team}}">{{.Team}}</a></td>
-        <td>
-        {{if .App}}
-          <span class="muted small">already imported as</span> <a href="/apps/{{.App}}"><strong>{{.App}}</strong></a>
-        {{else if .CanImport}}
-          <form method="post" action="/import" class="row">
-            <input type="hidden" name="csrf" value="{{$.CSRF}}">
-            <input type="hidden" name="repo" value="{{.FullName}}">
-            <input type="hidden" name="team" value="{{.Team}}">
-            <div><label>App name</label>
-              <input name="name" value="{{.Name}}" pattern="[a-z][a-z0-9-]{1,30}" required aria-label="App name for {{.FullName}}"></div>
-            <div><label>Production branch</label>
-              <input name="production_branch" placeholder="default branch" aria-label="Production branch for {{.FullName}}"></div>
-            <div style="flex:0"><button class="primary" type="submit">Import</button></div>
-          </form>
-        {{else}}
-          <span class="muted small">viewer: importing needs the member role</span>
-        {{end}}
-        </td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-</div>
-{{else}}
 {{if .Data.Configured}}
-<div class="card"><div class="empty">
-  No repositories yet. Install the GitHub App on an account and choose repositories; installations that other people
-  linked to teams you are not in are not listed.
-</div></div>
+<div id="repo-list" {{if not .Data.Groups}}hx-get="/import" hx-select="#repo-list" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
+{{if .Data.Groups}}
+  <h2>GitHub repoların</h2>
+  <div class="card">
+  {{range .Data.Groups}}{{range .Repos}}
+    <div class="repo-row">
+      <div class="repo">
+        <strong class="mono">{{.FullName}}</strong> {{if .Private}}<span class="tag">gizli</span>{{end}}
+      </div>
+      {{if .App}}
+        <div style="padding-top:6px"><span class="muted small">Zaten eklendi:</span> <a href="/apps/{{.App}}"><strong>{{.App}}</strong></a></div>
+      {{else if .CanImport}}
+        <form method="post" action="/import">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <input type="hidden" name="repo" value="{{.FullName}}">
+          <input type="hidden" name="team" value="{{.Team}}">
+          <button class="primary" type="submit">İçe aktar</button>
+          <details>
+            <summary class="muted">Ayarlar</summary>
+            <div class="row">
+              <div><label>Proje adı</label>
+                <input name="name" value="{{.Name}}" pattern="[a-z][a-z0-9-]{1,30}" required aria-label="{{.FullName}} için proje adı"></div>
+              <div><label>Canlı branch</label>
+                <input name="production_branch" placeholder="varsayılan branch" aria-label="{{.FullName}} için canlı branch"></div>
+            </div>
+            <p class="muted" style="margin:6px 0 0">Ekip: <a href="/teams/{{.Team}}">{{.Team}}</a></p>
+          </details>
+        </form>
+      {{else}}
+        <div style="padding-top:6px" class="muted small">İçe aktarmak için ekipte üye rolü gerekir.</div>
+      {{end}}
+    </div>
+  {{end}}{{end}}
+  </div>
+  {{if $install}}
+  <p class="small" style="margin-top:12px">
+  {{if gt (len .Data.Teams) 1}}
+    Repo listesini GitHub'da düzenle:
+    {{range .Data.Teams}}<a href="/github/install?team={{.Slug}}">{{.Name}}</a> {{end}}
+  {{else}}{{range .Data.Teams}}<a href="/github/install?team={{.Slug}}">Repo listesini GitHub'da düzenle</a>{{end}}{{end}}
+  </p>
+  {{end}}
+{{else}}
+  <div class="card hero">
+    <h1>GitHub repoların burada görünecek</h1>
+    {{if $install}}
+    <p>GitHub'da hangi repolara erişebileceğimizi seç; seçtiğin repolar bu sayfaya kendiliğinden gelir.</p>
+    {{if gt (len .Data.Teams) 1}}
+      {{range .Data.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç · {{.Name}}</a> {{end}}
+    {{else}}{{range .Data.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç</a>{{end}}{{end}}
+    {{else}}
+    <p>GitHub'a bağlanmış bir repo henüz yok.</p>
+    {{end}}
+  </div>
 {{end}}
-{{end}}
-{{if and .Data.Configured (not .Data.Deploys)}}
-<p class="muted small">The first deployment starts with the first push: the platform cannot read repositories through the App yet.</p>
+</div>
 {{end}}
 {{end}}

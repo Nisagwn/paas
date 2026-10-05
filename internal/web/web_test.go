@@ -107,7 +107,7 @@ func TestLoginRequired(t *testing.T) {
 		t.Fatalf("anonymous POST: %d, want 401", code)
 	}
 	if code, body, _ := u.post("/login", url.Values{"token": {"wrong"}}, "self"); code != http.StatusUnauthorized ||
-		!strings.Contains(body, "Invalid API token") {
+		!strings.Contains(body, "Geçersiz API token") {
 		t.Fatalf("wrong token: %d", code)
 	}
 	if code, _, _ := u.post("/login", url.Values{"token": {token}}, "https://evil.example"); code != http.StatusForbidden {

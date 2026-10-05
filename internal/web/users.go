@@ -29,7 +29,7 @@ func (s *Server) checkTeam(w http.ResponseWriter, r *http.Request, teamID int64,
 		s.errorPage(w, r, http.StatusNotFound, notFound)
 		return false
 	case !store.RoleAllows(role, need):
-		s.errorPage(w, r, http.StatusForbidden, "This action needs the "+need+" role on the team.")
+		s.errorPage(w, r, http.StatusForbidden, "Bu işlem için ekipte "+roleLabel(need)+" rolü gerekir.")
 		return false
 	}
 	return true
@@ -46,13 +46,13 @@ func (s *Server) opError(w http.ResponseWriter, r *http.Request, err error, rere
 	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		rerender(http.StatusNotFound, "Not found. New members must be existing GitHub accounts.")
+		rerender(http.StatusNotFound, "Bulunamadı. Yeni üyenin bir GitHub hesabı olmalı.")
 	case errors.Is(err, auth.ErrForbidden):
-		rerender(http.StatusForbidden, "Only team owners can do this.")
+		rerender(http.StatusForbidden, "Bunu yalnızca ekip sahipleri yapabilir.")
 	case errors.Is(err, store.ErrConflict):
-		rerender(http.StatusConflict, "That name is already taken.")
+		rerender(http.StatusConflict, "Bu ad zaten kullanılıyor.")
 	case errors.Is(err, store.ErrLastOwner):
-		rerender(http.StatusConflict, "A team needs at least one owner.")
+		rerender(http.StatusConflict, "Ekipte en az bir sahip olmalı.")
 	default:
 		s.internalError(w, r, err)
 	}
@@ -71,7 +71,7 @@ func (s *Server) renderTeams(w http.ResponseWriter, r *http.Request, status int,
 		s.internalError(w, r, err)
 		return
 	}
-	s.render(w, r, status, "teams", "Teams", map[string]any{"Teams": teams, "Form": form}, errMsg)
+	s.render(w, r, status, "teams", "Ekipler", map[string]any{"Teams": teams, "Form": form}, errMsg)
 }
 
 func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func (s *Server) teamPage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderTeam(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
 	t, err := s.Auth.Team(r.Context(), me(r), r.PathValue("slug"))
 	if errors.Is(err, store.ErrNotFound) {
-		s.errorPage(w, r, http.StatusNotFound, "Team not found.")
+		s.errorPage(w, r, http.StatusNotFound, "Ekip bulunamadı.")
 		return
 	}
 	if err != nil {
@@ -164,7 +164,7 @@ func (s *Server) renderTokens(w http.ResponseWriter, r *http.Request, status int
 			return
 		}
 	}
-	s.render(w, r, status, "tokens", "API tokens", map[string]any{
+	s.render(w, r, status, "tokens", "Token'lar", map[string]any{
 		"Tokens": tokens, "Created": created, "HasUser": me(r).UserID != 0,
 	}, errMsg)
 }
@@ -174,7 +174,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	if v := strings.TrimSpace(r.PostFormValue("expires_in_days")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			s.renderTokens(w, r, http.StatusBadRequest, "Expiry must be a number of days.", "")
+			s.renderTokens(w, r, http.StatusBadRequest, "Süre gün sayısı olmalı.", "")
 			return
 		}
 		days = n
@@ -190,7 +190,7 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PostFormValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.renderTokens(w, r, http.StatusBadRequest, "Invalid token.", "")
+		s.renderTokens(w, r, http.StatusBadRequest, "Geçersiz token.", "")
 		return
 	}
 	err = s.Store.RevokeAPIToken(r.Context(), me(r).UserID, id)

@@ -1,25 +1,41 @@
 {{define "content"}}
 {{$a := .Data.App}}
-<div class="head">
-  <div>
-    <p class="sub" style="margin:0"><a href="/">Apps</a> /</p>
-    <h1>{{$a.Name}}</h1>
-    <p class="sub"><span class="mono">{{$a.Repo}}</span> · production branch <span class="tag">{{$a.ProductionBranch}}</span>
-      · team <a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Slug}}</a> <span class="tag">{{.Data.Role}}</span></p>
-  </div>
-  <div class="actions">
-    <a class="btn" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Visit ↗</a>
+<p class="sub" style="margin:0 0 4px"><a href="/">Projeler</a> /</p>
+<div class="card pad" style="margin-bottom:8px">
+  <div class="head" style="align-items:center">
+    <div style="min-width:0">
+      <h1>{{$a.Name}}
+        {{range $i, $d := .Data.Deployments}}{{if eq $i 0}}<a href="/deployments/{{$d.ID}}" style="vertical-align:middle"><span class="badge s-{{$d.Status}}">{{status $d.Status}}</span></a>{{end}}{{end}}
+      </h1>
+      {{if .Data.HasProduction}}
+      <a class="prod-url" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">{{.Data.ProductionURL}} ↗</a>
+      {{else}}
+      <p class="muted" style="margin:4px 0 0">Canlı adres ilk başarılı deploy'dan sonra burada görünür.</p>
+      {{end}}
+      <p class="sub small" style="margin:8px 0 0"><span class="mono">{{$a.Repo}}</span> · canlı branch <span class="tag">{{$a.ProductionBranch}}</span>
+        · ekip <a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Name}}</a></p>
+    </div>
+    {{if .Data.HasProduction}}
+    <div class="actions"><a class="btn primary" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Siteyi aç ↗</a></div>
+    {{end}}
   </div>
 </div>
 
-<h2>Domains</h2>
-<div class="card">
-{{with .Data.Aliases}}
+<h2>Deploy'lar</h2>
+<p class="sub small">Her push yeni bir deploy oluşturur; eski bir sürüme tek tıkla dönebilirsin.</p>
+{{template "deployments" .}}
+
+<h2>Ayarlar</h2>
+
+<details class="card section" id="addresses">
+  <summary>Adresler <span class="muted">· canlı ve önizleme bağlantıları</span></summary>
+  <div class="body">
+  {{with .Data.Aliases}}
   <table>
     <tbody>
     {{range .}}
       <tr>
-        <td><span class="tag {{if eq .Kind "production"}}prod{{end}}">{{.Kind}}</span></td>
+        <td><span class="tag {{if eq .Kind "production"}}prod{{end}}">{{kind .Kind}}</span></td>
         <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.Hostname}}</a></td>
         <td class="hide-sm muted small">branch {{.Branch}}</td>
         <td class="small">→ <a class="mono" href="/deployments/{{.DeploymentID}}">{{if .SHA}}{{short .SHA}}{{else}}#{{.DeploymentID}}{{end}}</a>
@@ -28,17 +44,26 @@
     {{end}}
     </tbody>
   </table>
-{{else}}
-  <div class="empty">Aliases appear after the first successful deployment.</div>
-{{end}}
-</div>
+  {{else}}
+  <p class="muted" style="margin:0">Adresler ilk başarılı deploy'dan sonra görünür.</p>
+  {{end}}
+  </div>
+</details>
 
-<h2>Deployments</h2>
-{{template "deployments" .}}
+<details class="card section" id="env" {{if .Data.EnvKeys}}open{{end}}>
+  <summary>Ortam değişkenleri <span class="muted">· {{len .Data.EnvKeys}} değişken</span></summary>
+  <div class="body">{{template "env" .}}</div>
+</details>
 
-<h2 id="custom-domains">Custom domains</h2>
-{{template "domains" .}}
+<details class="card section" id="custom-domains" {{if .Data.Domains}}open{{end}}>
+  <summary>Alan adları <span class="muted">· kendi alan adını bağla</span></summary>
+  <div class="body">{{template "domains" .}}</div>
+</details>
 
-<h2 id="env">Environment variables</h2>
-{{template "env" .}}
+<details class="card section" id="sleep">
+  <summary>Uyku modu <span class="muted">· platform ayarı</span></summary>
+  <div class="body">
+    <p class="muted small" style="margin:0">Uyku modu sunucuda açıksa, bir süre istek almayan deploy'lar uyutulur ve ilk istekte uyanır; listede “Uykuda” etiketiyle görünürler.</p>
+  </div>
+</details>
 {{end}}

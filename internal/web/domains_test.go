@@ -41,7 +41,7 @@ func TestDomainForms(t *testing.T) {
 	app, _ := u.st.CreateApp(ctx, "blog", "nisagwn/blog", "main")
 
 	code, body, _ := u.get("/apps/blog")
-	if code != 200 || !strings.Contains(body, "Custom domains") || !strings.Contains(body, "No custom domains.") {
+	if code != 200 || !strings.Contains(body, "Alan adları") || !strings.Contains(body, "Henüz alan adı yok.") {
 		t.Fatalf("app page: %d", code)
 	}
 	csrf := u.csrf("/apps/blog")
@@ -56,7 +56,7 @@ func TestDomainForms(t *testing.T) {
 
 	// Invalid hostnames are explained on the page.
 	code, body, _ = u.post("/apps/blog/domains", url.Values{"hostname": {"x.paas.test"}, "csrf": {csrf}}, "self")
-	if code != http.StatusBadRequest || !strings.Contains(body, "belong to the platform") {
+	if code != http.StatusBadRequest || !strings.Contains(body, "platforma ait") {
 		t.Fatalf("platform hostname: %d", code)
 	}
 
@@ -71,9 +71,9 @@ func TestDomainForms(t *testing.T) {
 
 	// The page lists it with its status and the DNS records to create.
 	_, body, _ = u.get("/apps/blog")
-	for _, want := range []string{"www.example.com", "s-verified", "waiting for the first production deployment",
-		"_paas-challenge.www.example.com", d.Token, "blog.paas.test", "Custom domains updated."} {
-		if want == "Custom domains updated." {
+	for _, want := range []string{"www.example.com", "s-verified", "İlk canlı deploy bekleniyor",
+		"_paas-challenge.www.example.com", d.Token, "blog.paas.test", "Alan adları güncellendi."} {
+		if want == "Alan adları güncellendi." {
 			_, body, _ = u.get("/apps/blog?ok=domain")
 		}
 		if !strings.Contains(body, want) {

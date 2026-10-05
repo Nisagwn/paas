@@ -1,36 +1,38 @@
 {{define "content"}}
 <div class="head"><div>
-  <h1>Teams</h1>
-  <p class="sub">Apps belong to a team. Viewers read, members deploy and change settings, owners manage the team.</p>
+  <h1>Ekipler</h1>
+  <p class="sub">Projeler bir ekibe aittir: izleyici görür, üye deploy eder, sahip ekibi yönetir.</p>
 </div></div>
-
-<details class="card pad" style="margin-bottom:20px" {{if .Data.Form}}open{{end}}>
-  <summary><strong>New team</strong></summary>
-  <form method="post" action="/teams" style="margin-top:14px">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <div class="row">
-      <div><label for="slug">Slug</label>
-        <input id="slug" name="slug" value="{{.Data.Form.Slug}}" placeholder="frontend" pattern="[a-z][a-z0-9-]{1,30}" required></div>
-      <div><label for="tname">Name</label>
-        <input id="tname" name="name" value="{{.Data.Form.Name}}" placeholder="Frontend"></div>
-      <div style="flex:0"><button class="primary" type="submit">Create</button></div>
-    </div>
-  </form>
-</details>
 
 <div class="card">
 {{with .Data.Teams}}
   <table>
-    <thead><tr><th>Team</th><th>Slug</th><th>Your role</th></tr></thead>
+    <thead><tr><th>Ekip</th><th class="hide-sm">Kısa ad</th><th>Rolün</th></tr></thead>
     <tbody>
     {{range .}}
       <tr><td><a href="/teams/{{.Slug}}"><strong>{{.Name}}</strong></a></td>
-        <td class="mono muted">{{.Slug}}</td><td><span class="tag">{{.Role}}</span></td></tr>
+        <td class="hide-sm mono muted">{{.Slug}}</td><td><span class="tag">{{role .Role}}</span></td></tr>
     {{end}}
     </tbody>
   </table>
 {{else}}
-  <div class="empty">You are not in any team yet. Create one, or ask an owner to add you.</div>
+  <div class="empty">Henüz bir ekibin yok. Yeni bir ekip oluştur ya da bir ekip sahibinden seni eklemesini iste.</div>
 {{end}}
 </div>
+
+<details class="card section" style="margin-top:20px" {{if .Data.Form}}open{{end}}>
+  <summary>Yeni ekip</summary>
+  <div class="body">
+  <form method="post" action="/teams">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="row">
+      <div><label for="tname">Ad</label>
+        <input id="tname" name="name" value="{{.Data.Form.Name}}" placeholder="Frontend"></div>
+      <div><label for="slug">Kısa ad (adreste görünür)</label>
+        <input id="slug" name="slug" value="{{.Data.Form.Slug}}" placeholder="frontend" pattern="[a-z][a-z0-9-]{1,30}" required></div>
+      <div style="flex:0"><button class="primary" type="submit">Oluştur</button></div>
+    </div>
+  </form>
+  </div>
+</details>
 {{end}}

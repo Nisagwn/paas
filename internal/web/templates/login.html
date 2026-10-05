@@ -1,19 +1,19 @@
 {{define "content"}}
-<div class="card pad" style="max-width:420px;margin:48px auto">
-  <h1>Log in</h1>
+<div class="card pad" style="max-width:420px;margin:48px auto;text-align:center">
+  <h1>Giriş yap</h1>
   {{if .Data.GitHub}}
-  <p class="sub">Sign in with your GitHub account. Access is limited to allowed accounts and invited team members.</p>
-  <p><a class="btn" href="/auth/github?next={{.Data.Next}}">Sign in with GitHub</a></p>
+  <p class="sub">Projelerini görmek için GitHub hesabınla giriş yap.</p>
+  <p><a class="btn primary big" href="/auth/github?next={{.Data.Next}}">GitHub ile giriş yap</a></p>
   {{end}}
   {{if .Data.TokenLogin}}
-  <p class="sub">Development mode: enter the control plane's API token (<code>PAAS_API_TOKEN</code>).</p>
-  <form method="post" action="/login">
+  <form method="post" action="/login" style="text-align:left">
+    <p class="sub">Geliştirme modu: sunucunun API token'ını gir (<code>PAAS_API_TOKEN</code>).</p>
     <input type="hidden" name="next" value="{{.Data.Next}}">
     <label for="token">API token</label>
     <input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
-    <p><button class="primary" type="submit">Log in</button></p>
+    <p><button class="primary" type="submit">Giriş yap</button></p>
+    <p class="muted small" style="margin-bottom:0">Admin olarak giriş yaparsın; oturum 12 saat açık kalır.</p>
   </form>
-  <p class="muted small">The token is checked once and exchanged for a signed, HttpOnly session cookie (12 hours). It signs you in as the admin.</p>
   {{end}}
 </div>
 {{end}}

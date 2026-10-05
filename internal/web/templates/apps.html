@@ -1,59 +1,58 @@
 {{define "content"}}
-<div class="head">
-  <div>
-    <h1>Apps</h1>
-    <p class="sub">Every push becomes an immutable deployment with its own URL.</p>
-  </div>
-  <div class="actions"><a class="btn" href="/import">Import from GitHub</a></div>
+{{with .Data.Apps}}
+<div class="head" style="margin-bottom:20px">
+  <div><h1>Projeler</h1></div>
+  <div class="actions"><a class="btn primary" href="/import">Yeni proje</a></div>
 </div>
 
+<div class="projects">
+{{range .}}
+  <div class="card project">
+    <a class="name" href="/apps/{{.Name}}">{{.Name}}</a>
+    <a class="url small" href="{{.ProductionURL}}" target="_blank" rel="noopener">{{.ProductionURL}} ↗</a>
+    <span class="mono small muted">{{.Repo}}</span>
+    <div class="meta">
+    {{with .Latest}}
+      <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
+      <span class="muted small">{{ago .CreatedAt}} · {{.Branch}}</span>
+    {{else}}
+      <span class="muted small">Henüz deploy yok</span>
+    {{end}}
+    </div>
+  </div>
+{{end}}
+</div>
+{{else}}
+<div class="card hero">
+  <h1>Henüz projen yok</h1>
+  <p>GitHub'daki bir repoyu seç; her push otomatik olarak yayına alınır.</p>
+  <a class="btn primary big" href="/import">GitHub'dan proje ekle</a>
+</div>
+{{end}}
+
 {{if .Data.Teams}}
-<details class="card pad" style="margin-bottom:20px" {{if .Data.Form.Open}}open{{end}}>
-  <summary><strong>New app</strong></summary>
-  <form method="post" action="/apps" style="margin-top:14px">
+<details class="card section" style="margin-top:32px" {{if .Data.Form.Open}}open{{end}}>
+  <summary>Gelişmiş: elle ekle</summary>
+  <div class="body">
+  <p class="muted small" style="margin-top:0">Repoyu GitHub bağlantısı olmadan ekler; deploy için repoya bir push webhook'u gerekir.</p>
+  <form method="post" action="/apps">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <div class="row">
-      <div><label for="name">Name</label>
+      <div><label for="name">Proje adı</label>
         <input id="name" name="name" value="{{.Data.Form.Name}}" placeholder="blog" pattern="[a-z][a-z0-9-]{1,30}" required></div>
-      <div><label for="repo">GitHub repository</label>
-        <input id="repo" name="repo" value="{{.Data.Form.Repo}}" placeholder="owner/repo" required></div>
-      <div><label for="branch">Production branch</label>
+      <div><label for="repo">GitHub reposu</label>
+        <input id="repo" name="repo" value="{{.Data.Form.Repo}}" placeholder="sahip/repo" required></div>
+      <div><label for="branch">Canlı branch</label>
         <input id="branch" name="production_branch" value="{{.Data.Form.Branch}}"></div>
       {{$sel := .Data.Form.Team}}
-      <div><label for="team">Team</label>
+      <div><label for="team">Ekip</label>
         <select id="team" name="team">
         {{range .Data.Teams}}<option value="{{.Slug}}" {{if eq .Slug $sel}}selected{{end}}>{{.Name}}</option>{{end}}
         </select></div>
-      <div style="flex:0"><button class="primary" type="submit">Create</button></div>
+      <div style="flex:0"><button class="primary" type="submit">Oluştur</button></div>
     </div>
   </form>
+  </div>
 </details>
 {{end}}
-
-<div class="card">
-{{with .Data.Apps}}
-  <table>
-    <thead><tr><th>App</th><th class="hide-sm">Repository</th><th class="hide-sm">Team</th><th>Production</th><th>Latest deployment</th></tr></thead>
-    <tbody>
-    {{range .}}
-      <tr>
-        <td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td>
-        <td class="hide-sm mono muted">{{.Repo}} <span class="tag">{{.ProductionBranch}}</span></td>
-        <td class="hide-sm"><a href="/teams/{{.Team}}">{{.Team}}</a></td>
-        <td><a href="{{.ProductionURL}}" target="_blank" rel="noopener">{{.ProductionURL}}</a></td>
-        <td>
-          {{with .Latest}}
-            <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{.Status}}</span></a>
-            <span class="mono small">{{short .CommitSHA}}</span>
-            <span class="muted small">{{.Branch}} · {{ago .CreatedAt}}</span>
-          {{else}}<span class="muted small">no deployments yet</span>{{end}}
-        </td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-{{else}}
-  <div class="empty">No apps yet. Create one above, then push to its repository. Apps of teams you are not in are not listed.</div>
-{{end}}
-</div>
 {{end}}

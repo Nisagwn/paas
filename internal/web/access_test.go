@@ -61,7 +61,7 @@ func TestPageAuthorization(t *testing.T) {
 		t.Error("other team's app listed")
 	}
 	// Viewers see no write controls, and posting anyway is refused.
-	if _, body, _ := viewer.get("/apps/blog"); strings.Contains(body, "Rollback to this") || strings.Contains(body, `action="/apps/blog/env"`) {
+	if _, body, _ := viewer.get("/apps/blog"); strings.Contains(body, "Bu sürüme dön") || strings.Contains(body, `action="/apps/blog/env"`) {
 		t.Error("viewer sees write controls")
 	}
 	csrf := viewer.csrf("/apps/blog")

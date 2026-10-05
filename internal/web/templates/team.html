@@ -1,16 +1,27 @@
 {{define "content"}}
 {{$t := .Data.Team}}{{$csrf := .CSRF}}{{$owner := .Data.Owner}}{{$roles := .Data.Roles}}{{$me := .Me}}
 <div class="head"><div>
-  <p class="sub" style="margin:0"><a href="/teams">Teams</a> /</p>
+  <p class="sub" style="margin:0"><a href="/teams">Ekipler</a> /</p>
   <h1>{{$t.Name}}</h1>
-  <p class="sub"><span class="mono">{{$t.Slug}}</span> · your role <span class="tag">{{$t.Role}}</span></p>
+  <p class="sub"><span class="mono">{{$t.Slug}}</span> · rolün <span class="tag">{{role $t.Role}}</span></p>
 </div></div>
 
-<h2>Members</h2>
+<h2>Projeler</h2>
+<div class="card">
+{{with .Data.Apps}}
+  <table><tbody>
+  {{range .}}<tr><td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td><td class="mono muted">{{.Repo}}</td></tr>{{end}}
+  </tbody></table>
+{{else}}
+  <div class="empty">Bu ekipte henüz proje yok.</div>
+{{end}}
+</div>
+
+<h2>Üyeler</h2>
 <div class="card">
 {{with .Data.Members}}
   <table>
-    <thead><tr><th>User</th><th>Role</th><th></th></tr></thead>
+    <thead><tr><th>Kullanıcı</th><th>Rol</th><th></th></tr></thead>
     <tbody>
     {{range .}}
       <tr>
@@ -21,19 +32,19 @@
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="login" value="{{.Login}}">
             {{$r := .Role}}
-            <select name="role" aria-label="Role of {{.Login}}">
-              {{range $roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{.}}</option>{{end}}
+            <select name="role" aria-label="{{.Login}} rolü">
+              {{range $roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{role .}}</option>{{end}}
             </select>
-            <button class="small" type="submit">Change</button>
+            <button class="small" type="submit">Değiştir</button>
           </form>
-          {{else}}<span class="tag">{{.Role}}</span>{{end}}
+          {{else}}<span class="tag">{{role .Role}}</span>{{end}}
         </td>
         <td style="text-align:right">
           {{if or $owner (eq .ID $me.UserID)}}
           <form class="inline" method="post" action="/teams/{{$t.Slug}}/members/remove">
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="login" value="{{.Login}}">
-            <button class="small danger" type="submit">{{if eq .ID $me.UserID}}Leave{{else}}Remove{{end}}</button>
+            <button class="small danger" type="submit">{{if eq .ID $me.UserID}}Ekipten ayrıl{{else}}Çıkar{{end}}</button>
           </form>
           {{end}}
         </td>
@@ -42,32 +53,25 @@
     </tbody>
   </table>
 {{else}}
-  <div class="empty">No members yet.</div>
+  <div class="empty">Henüz üye yok.</div>
 {{end}}
 </div>
 
 {{if $owner}}
-<h2>Add member</h2>
-<form class="card pad" method="post" action="/teams/{{$t.Slug}}/members">
-  <input type="hidden" name="csrf" value="{{$csrf}}">
-  <div class="row">
-    <div><label for="login">GitHub login</label><input id="login" name="login" placeholder="octocat" required></div>
-    <div><label for="role">Role</label>
-      <select id="role" name="role">{{range $roles}}<option value="{{.}}" {{if eq . "member"}}selected{{end}}>{{.}}</option>{{end}}</select></div>
-    <div style="flex:0"><button class="primary" type="submit">Add</button></div>
+<details class="card section" style="margin-top:20px">
+  <summary>Üye ekle</summary>
+  <div class="body">
+  <form method="post" action="/teams/{{$t.Slug}}/members">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="login">GitHub kullanıcı adı</label><input id="login" name="login" placeholder="octocat" required></div>
+      <div><label for="role">Rol</label>
+        <select id="role" name="role">{{range $roles}}<option value="{{.}}" {{if eq . "member"}}selected{{end}}>{{role .}}</option>{{end}}</select></div>
+      <div style="flex:0"><button class="primary" type="submit">Ekle</button></div>
+    </div>
+    <p class="muted small" style="margin-bottom:0">Eklenen kişi GitHub ile giriş yapabilir.</p>
+  </form>
   </div>
-  <p class="muted small" style="margin-bottom:0">Added users can sign in with GitHub even when they are not on the allowlist.</p>
-</form>
+</details>
 {{end}}
-
-<h2>Apps</h2>
-<div class="card">
-{{with .Data.Apps}}
-  <table><tbody>
-  {{range .}}<tr><td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td><td class="mono muted">{{.Repo}}</td></tr>{{end}}
-  </tbody></table>
-{{else}}
-  <div class="empty">No apps in this team.</div>
-{{end}}
-</div>
 {{end}}
