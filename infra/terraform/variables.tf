@@ -73,6 +73,12 @@ variable "admin_cidrs" {
   }
 }
 
+variable "availability_zone" {
+  description = "AZ of the subnet (and the node). Empty: the region's first. Set another one when AWS reports InsufficientInstanceCapacity for instance_type there."
+  type        = string
+  default     = ""
+}
+
 variable "instance_type" {
   description = "EC2 instance type. Must be ARM64 (Graviton): the AMI and the build platform are arm64."
   type        = string
