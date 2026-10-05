@@ -1,0 +1,14 @@
+# Only Go sources reach the build; secrets and local state never do.
+.git
+.claude
+.env
+.env.*
+!.env.example
+*.pem
+infra/
+docs/
+examples/
+loadtest/
+scripts/
+*.tfstate*
+.terraform/
