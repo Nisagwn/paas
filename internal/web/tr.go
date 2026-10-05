@@ -24,6 +24,7 @@ var statusLabels = map[string]string{
 	"ready":     "Hazır",
 	"failed":    "Başarısız",
 	"retired":   "Emekli",
+	"canceled":  "İptal edildi",
 	"sleeping":  "Uykuda",
 	// Custom domains.
 	"pending":  "Bekliyor",
@@ -53,10 +54,43 @@ func label(m map[string]string) func(string) string {
 	}
 }
 
+// Faz 17 environments and origins, Faz 19 health.
+var targetLabels = map[string]string{
+	"production": "Production",
+	"preview":    "Önizleme",
+}
+
+var originLabels = map[string]string{
+	"git":      "Push",
+	"redeploy": "Yeniden deploy",
+	"promote":  "Production'a taşındı",
+	"hook":     "Deploy hook'u",
+}
+
+var healthLabels = map[string]string{
+	"healthy":    "Sağlıklı",
+	"degraded":   "Sorunlu",
+	"failing":    "Çöküyor",
+	"no_traffic": "Trafik yok",
+}
+
+// settingsFields names the build settings fields in error messages.
+var settingsFields = map[string]string{
+	"root_directory":   "Kök dizin",
+	"output_directory": "Çıktı dizini",
+	"install_command":  "Install komutu",
+	"build_command":    "Build komutu",
+	"start_command":    "Start komutu",
+}
+
 var (
 	statusLabel = label(statusLabels)
 	roleLabel   = label(roleLabels)
 	kindLabel   = label(kindLabels)
+	targetLabel = label(targetLabels)
+	originLabel = label(originLabels)
+	healthLabel = label(healthLabels)
+	fieldLabel  = label(settingsFields)
 )
 
 // statusTitles are the headings of error pages.
@@ -126,6 +160,16 @@ var messages = map[string]string{
 	"linking a GitHub App installation needs the member role on the team": "GitHub'ı bağlamak için ekipte üye rolü gerekir.",
 	"your GitHub account cannot access this installation":                 "GitHub hesabının bu bağlantıya erişimi yok.",
 	"this installation is already linked to another team":                 "Bu GitHub bağlantısı başka bir ekibe ait.",
+	// Faz 20: build settings, environments, deploy controls, hooks, analytics.
+	`node_version must look like "22", "20.18" or "lts"`:                           `Node sürümü "22", "20.18" ya da "lts" biçiminde olmalı.`,
+	`target must be "production", "preview" or "all"`:                              "Ortam Tümü, Production ya da Önizleme olmalı.",
+	`git_branch needs target "preview"`:                                            "Branch yalnızca Önizleme ortamı için seçilebilir.",
+	"git_branch is too long":                                                       "Branch adı en fazla 255 karakter olabilir.",
+	"name must be at most 100 characters and branch a valid branch name":           "Ad en fazla 100 karakter, branch geçerli bir branch adı olmalı.",
+	"deployment is retired: redeploy it first":                                     "Bu deploy emekliye ayrıldı; önce yeniden deploy et.",
+	"range must be 1h, 24h or 7d":                                                  "Aralık 1 sa, 24 sa ya da 7 gün olmalı.",
+	"resource usage needs the kubernetes deployer":                                 "Kullanım verisi yalnızca Kubernetes ile çalışırken okunur.",
+	"resource metrics unavailable: metrics-server (metrics.k8s.io) is not running": "Kullanım verisi yok: kümede metrics-server çalışmıyor.",
 }
 
 var normMessages = func() map[string]string {
@@ -137,10 +181,25 @@ var normMessages = func() map[string]string {
 }()
 
 // patterns translate messages with a variable part.
+// Captured groups pass through label: field names of the build settings
+// and deployment statuses are translated, anything else is kept.
 var patterns = []struct {
 	re *regexp.Regexp
 	tr string
 }{
+	// Faz 20: build.NormalizeSettings.
+	{regexp.MustCompile(`^(\w+) is longer than (\d+) characters$`), "%s en fazla %s karakter olabilir."},
+	{regexp.MustCompile(`^(\w+) must be relative \(no leading "/"\)$`), `%s göreli olmalı (başta "/" olmadan).`},
+	{regexp.MustCompile(`^(\w+) must use "/" as the separator$`), `%s içinde ayraç olarak "/" kullan.`},
+	{regexp.MustCompile(`^(\w+) must stay inside the repository \(no "\.\."\)$`), `%s repo içinde kalmalı (".." olmadan).`},
+	{regexp.MustCompile(`^(\w+) may only contain letters, digits and \. _ @ \+ -$`), "%s yalnızca harf, rakam ve . _ @ + - içerebilir."},
+	{regexp.MustCompile(`^(\w+) must be a single line of printable characters$`), "%s tek satır olmalı ve yalnızca yazdırılabilir karakter içermeli."},
+	{regexp.MustCompile(`^(\w+) must not end with a backslash$`), `%s "\" ile bitemez.`},
+	{regexp.MustCompile(`^framework must be empty \(auto-detect\) or one of: (.+)$`), "Framework boş (otomatik algıla) ya da şunlardan biri olmalı: %s."},
+	// Faz 20: deploy controls (api.Promote, Redeploy, Cancel).
+	{regexp.MustCompile(`^only ready deployments can be promoted \(status (\w+)\)$`), "Yalnızca hazır deploy'lar production'a taşınabilir (durum: %s)."},
+	{regexp.MustCompile(`^deployment is still (\w+); cancel it or wait until it finishes$`), "Deploy hâlâ sürüyor (%s); iptal et ya da bitmesini bekle."},
+	{regexp.MustCompile(`^deployment already finished \((\w+)\)$`), "Deploy zaten bitti (%s)."},
 	{regexp.MustCompile(`(?i)^invalid variable name (".*")$`), "Geçersiz değişken adı: %s."},
 	{regexp.MustCompile(`(?i)^(.+) is set by the platform$`), "%s platform tarafından ayarlanır."},
 	{regexp.MustCompile(`(?i)^(.+) is longer than 32 KiB$`), "%s en fazla 32 KiB olabilir."},
@@ -175,7 +234,15 @@ func tr(s string) string {
 	}
 	for _, p := range patterns {
 		if m := p.re.FindStringSubmatch(strings.TrimSuffix(strings.TrimSpace(s), ".")); m != nil {
-			return fmt.Sprintf(p.tr, m[1])
+			args := make([]any, len(m)-1)
+			for i, g := range m[1:] {
+				if l := fieldLabel(g); l != g {
+					args[i] = l
+				} else {
+					args[i] = statusLabel(g)
+				}
+			}
+			return fmt.Sprintf(p.tr, args...)
 		}
 	}
 	return s

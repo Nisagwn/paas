@@ -76,31 +76,25 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	switch src.Status {
-	case store.StatusReady:
-	case store.StatusRetired:
-		writeError(w, http.StatusConflict, "deployment is retired: redeploy it first")
+	res, err := Promote(r.Context(), s.Store, src, principal(r).Login)
+	var conflict *ConflictError
+	switch {
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusConflict, err.Error())
 		return
-	default:
-		writeError(w, http.StatusConflict, "only ready deployments can be promoted (status "+src.Status+")")
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "production alias not found for this app")
+		return
+	case errors.Is(err, store.ErrRetired), errors.Is(err, store.ErrNotReady):
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	case err != nil:
+		s.internalError(w, err)
 		return
 	}
 
-	if src.Target == store.EnvProduction {
-		// Already built and running with production variables: move the
-		// alias, exactly like a rollback.
-		alias, err := s.Store.Rollback(r.Context(), app.ID, src.ID)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			writeError(w, http.StatusNotFound, "production alias not found for this app")
-			return
-		case errors.Is(err, store.ErrRetired), errors.Is(err, store.ErrNotReady):
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		case err != nil:
-			s.internalError(w, err)
-			return
-		}
+	if res.Alias != nil {
+		alias := *res.Alias
 		s.Log.Info("promote", "app", app.Name, "deployment", src.ID, "mode", "alias")
 		if s.Router != nil {
 			if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
@@ -114,19 +108,101 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, err := s.Store.CopyDeployment(r.Context(), src, store.CopyOptions{
-		Origin: store.OriginPromote, Target: store.EnvProduction, ReuseImage: true,
-	})
-	if err != nil {
-		s.internalError(w, err)
-		return
-	}
-	s.Store.AppendLog(r.Context(), d.ID, "==> promotion of deployment #"+strconv.FormatInt(src.ID, 10)+
-		" to production by "+principal(r).Login)
+	d := *res.Deployment
 	s.Log.Info("promote", "app", app.Name, "source", src.ID, "deployment", d.ID, "mode", "deployment",
 		"reuses_image", d.Image != "")
 	v := s.deploymentView(d)
 	writeJSON(w, http.StatusAccepted, promoteView{Mode: "deployment", Deployment: &v})
+}
+
+// ConflictError is a refusal of Promote, Redeploy or Cancel because of the
+// deployment's state (409); the text is meant for the user.
+type ConflictError struct{ Msg string }
+
+func (e *ConflictError) Error() string { return e.Msg }
+
+// PromoteResult: Alias is set when the production alias moved at once (the
+// source already runs in production), Deployment when a production copy
+// was queued.
+type PromoteResult struct {
+	Alias      *store.Alias
+	Deployment *store.Deployment
+}
+
+// Promote takes ready deployment src to production without a build (see
+// the comment at the top). by is who asked, for the build log. The caller
+// syncs the router when the alias moved. Errors: *ConflictError, and
+// store.ErrNotFound / ErrRetired / ErrNotReady of the alias move.
+func Promote(ctx context.Context, st *store.Store, src store.Deployment, by string) (PromoteResult, error) {
+	switch src.Status {
+	case store.StatusReady:
+	case store.StatusRetired:
+		return PromoteResult{}, &ConflictError{"deployment is retired: redeploy it first"}
+	default:
+		return PromoteResult{}, &ConflictError{"only ready deployments can be promoted (status " + src.Status + ")"}
+	}
+	if src.Target == store.EnvProduction {
+		// Already built and running with production variables: move the
+		// alias, exactly like a rollback.
+		alias, err := st.Rollback(ctx, src.AppID, src.ID)
+		if err != nil {
+			return PromoteResult{}, err
+		}
+		return PromoteResult{Alias: &alias}, nil
+	}
+	d, err := st.CopyDeployment(ctx, src, store.CopyOptions{
+		Origin: store.OriginPromote, Target: store.EnvProduction, ReuseImage: true,
+	})
+	if err != nil {
+		return PromoteResult{}, err
+	}
+	st.AppendLog(ctx, d.ID, "==> promotion of deployment #"+strconv.FormatInt(src.ID, 10)+" to production by "+by)
+	return PromoteResult{Deployment: &d}, nil
+}
+
+// Redeploy queues a new deployment of finished deployment src in its
+// environment; useCache reuses its image. Error: *ConflictError while src
+// is still in progress.
+func Redeploy(ctx context.Context, st *store.Store, src store.Deployment, useCache bool, by string) (store.Deployment, error) {
+	target := src.Target
+	if target == "" {
+		target = store.EnvPreview
+	}
+	d, err := st.CopyDeployment(ctx, src, store.CopyOptions{
+		Origin: store.OriginRedeploy, Target: target, ReuseImage: useCache,
+	})
+	if errors.Is(err, store.ErrInFlight) {
+		return d, &ConflictError{"deployment is still " + src.Status + "; cancel it or wait until it finishes"}
+	}
+	if err != nil {
+		return d, err
+	}
+	how := "rebuild"
+	if d.Image != "" {
+		how = "reusing image " + d.Image
+	}
+	st.AppendLog(ctx, d.ID, "==> redeploy of deployment #"+strconv.FormatInt(src.ID, 10)+" by "+by+" ("+how+")")
+	return d, nil
+}
+
+// Cancel cancels deployment d: a queued one at once (the result is
+// "canceled"), a running one at the worker's next heartbeat. Errors:
+// store.ErrNotFound, *ConflictError when it already finished.
+func Cancel(ctx context.Context, st *store.Store, d store.Deployment, by string) (store.Deployment, error) {
+	cur, err := st.CancelDeployment(ctx, d.ID)
+	if errors.Is(err, store.ErrFinished) {
+		return d, &ConflictError{"deployment already finished (" + d.Status + ")"}
+	}
+	if err != nil {
+		return d, err
+	}
+	if cur.Status == store.StatusCanceled {
+		st.AppendLog(ctx, cur.ID, "==> canceled by "+by+" before it started")
+	} else {
+		// The worker stops at its next heartbeat and records "canceled".
+		st.AppendLog(ctx, cur.ID, "==> cancel requested by "+by)
+	}
+	return cur, nil
 }
 
 type redeployRequest struct {
@@ -153,27 +229,16 @@ func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reuse := req.UseCache == nil || *req.UseCache
-	target := src.Target
-	if target == "" {
-		target = store.EnvPreview
-	}
-	d, err := s.Store.CopyDeployment(r.Context(), src, store.CopyOptions{
-		Origin: store.OriginRedeploy, Target: target, ReuseImage: reuse,
-	})
-	if errors.Is(err, store.ErrInFlight) {
-		writeError(w, http.StatusConflict, "deployment is still "+src.Status+"; cancel it or wait until it finishes")
+	d, err := Redeploy(r.Context(), s.Store, src, reuse, principal(r).Login)
+	var conflict *ConflictError
+	if errors.As(err, &conflict) {
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	how := "rebuild"
-	if d.Image != "" {
-		how = "reusing image " + d.Image
-	}
-	s.Store.AppendLog(r.Context(), d.ID, "==> redeploy of deployment #"+strconv.FormatInt(src.ID, 10)+
-		" by "+principal(r).Login+" ("+how+")")
 	s.Log.Info("redeploy", "app", app.Name, "source", src.ID, "deployment", d.ID, "reuses_image", d.Image != "")
 	writeJSON(w, http.StatusAccepted, s.deploymentView(d))
 }
@@ -183,13 +248,14 @@ func (s *Server) cancelDeployment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cur, err := s.Store.CancelDeployment(r.Context(), d.ID)
+	cur, err := Cancel(r.Context(), s.Store, d, principal(r).Login)
+	var conflict *ConflictError
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "deployment not found")
 		return
-	case errors.Is(err, store.ErrFinished):
-		writeError(w, http.StatusConflict, "deployment already finished ("+d.Status+")")
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusConflict, err.Error())
 		return
 	case err != nil:
 		s.internalError(w, err)
@@ -198,12 +264,9 @@ func (s *Server) cancelDeployment(w http.ResponseWriter, r *http.Request) {
 	d = cur
 	s.Log.Info("deployment cancel", "app", d.AppName, "deployment", d.ID, "status", d.Status, "by", principal(r).Login)
 	if d.Status == store.StatusCanceled {
-		s.Store.AppendLog(r.Context(), d.ID, "==> canceled by "+principal(r).Login+" before it started")
 		writeJSON(w, http.StatusOK, s.deploymentView(d))
 		return
 	}
-	// The worker stops at its next heartbeat and records "canceled".
-	s.Store.AppendLog(r.Context(), d.ID, "==> cancel requested by "+principal(r).Login)
 	writeJSON(w, http.StatusAccepted, s.deploymentView(d))
 }
 
@@ -250,25 +313,42 @@ func (s *Server) createHook(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	req.Name, req.Branch = strings.TrimSpace(req.Name), strings.TrimSpace(req.Branch)
-	if req.Branch == "" {
-		req.Branch = app.ProductionBranch
-	}
-	if req.Name == "" {
-		req.Name = req.Branch
-	}
-	if len(req.Name) > 100 || len(req.Branch) > 255 || strings.ContainsAny(req.Branch, " \t\n~^:?*[\\") {
-		writeError(w, http.StatusBadRequest, "name must be at most 100 characters and branch a valid branch name")
+	name, branch, err := NormalizeHook(app, req.Name, req.Branch)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	plain, hash, prefix := NewHookToken()
-	h, err := s.Store.CreateDeployHook(r.Context(), app.ID, req.Name, req.Branch, hash, prefix, principal(r).UserID)
+	h, plain, err := CreateHook(r.Context(), s.Store, app, name, branch, principal(r).UserID)
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
 	s.Log.Info("deploy hook created", "app", app.Name, "hook", h.ID, "branch", h.Branch, "by", principal(r).Login)
 	writeJSON(w, http.StatusCreated, createdHookView{DeployHook: h, Token: plain, Path: HookPath(plain)})
+}
+
+// NormalizeHook validates a new hook's name and branch: the branch defaults
+// to the production branch, the name to the branch.
+func NormalizeHook(app store.App, name, branch string) (string, string, error) {
+	name, branch = strings.TrimSpace(name), strings.TrimSpace(branch)
+	if branch == "" {
+		branch = app.ProductionBranch
+	}
+	if name == "" {
+		name = branch
+	}
+	if len(name) > 100 || len(branch) > 255 || strings.ContainsAny(branch, " \t\n~^:?*[\\") {
+		return name, branch, errors.New("name must be at most 100 characters and branch a valid branch name")
+	}
+	return name, branch, nil
+}
+
+// CreateHook stores a new hook with a fresh token and returns the token,
+// which is never available again. createdBy 0 is the admin token.
+func CreateHook(ctx context.Context, st *store.Store, app store.App, name, branch string, createdBy int64) (store.DeployHook, string, error) {
+	plain, hash, prefix := NewHookToken()
+	h, err := st.CreateDeployHook(ctx, app.ID, name, branch, hash, prefix, createdBy)
+	return h, plain, err
 }
 
 func (s *Server) deleteHook(w http.ResponseWriter, r *http.Request) {

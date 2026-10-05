@@ -1,0 +1,107 @@
+{{define "content"}}
+{{template "apphead" .}}
+{{$a := .Data.App}}{{$csrf := .CSRF}}{{$s := .Data.Settings}}
+{{if not .Data.CanWrite}}<p class="sub small" style="margin-top:20px">Ayarları görüntülüyorsun; değiştirmek için ekipte üye rolü gerekir.</p>{{end}}
+
+<details class="card section" id="build" open>
+  <summary>Build ayarları <span class="muted">· boş alan algılananı kullanır</span></summary>
+  <div class="body">
+  <form method="post" action="/apps/{{$a.Name}}/settings">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <fieldset {{if not .Data.CanWrite}}disabled{{end}}>
+    <div class="row">
+      <div><label for="set-framework">Framework</label>
+        <select id="set-framework" name="framework" style="width:100%">
+          <option value="">Otomatik algıla ({{with .Data.Detected}}{{.}}{{else}}henüz algılanmadı{{end}})</option>
+          {{range .Data.Frameworks}}<option value="{{.ID}}"{{if eq .ID $s.Framework}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select></div>
+      <div><label for="set-root">Kök dizin</label><input id="set-root" name="root_directory" value="{{$s.RootDirectory}}" placeholder="./ (repo kökü)"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label for="set-install">Install komutu</label><input id="set-install" class="mono" name="install_command" value="{{$s.InstallCommand}}" placeholder="algılanan, ör. npm ci"></div>
+      <div><label for="set-build">Build komutu</label><input id="set-build" class="mono" name="build_command" value="{{$s.BuildCommand}}" placeholder="algılanan, ör. npm run build"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label for="set-start">Start komutu</label><input id="set-start" class="mono" name="start_command" value="{{$s.StartCommand}}" placeholder="algılanan, ör. npm start"></div>
+      <div><label for="set-output">Çıktı dizini</label><input id="set-output" name="output_directory" value="{{$s.OutputDirectory}}" placeholder="algılanan, ör. dist"></div>
+      <div style="max-width:180px"><label for="set-node">Node sürümü</label><input id="set-node" name="node_version" value="{{$s.NodeVersion}}" placeholder="22"></div>
+    </div>
+    {{if .Data.CanWrite}}<div style="margin-top:12px"><button class="primary" type="submit">Kaydet</button></div>{{end}}
+    </fieldset>
+  </form>
+  <p class="muted small" style="margin-bottom:0">Komutlar tek satır olmalı. Ayarlar bir sonraki deploy'da geçerli olur{{with $s.UpdatedAt}}; son değişiklik {{ago .}}{{end}}.</p>
+  </div>
+</details>
+
+<details class="card section" id="env" open>
+  <summary>Ortam değişkenleri <span class="muted">· {{len .Data.EnvKeys}} değişken</span></summary>
+  <div class="body">{{template "env" .}}</div>
+</details>
+
+<details class="card section" id="hooks" {{if or .Data.Hooks .Data.NewHookURL}}open{{end}}>
+  <summary>Deploy hook'ları <span class="muted">· bir URL ile branch'i deploy et</span></summary>
+  <div class="body">
+  {{if .Data.CanWrite}}
+    {{with .Data.NewHookURL}}
+    <div class="flash ok" role="status">Deploy hook'u oluşturuldu. Bu URL yalnızca şimdi gösterilir; bir yere kaydet:
+      <div class="secret mono">{{.}}</div>
+      <span class="small">Tetiklemek için: <code>curl -X POST {{.}}</code></span></div>
+    {{end}}
+    {{with .Data.Hooks}}
+    <table style="margin-bottom:12px">
+      <thead><tr><th>Ad</th><th>Branch</th><th class="hide-sm">Token</th><th class="hide-sm">Son tetikleme</th><th></th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr>
+          <td>{{.Name}}</td>
+          <td><span class="tag">{{.Branch}}</span></td>
+          <td class="hide-sm mono small">{{.Prefix}}…</td>
+          <td class="hide-sm muted small">{{with .LastTriggeredAt}}{{ago .}}{{else}}hiç{{end}}</td>
+          <td style="text-align:right">
+            <form class="inline" method="post" action="/apps/{{$a.Name}}/hooks/delete" data-confirm="{{.Name}} hook'u silinsin mi? URL'si artık çalışmaz.">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="id" value="{{.ID}}">
+              <button class="small danger" type="submit">Sil</button>
+            </form>
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted" style="margin-top:0">Henüz deploy hook'u yok.</p>
+    {{end}}
+    <form method="post" action="/apps/{{$a.Name}}/hooks">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="row">
+        <div><label for="hook-name">Ad</label><input id="hook-name" name="name" placeholder="cms" maxlength="100"></div>
+        <div><label for="hook-branch">Branch</label><input id="hook-branch" name="branch" placeholder="{{$a.ProductionBranch}}"></div>
+        <div style="flex:0"><button type="submit">Oluştur</button></div>
+      </div>
+    </form>
+    <p class="muted small" style="margin-bottom:0">Hook çağrılınca branch'in son commit'i deploy edilir; aynı commit zaten deploy edildiyse yeniden build edilir.
+      {{if not .Data.HooksWork}}<br><strong>Not:</strong> GitHub App ayarlı olmadığı için hook'lar şu an tetiklenemez.{{end}}</p>
+  {{else}}
+    <p class="muted" style="margin:0">Deploy hook'ları gizli URL'lerdir; görmek ve yönetmek için ekipte üye rolü gerekir.</p>
+  {{end}}
+  </div>
+</details>
+
+<details class="card section" id="custom-domains" {{if .Data.Domains}}open{{end}}>
+  <summary>Alan adları <span class="muted">· kendi alan adını bağla</span></summary>
+  <div class="body">{{template "domains" .}}</div>
+</details>
+
+<details class="card section" id="sleep">
+  <summary>Uyku modu <span class="muted">· platform ayarı</span></summary>
+  <div class="body">
+    <p class="muted small" style="margin:0">Uyku modu sunucuda açıksa, bir süre istek almayan deploy'lar uyutulur ve ilk istekte uyanır; listede “Uykuda” etiketiyle görünürler.</p>
+  </div>
+</details>
+
+<script nonce="{{.Nonce}}">
+// Plain forms ask before destructive posts (htmx forms use hx-confirm).
+document.querySelectorAll("form[data-confirm]").forEach((f) =>
+  f.addEventListener("submit", (e) => { if (!confirm(f.dataset.confirm)) e.preventDefault(); }));
+</script>
+{{end}}

@@ -63,7 +63,7 @@
   const log = document.getElementById("log");
   const live = document.getElementById("live");
   const badge = document.getElementById("status");
-  const labels = {queued: "Sırada", building: "Kuruluyor", deploying: "Yayına alınıyor", ready: "Hazır", failed: "Başarısız", retired: "Emekli"};
+  const labels = {queued: "Sırada", building: "Kuruluyor", deploying: "Yayına alınıyor", ready: "Hazır", failed: "Başarısız", retired: "Emekli", canceled: "İptal edildi"};
   const label = (s) => labels[s] || s;
   // EventSource resumes with Last-Event-ID after a dropped connection, so
   // no line is shown twice or skipped.

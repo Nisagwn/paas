@@ -1,0 +1,6 @@
+{{define "content"}}
+{{template "apphead" .}}
+<p class="sub small" style="margin-top:20px">Her push yeni bir deploy oluşturur. Önizlemeyi build etmeden production'a taşıyabilir,
+  bir deploy'u yeniden çalıştırabilir ya da süren bir deploy'u iptal edebilirsin.{{if not .Data.CanWrite}} Bu işlemler için ekipte üye rolü gerekir.{{end}}</p>
+{{template "deployments" .}}
+{{end}}
