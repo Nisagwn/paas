@@ -18,17 +18,20 @@ type DryRunPipeline struct {
 	Step time.Duration
 }
 
-func (p DryRunPipeline) Build(ctx context.Context, d store.Deployment, log Logger) (string, error) {
+func (p DryRunPipeline) Build(ctx context.Context, d store.Deployment, s store.BuildSettings, log Logger) (BuildResult, error) {
 	image := p.Registry + "/" + d.AppName + ":" + d.CommitSHA
 	log("[dry-run] git clone --depth 1 %s (commit %s)", d.AppName, naming.ShortSHA(d.CommitSHA))
 	if err := sleep(ctx, p.Step); err != nil {
-		return "", err
+		return BuildResult{}, err
+	}
+	if s.RootDirectory != "" {
+		log("[dry-run] root directory: %s", s.RootDirectory)
 	}
 	log("[dry-run] buildkit build → %s", image)
 	if err := sleep(ctx, p.Step); err != nil {
-		return "", err
+		return BuildResult{}, err
 	}
-	return image, nil
+	return BuildResult{Image: image}, nil
 }
 
 func (p DryRunPipeline) Deploy(ctx context.Context, d store.Deployment, image string, log Logger) error {

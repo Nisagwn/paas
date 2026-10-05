@@ -56,8 +56,8 @@ func (f *fakeNotifier) DeploymentFinished(ctx context.Context, d store.Deploymen
 
 type failingPipeline struct{ worker.DryRunPipeline }
 
-func (failingPipeline) Build(context.Context, store.Deployment, worker.Logger) (string, error) {
-	return "", errors.New("npm ci: exit status 1")
+func (failingPipeline) Build(context.Context, store.Deployment, store.BuildSettings, worker.Logger) (worker.BuildResult, error) {
+	return worker.BuildResult{}, errors.New("npm ci: exit status 1")
 }
 
 func newNotifyWorker(st *store.Store, p worker.Pipeline, n worker.Notifier) *worker.Worker {

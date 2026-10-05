@@ -2,6 +2,8 @@ package build
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -68,7 +70,7 @@ func detectJavaBuild(dir, tool string) javaBuild {
 // detectJava builds with Maven or Gradle (the repo's wrapper if it has one)
 // and runs the largest jar the build produced, which is the fat jar for Spring
 // Boot, shade and shadow builds, with java -jar on a JRE.
-func detectJava(dir string) (Plan, error) {
+func detectJava(dir string, o Options) (Plan, error) {
 	tool := javaBuildTool(dir)
 	b := detectJavaBuild(dir, tool)
 	mount := "--mount=type=cache,target=" + b.cache
@@ -93,10 +95,24 @@ func detectJava(dir string) (Plan, error) {
 	}
 	fmt.Fprintf(&df, "COPY %s ./\n", strings.Join(b.files, " "))
 	df.WriteString(fixWrapper)
-	fmt.Fprintf(&df, "RUN %s %s %s\n", mount, b.run, b.prefetch)
-	df.WriteString("COPY . .\n")
-	df.WriteString(fixWrapper)
-	fmt.Fprintf(&df, "RUN %s %s %s\n", mount, b.run, b.build)
+	how := ""
+	if o.InstallCommand != "" {
+		// A custom install step may need any file of the project.
+		df.WriteString("COPY . .\n")
+		df.WriteString(fixWrapper)
+		fmt.Fprintf(&df, "RUN %s %s\n", mount, o.InstallCommand)
+		how = "install command: " + o.InstallCommand + ", "
+	} else {
+		fmt.Fprintf(&df, "RUN %s %s %s\n", mount, b.run, b.prefetch)
+		df.WriteString("COPY . .\n")
+		df.WriteString(fixWrapper)
+	}
+	if o.BuildCommand != "" {
+		fmt.Fprintf(&df, "RUN %s %s\n", mount, o.BuildCommand)
+		how += "build command: " + o.BuildCommand + ", "
+	} else {
+		fmt.Fprintf(&df, "RUN %s %s %s\n", mount, b.run, b.build)
+	}
 	fmt.Fprintf(&df, `RUN jar=$(ls -S %[1]s/*.jar 2>/dev/null | grep -Ev '(-sources|-javadoc|-tests|-plain)\.jar$|/original-[^/]*$' | head -n 1); \
     if [ -z "$jar" ]; then echo "the build produced no runnable jar in %[1]s/" >&2; exit 1; fi; \
     echo "running $jar"; cp "$jar" /app.jar
@@ -104,16 +120,23 @@ func detectJava(dir string) (Plan, error) {
 
 	fmt.Fprintf(&df, "FROM %s\nWORKDIR /app\nCOPY --from=build /app.jar /app/app.jar\n", javaJREImage)
 	cmd := fmt.Sprintf("CMD [%q, %q, %q]\n", "java", "-jar", "/app/app.jar")
-	how := "java -jar"
-	if web, ok := procfileWeb(dir); ok {
-		// Procfile commands name the jar by its build path.
+	if start, startHow := startCommand(dir, o); start != "" {
+		// Start commands name the jar by its build path.
 		fmt.Fprintf(&df, "COPY --from=build /src/%[1]s/ /app/%[1]s/\n", b.out)
-		cmd, how = shellCmd(web), "Procfile web: "+web
+		cmd, how = shellCmd(start), how+startHow
+	} else {
+		how += "java -jar"
 	}
 	// SERVER_PORT is Spring Boot's port setting.
 	fmt.Fprintf(&df, "ENV PORT=%[1]d SERVER_PORT=%[1]d JAVA_TOOL_OPTIONS=%[2]s\nEXPOSE %[1]d\nUSER %[3]s\n",
 		Port, javaToolOptions, appUser)
 	df.WriteString(cmd)
-	return Plan{Kind: KindJava, Summary: fmt.Sprintf("java 21 (%s, %s)", strings.Fields(b.run)[0], how),
+	name := "Java"
+	for _, f := range b.files {
+		if body, err := os.ReadFile(filepath.Join(dir, f)); err == nil && strings.Contains(string(body), "spring-boot") {
+			name = "Spring Boot"
+		}
+	}
+	return Plan{Kind: KindJava, Framework: name, Summary: fmt.Sprintf("java 21 (%s, %s)", strings.Fields(b.run)[0], how),
 		Dockerfile: df.String()}, nil
 }

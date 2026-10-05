@@ -83,10 +83,21 @@ func (b *Builder) ImageName(app, sha string) string {
 	return strings.TrimSuffix(b.Registry, "/") + "/" + app + ":" + sha
 }
 
-func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logger) (string, error) {
+// Build clones the commit, detects the project under the root directory
+// setting and builds and pushes its image.
+func (b *Builder) Build(ctx context.Context, d store.Deployment, s store.BuildSettings, log worker.Logger) (worker.BuildResult, error) {
+	image, framework, err := b.build(ctx, d, s, log)
+	return worker.BuildResult{Image: image, Framework: framework}, err
+}
+
+func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSettings, log worker.Logger) (image, framework string, err error) {
+	// Settings were validated when saved; check again, they end up in a Dockerfile.
+	if s, err = NormalizeSettings(s); err != nil {
+		return "", "", fmt.Errorf("build settings: %w", err)
+	}
 	work, err := os.MkdirTemp(b.WorkDir, fmt.Sprintf("paas-%d-", d.ID))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer os.RemoveAll(work)
 	src := filepath.Join(work, "src")
@@ -100,26 +111,39 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	start := time.Now()
 	token, err := b.gitToken(ctx, d.Repo)
 	if err != nil {
-		return "", fmt.Errorf("fetch source: repository token: %w", err)
+		return "", "", fmt.Errorf("fetch source: repository token: %w", err)
 	}
 	if err := Checkout(ctx, repoURL, d.CommitSHA, token, src, out); err != nil {
 		out.Flush()
-		return "", fmt.Errorf("fetch source: %w", err)
+		return "", "", fmt.Errorf("fetch source: %w", err)
 	}
 	log("    done in %s", since(start))
 
-	// 2. Detect
-	plan, err := Detect(src)
+	// 2. Detect, inside the root directory (Faz 16)
+	contextDir, err := rootDir(src, s.RootDirectory)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	if s.RootDirectory != "" {
+		log("==> root directory: %s", s.RootDirectory)
+	}
+	opts := OptionsFrom(s)
+	plan, err := DetectWith(contextDir, opts)
+	if err != nil {
+		return "", "", err
+	}
+	log("==> framework: %s", plan.Framework)
 	log("==> detected: %s", plan.Summary)
-	dockerfile := filepath.Join(src, "Dockerfile")
+	if plan.Kind == KindDockerfile && opts.overridesCommands() {
+		log("WARNING: the repository's Dockerfile is used as is; install/build/start commands, output directory " +
+			"and node version settings apply to generated Dockerfiles only (set a framework to generate one)")
+	}
+	dockerfile := filepath.Join(contextDir, "Dockerfile")
 	if plan.Dockerfile != "" {
 		// Kept outside the build context so it cannot clash with repo files.
 		dockerfile = filepath.Join(work, "paas.Dockerfile")
 		if err := os.WriteFile(dockerfile, []byte(plan.Dockerfile), 0o644); err != nil {
-			return "", err
+			return "", "", err
 		}
 		log("==> generated Dockerfile:")
 		for _, l := range strings.Split(strings.TrimRight(plan.Dockerfile, "\n"), "\n") {
@@ -128,9 +152,9 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	}
 
 	// 3. Build and push
-	image := b.ImageName(d.AppName, d.CommitSHA)
+	image = b.ImageName(d.AppName, d.CommitSHA)
 	spec := Spec{
-		ContextDir: src,
+		ContextDir: contextDir,
 		Dockerfile: dockerfile,
 		Image:      image,
 		Platform:   b.Platform,
@@ -152,7 +176,7 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	digest, err := b.Engine.Build(ctx, spec, out)
 	out.Flush()
 	if err != nil {
-		return "", err
+		return "", plan.Framework, err
 	}
 	log("==> pushed %s in %s", image, since(start))
 
@@ -160,7 +184,30 @@ func (b *Builder) Build(ctx context.Context, d store.Deployment, log worker.Logg
 	if digest != "" {
 		image += "@" + digest
 	}
-	return image, nil
+	return image, plan.Framework, nil
+}
+
+// rootDir resolves the root directory setting inside the checkout src. A
+// symlink may not lead the build context out of the repository.
+func rootDir(src, root string) (string, error) {
+	if root == "" {
+		return src, nil
+	}
+	notFound := fmt.Errorf("root directory %q not found in the repository", root)
+	dir := filepath.Join(src, filepath.FromSlash(root))
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return "", notFound
+	}
+	base, err1 := filepath.EvalSymlinks(src)
+	resolved, err2 := filepath.EvalSymlinks(dir)
+	if err1 != nil || err2 != nil {
+		return "", notFound
+	}
+	if rel, err := filepath.Rel(base, resolved); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("root directory %q points outside the repository", root)
+	}
+	return resolved, nil
 }
 
 func since(t time.Time) time.Duration {

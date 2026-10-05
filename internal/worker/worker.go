@@ -18,9 +18,19 @@ import (
 // Logger lets pipeline stages write lines to the deployment's log.
 type Logger func(format string, args ...any)
 
-// Builder clones the commit and produces a container image (Faz 2).
+// Builder clones the commit and produces a container image (Faz 2),
+// following the app's build settings (Faz 16).
 type Builder interface {
-	Build(ctx context.Context, d store.Deployment, log Logger) (image string, err error)
+	Build(ctx context.Context, d store.Deployment, settings store.BuildSettings, log Logger) (BuildResult, error)
+}
+
+// BuildResult is what a Builder produced.
+type BuildResult struct {
+	// Image is the pushed image reference, pinned by digest when known.
+	Image string
+	// Framework the build detected or was told to use, e.g. "Next.js";
+	// empty if the builder does not detect one.
+	Framework string
 }
 
 // Deployer creates the Kubernetes objects and waits until healthy (Faz 3).
@@ -242,12 +252,22 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	log := func(format string, args ...any) { w.logLine(ctx, d.ID, format, args...) }
 	log("==> deployment #%d: %s@%s (%s)", d.ID, d.AppName, naming.ShortSHA(d.CommitSHA), d.Branch)
 
-	image, err := w.Pipeline.Build(ctx, d, log)
+	settings, err := w.Store.GetBuildSettings(ctx, d.AppID)
+	if err != nil {
+		return fmt.Errorf("build settings: %w", err)
+	}
+	built, err := w.Pipeline.Build(ctx, d, settings, log)
 	if err != nil {
 		return fmt.Errorf("build: %w", err)
 	}
+	image := built.Image
 	if err := w.Store.SetImage(ctx, d.ID, image); err != nil {
 		return err
+	}
+	if built.Framework != "" {
+		if err := w.Store.SetFramework(ctx, d.ID, built.Framework); err != nil {
+			return err
+		}
 	}
 
 	if err := w.Store.SetStatus(ctx, d.ID, store.StatusDeploying); err != nil {

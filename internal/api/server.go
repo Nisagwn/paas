@@ -103,6 +103,9 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/apps/{name}/domains/{hostname}", s.requireApp(member, s.deleteDomain))
 	api.HandleFunc("GET /api/apps/{name}/scale-to-zero", s.requireApp(viewer, s.getScaleToZero))
 	api.HandleFunc("PUT /api/apps/{name}/scale-to-zero", s.requireApp(member, s.putScaleToZero))
+	// Faz 16: build settings (settings.go).
+	api.HandleFunc("GET /api/apps/{name}/settings", s.requireApp(viewer, s.getSettings))
+	api.HandleFunc("PUT /api/apps/{name}/settings", s.requireApp(member, s.putSettings))
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
 	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	// Deployment endpoints check the deployment's app (lookupDeployment).

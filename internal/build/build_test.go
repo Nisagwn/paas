@@ -121,7 +121,11 @@ func TestBuilderBuild(t *testing.T) {
 	d := store.Deployment{ID: 7, AppName: "blog", Repo: "nisagwn/blog", CommitSHA: first, Branch: "main"}
 
 	var logs logSink
-	image, err := b.Build(context.Background(), d, logs.log)
+	res, err := b.Build(context.Background(), d, store.BuildSettings{}, logs.log)
+	image := res.Image
+	if res.Framework != "Static" {
+		t.Errorf("framework = %q, want Static", res.Framework)
+	}
 	if err != nil {
 		t.Fatalf("%v\nlog:\n%s", err, logs.text())
 	}
@@ -156,12 +160,12 @@ func TestBuilderFailures(t *testing.T) {
 	d := store.Deployment{ID: 1, AppName: "empty", Repo: "o/empty", CommitSHA: first, Branch: "main"}
 
 	b := &Builder{Engine: &fakeEngine{}, Registry: "r", GitBaseURL: base, WorkDir: t.TempDir()}
-	if _, err := b.Build(context.Background(), d, func(string, ...any) {}); err != ErrUnknownProject {
+	if _, err := b.Build(context.Background(), d, store.BuildSettings{}, func(string, ...any) {}); err != ErrUnknownProject {
 		t.Fatalf("err = %v, want ErrUnknownProject", err)
 	}
 
 	d.Repo = "o/missing"
-	if _, err := b.Build(context.Background(), d, func(string, ...any) {}); err == nil ||
+	if _, err := b.Build(context.Background(), d, store.BuildSettings{}, func(string, ...any) {}); err == nil ||
 		!strings.Contains(err.Error(), "fetch source") {
 		t.Fatalf("err = %v, want a fetch error", err)
 	}
@@ -218,7 +222,7 @@ func TestBuilderRepoToken(t *testing.T) {
 	d := store.Deployment{ID: 1, AppName: "web", Repo: "acme/web", CommitSHA: strings.Repeat("a", 40), Branch: "main"}
 	nolog := func(string, ...any) {}
 
-	if _, err := b.Build(context.Background(), d, nolog); err == nil {
+	if _, err := b.Build(context.Background(), d, store.BuildSettings{}, nolog); err == nil {
 		t.Fatal("clone from the 404 host succeeded")
 	}
 	if got := seen(); len(got) == 0 || got[0] != basicAuth("inst-token") {
@@ -231,14 +235,14 @@ func TestBuilderRepoToken(t *testing.T) {
 	// No token for the repository: an anonymous clone (public repositories).
 	srv2, seen2 := authRecorder(t)
 	b.GitBaseURL, tokens.token = srv2.URL, ""
-	b.Build(context.Background(), d, nolog)
+	b.Build(context.Background(), d, store.BuildSettings{}, nolog)
 	if got := seen2(); len(got) == 0 || got[0] != "" {
 		t.Fatalf("anonymous clone sent Authorization %q", got)
 	}
 
 	// A token that cannot be had fails the build before cloning.
 	tokens.err = errors.New("github: 503")
-	if _, err := b.Build(context.Background(), d, nolog); err == nil ||
+	if _, err := b.Build(context.Background(), d, store.BuildSettings{}, nolog); err == nil ||
 		!strings.Contains(err.Error(), "repository token: github: 503") {
 		t.Fatalf("err = %v", err)
 	}
@@ -252,7 +256,7 @@ func TestBuilderStaticToken(t *testing.T) {
 	srv, seen := authRecorder(t)
 	b := &Builder{Engine: &fakeEngine{}, Registry: "r", GitBaseURL: srv.URL, GitToken: "pat", WorkDir: t.TempDir()}
 	d := store.Deployment{ID: 1, AppName: "web", Repo: "acme/web", CommitSHA: strings.Repeat("a", 40), Branch: "main"}
-	b.Build(context.Background(), d, func(string, ...any) {})
+	b.Build(context.Background(), d, store.BuildSettings{}, func(string, ...any) {})
 	if got := seen(); len(got) == 0 || got[0] != basicAuth("pat") {
 		t.Fatalf("Authorization = %q, want the static token", got)
 	}

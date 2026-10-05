@@ -32,6 +32,9 @@ func TestDockerBuildExamples(t *testing.T) {
 		"python-hello": "hello from python",
 		"ruby-hello":   "hello from ruby",
 		"java-hello":   "hello from java",
+		// Faz 16 framework presets.
+		"nextjs-hello": "hello from next.js",
+		"vite-hello":   "hello from vite",
 	}
 	for name, want := range examples {
 		t.Run(name, func(t *testing.T) {

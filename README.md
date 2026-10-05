@@ -20,7 +20,8 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 | `https://<branch>-<app>.<domain>` | Branch'in son başarılı deployment'ı (preview) |
 | `https://<app>.<domain>` | Production (production branch'in son deployment'ı veya rollback hedefi) |
 
-**Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · commit başına HTTPS URL ·
+**Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · Next.js, Vite, Nuxt, SvelteKit,
+Astro, Remix gibi framework preset'leri ve proje ayarları (monorepo kök dizini, komutlar) · commit başına HTTPS URL ·
 branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · canlı build logu ·
 web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform apply` ile AWS'de kurulum.
 
@@ -86,6 +87,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 15: GitHub App: arayüzden "Install" → repoları seç → "Import" (uygulama oluşur, ilk deploy başlar);
   kurulumun ekibe bağlanması kullanıcının GitHub token'ıyla doğrulanır, giriş aynı App üzerinden
   ([kurulum rehberi](#github-app-faz-15))
+- [x] Faz 16: proje ayarları (kök dizin, framework, install / build / start komutları, çıktı dizini, Node sürümü) ve
+  framework preset'leri: Next.js, Vite, Create React App, Astro, SvelteKit, Nuxt, Remix, React Router, NestJS, Express;
+  algılanan framework build logunda ve deployment'ta görünür ([ayrıntılar](#proje-ayarları-faz-16))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -298,7 +302,8 @@ Yerel k3d ile: `scripts/k3d-up.sh` gereken `PAAS_ACTIVATOR_IP` değerini yazdır
    - `Gemfile` + `config.ru` → Ruby: `bin/rails` varsa Rails (`rails server`, assets precompile), yoksa Rack
      (`puma` ya da `rackup`); `ruby:3.3` ile build, `ruby:3.3-slim` ile çalışır, sürüm `Gemfile` / `.ruby-version`'dan
    - `requirements.txt` / `pyproject.toml` + `manage.py` → Django (`gunicorn <proje>.wsgi`)
-   - `package.json` → Node, `go.mod` → Go
+   - `package.json` → Node: bağımlılıklardan framework preset'i seçilir (Next.js, Nuxt, SvelteKit, …; bkz.
+     [Proje ayarları](#proje-ayarları-faz-16)), `go.mod` → Go
    - `requirements.txt` / `pyproject.toml` → Python: `uv.lock` → uv, `poetry.lock` → poetry, yoksa pip;
      FastAPI / Starlette → `uvicorn`, Flask → `gunicorn`, yoksa `python main.py` / `app.py`.
      Bağımlılıklarda olmayan sunucu paketi eklenir; sürüm `.python-version` / `runtime.txt`'den (varsayılan 3.12)
@@ -308,7 +313,7 @@ Yerel k3d ile: `scripts/k3d-up.sh` gereken `PAAS_ACTIVATOR_IP` değerini yazdır
    Java, Rails/Rack ve Django öne alınır, çünkü bu projelerde ön yüz araçları için sıkça `package.json` bulunur.
    `Procfile`'daki `web:` satırı Node, Python, Ruby ve Java'da başlatma komutunun yerine geçer (`sh -c` ile,
    `$PORT` genişler); Go ve statik imajlarda kabuk olmadığından yok sayılır. Örnekler: [examples/](examples/)
-3. Üretilen Dockerfile build logunda aynen görünür.
+3. Build logunda önce algılanan framework (`==> framework: Next.js`), ardından üretilen Dockerfile aynen görünür.
 4. İmaj `PAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
 
 **Platform sözleşmesi:** uygulama `$PORT` (8080) üzerinden dinler.
@@ -323,6 +328,58 @@ Yerel k3d ile: `scripts/k3d-up.sh` gereken `PAAS_ACTIVATOR_IP` değerini yazdır
 | `PAAS_BUILD_CACHE` | `true` → `<app>:buildcache` registry cache |
 | `PAAS_GIT_BASE_URL` | `owner/repo` önüne eklenir (varsayılan `https://github.com`) |
 | `PAAS_GITHUB_TOKEN` | private repolar için (Contents: read) |
+
+### Proje ayarları (Faz 16)
+
+Vercel'deki "Build & Development Settings" karşılığı: her uygulamanın build'i algılanan varsayılanlardan
+sapabilir. Boş bırakılan her alan "algılananı kullan" demektir; hiç ayarı olmayan bir uygulama önceki gibi
+build edilir. Ayarlar kaydedildikten sonra kuyruğa giren deploy'lara uygulanır.
+
+| Alan | Anlamı |
+|---|---|
+| `root_directory` | Build edilen alt dizin (monorepo), ör. `apps/web`. Build context'i ve algılama bu dizindir; `Dockerfile` da burada aranır. Göreli olmalı: başta `/` ve `..` yok; repo dışına çıkan symlink reddedilir |
+| `framework` | Boş = otomatik algılama. Bir preset kimliği (aşağıdaki tablo) ya da tür: `node`, `go`, `python`, `ruby`, `java`, `static`, `dockerfile`. Verildiğinde algılamanın ve repodaki `Dockerfile`'ın önüne geçer |
+| `install_command` | Bağımlılık kurulumu (ör. `pnpm install --filter web...`). Projenin tamamı kopyalandıktan sonra, cache mount'la çalışır |
+| `build_command` | Build adımı (ör. `npm run build:prod`). Python'da çalışma imajında `USER`'dan önce (ör. `collectstatic`); Go'da `go build`'in yerine geçer ve binary'yi `/out/app`'e yazmalıdır |
+| `start_command` | Başlatma komutu; `sh -c` ile çalışır, `$PORT` genişler, `Procfile`'ın önüne geçer. Node preset'lerinde build imajında, tüm `/app` ile çalışır. Go'da (distroless, kabuk yok) boşluklardan bölünüp `ENTRYPOINT` olur |
+| `output_directory` | Statik build'in sunulacağı dizin (`root_directory`'ye göre), ör. `dist`, `build`, `site/out`. nginx-unprivileged ile sunulur |
+| `node_version` | Node imajı: `20` → `node:20-alpine`, `20.18`, `lts`. Boş = `22` |
+
+Komutlar tek satır olmalıdır (en çok 1024 karakter, satır sonu ve sondaki `\` reddedilir): üretilen
+Dockerfile'a yeni talimat eklenemez. Repo kendi `Dockerfile`'ını getiriyorsa komut ayarları uygulanmaz,
+build logunda uyarı çıkar; `framework` verilirse platform Dockerfile üretir.
+
+**Framework preset'leri** (`package.json` bağımlılıklarından, bu sırayla algılanır):
+
+| Framework | Kimlik | Algılama | Build | Çalıştırma |
+|---|---|---|---|---|
+| Next.js | `nextjs` | `next` | `next build` (`.next/cache` cache mount'ta) | `output: 'standalone'` → yalnızca `.next/standalone` + `static` kopyalanır, `node server.js`; `output: 'export'` → `out/` nginx'te; yoksa `next start -p $PORT` |
+| Nuxt | `nuxt` | `nuxt` | `nuxt build` | `.output/` tek başına kopyalanır, `node .output/server/index.mjs`; build `nuxt generate` ise `.output/public` nginx'te |
+| SvelteKit | `sveltekit` | `@sveltejs/kit` | `vite build` | `adapter-node` → `node build/index.js`; `adapter-static` → `build/` nginx'te; `adapter-auto` açıklayıcı hatayla reddedilir |
+| Remix | `remix` | `@remix-run/dev` / `serve` / `node` | `build` script'i | `start` script'i, yoksa `remix-serve build/server/index.js` |
+| React Router | `react-router` | `@react-router/dev` | `react-router build` | `start` script'i, yoksa `react-router-serve`; `ssr: false` → `build/client` nginx'te |
+| Astro | `astro` | `astro` | `astro build` | `@astrojs/node` → `node dist/server/entry.mjs`; yoksa `dist/` nginx'te |
+| NestJS | `nestjs` | `@nestjs/core` | `nest build` | `start:prod` script'i, yoksa `node dist/main` |
+| Vite | `vite` | `vite` | `vite build` | `dist/` nginx'te (`start` script'i geliştirme sunucusu değilse Node sunucusu) |
+| Create React App | `create-react-app` | `react-scripts` | `react-scripts build` | `build/` nginx'te |
+| Express | `express` | `express` | `build` script'i (varsa) | `start` script'i, yoksa `server.js` / `index.js` |
+| Node.js | `node` | diğer `package.json` | `build` script'i (varsa) | `start` script'i; yalnızca build varsa `dist/`, `build/`, `out/`, `public/`'ten statik |
+
+Tüm Node sunucuları `PORT=8080`, `HOST=0.0.0.0`, `NODE_ENV=production` ve `USER 1000:1000` ile çalışır; statik
+çıktılar `nginxinc/nginx-unprivileged` (uid 101) ile sunulur. Python (Django / FastAPI / Flask), Ruby (Rails / Rack),
+Java (Spring Boot) ve Go da framework adını bildirir. Algılanan ad build logunda (`==> framework: Next.js`),
+deployment'ın `framework` alanında ve ayarların `detected_framework` alanında görünür.
+
+```bash
+# Monorepo'daki Next.js uygulaması, Node 20 ile
+curl -X PUT -H "Authorization: Bearer $TOKEN" localhost:8080/api/apps/web/settings \
+  -d '{"root_directory":"apps/web","framework":"nextjs","node_version":"20"}'
+# Gönderilmeyen alanlar korunur; "" varsayılana döndürür
+curl -X PUT -H "Authorization: Bearer $TOKEN" localhost:8080/api/apps/web/settings -d '{"node_version":""}'
+```
+
+Bir dizin için üretilecek Dockerfile: `go run ./cmd/paas-dockerfile examples/nextjs-hello`. Örnekler:
+[examples/nextjs-hello](examples/nextjs-hello), [examples/vite-hello](examples/vite-hello).
 
 ### Web arayüzü ve canlı loglar (Faz 5)
 
@@ -700,6 +757,8 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
 | GET | `/api/apps/{name}/scale-to-zero` | `{"production": bool}` — production deploy'u boştayken uyuyabilir mi |
 | PUT | `/api/apps/{name}/scale-to-zero` | `{"production": true\|false}` (preview'ler her zaman uyuyabilir) |
+| GET | `/api/apps/{name}/settings` | Build ayarları + `detected_framework` + kabul edilen `frameworks` listesi (viewer) |
+| PUT | `/api/apps/{name}/settings` | `{"root_directory"?,"framework"?,"install_command"?,"build_command"?,"start_command"?,"output_directory"?,"node_version"?}` — gönderilenleri birleştirir, `""` sıfırlar; geçersiz değer `400` (member) |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 | GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
@@ -729,7 +788,7 @@ internal/api/         HTTP uçları, SSE log akışı
 internal/webhook/     GitHub imza doğrulama, push / pull_request ayrıştırma
 internal/store/       PostgreSQL erişimi, migration'lar, kuyruk, LISTEN/NOTIFY
 internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, heartbeat, kurtarma, dry-run
-internal/build/       clone, dil algılama, Dockerfile üretimi, BuildKit/docker motorları
+internal/build/       clone, dil ve framework algılama, proje ayarları, Dockerfile üretimi, BuildKit/docker motorları
 internal/deploy/      Kubernetes: namespace, kota, Secret, Deployment, Service, Ingress, rollout, loglar
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
 internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
@@ -740,7 +799,7 @@ internal/web/         web arayüzü (html/template + htmx)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/secret/      env değerleri için AES-256-GCM, anahtar halkası ve rotasyon
 internal/testdb/      testler için temiz veritabanı
-examples/             otomatik algılanan örnek uygulamalar (Node, Go, Python, Ruby, Java, statik)
+examples/             otomatik algılanan örnek uygulamalar (Node, Next.js, Vite, Go, Python, Ruby, Java, statik)
 infra/                Terraform (AWS) ve Kubernetes manifest'leri
 loadtest/             k6 yük testleri
 scripts/              ölçüm script'leri (measure-*.sh), sahte push (push.sh)
