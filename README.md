@@ -86,6 +86,8 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Faz 15: GitHub App: arayüzden "Install" → repoları seç → "Import" (uygulama oluşur, ilk deploy başlar);
   kurulumun ekibe bağlanması kullanıcının GitHub token'ıyla doğrulanır, giriş aynı App üzerinden
   ([kurulum rehberi](#github-app-faz-15))
+- [x] Faz 18: `paas` komut satırı aracı (`vercel` CLI tarzı): kişisel token ile giriş, uygulamalar, deployment'lar,
+  canlı build logu (`logs -f`), pod logları, rollback, ortam değişkenleri, alan adları, import ([kullanım](#cli-faz-18))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -604,6 +606,87 @@ ilk push deploy eder.
 çalışmaya devam eder (bkz. [Gerçek GitHub'a bağlamak](#gerçek-githuba-bağlamak)). App yapılandırılmamışsa
 import sayfası bu yolu anlatır; arayüzdeki *New app* formu her iki durumda da kullanılabilir.
 
+### CLI (Faz 18)
+
+`paas`, platformun komut satırı istemcisidir (`vercel` CLI'ı örnek alındı). Yalnızca HTTP API'sini kullanır,
+standart kütüphane dışında bağımlılığı yoktur. Sunucu ikilisi `cmd/paas`'ta olduğu için istemci
+`cmd/paas-cli` dizinindedir ve `paas` adıyla derlenir:
+
+```bash
+go build -o paas ./cmd/paas-cli        # Windows: go build -o paas.exe ./cmd/paas-cli
+```
+
+**Giriş.** Web arayüzündeki *Tokens* sayfasında (`/tokens`) bir kişisel API token'ı oluşturun, sonra:
+
+```bash
+paas login --url https://paas.example.com   # token'ı sorar, GET /api/me ile doğrular
+paas whoami                                 # kullanıcı ve ekip rolleri
+paas logout                                 # kayıtlı URL ve token'ı siler
+```
+
+URL ve token `os.UserConfigDir()/paas/config.json` dosyasına yalnızca kullanıcının okuyabileceği
+izinle (`0600`) yazılır: Linux'ta `~/.config/paas/config.json`, macOS'ta
+`~/Library/Application Support/paas/config.json`, Windows'ta `%AppData%\paas\config.json`. Kayıtlı
+token yalnızca kaydedildiği URL'ye gönderilir; `--url` ile başka bir sunucu verilirse kullanılmaz.
+`logout` token'ı sunucuda iptal etmez, bunun için *Tokens* sayfası kullanılır. CI'da giriş gerekmez:
+
+| Öncelik | URL | Token |
+|---|---|---|
+| 1 | `--url` | `--token` |
+| 2 | `PAAS_URL` | `PAAS_TOKEN` |
+| 3 | `paas login` ile kaydedilen | kaydedilen (yalnızca aynı URL için) |
+
+**Komutlar**
+
+| Komut | Ne yapar | API |
+|---|---|---|
+| `paas ls` | Uygulamalar: production URL'si, son deployment, durumu, branch'i, yaşı | `GET /api/apps`, `…/deployments?limit=1` |
+| `paas deployments <app> [--limit N]` | Deployment tablosu; production / preview alias'larının hangi deploy'da olduğu, build süresi | `GET /api/apps/{name}/deployments`, `GET /api/apps/{name}` |
+| `paas inspect <id>` | Tek deployment: durum, hata, URL, commit, imaj, süreler | `GET /api/deployments/{id}` |
+| `paas logs <id>` | O ana kadarki build logu (1000 satırlık sayfalarla) | `GET /api/deployments/{id}/logs?after=` |
+| `paas logs <id> -f` | Canlı build logu, deployment bitene kadar; bağlantı koparsa son satırdan devam eder | `GET /api/deployments/{id}/logs/stream` (SSE) |
+| `paas logs --runtime <app> <id> [-f] [--tail N]` | Pod logları | `GET /api/apps/{name}/deployments/{id}/runtime-logs` |
+| `paas rollback <app> <id>` | Production alias'ını eski bir deployment'a çevirir | `POST /api/apps/{name}/rollback` |
+| `paas env ls <app>` | Değişken adları (değerler API'den okunamaz) | `GET /api/apps/{name}/env` |
+| `paas env set <app> KEY=VALUE…` | Değişken ekler / değiştirir | `PUT /api/apps/{name}/env` |
+| `paas env rm <app> KEY…` | Değişken siler (`null` gönderir) | `PUT /api/apps/{name}/env` |
+| `paas domains ls\|add\|verify\|rm <app> [host]` | Özel alan adları; `add` oluşturulacak DNS kayıtlarını gösterir | `/api/apps/{name}/domains…` |
+| `paas import <owner/repo> [--name n] [--team t] [--branch b]` | GitHub App kurulumundaki repoyu import eder, ilk deploy'u kuyruğa koyar | `POST /api/apps/import` |
+| `paas open <app> [--print]` | Production URL'sini yazdırır ve tarayıcıda açar | `GET /api/apps/{name}` |
+
+Örnek akış:
+
+```bash
+paas import acme/web --team default
+# Imported acme/web as web (production branch main).
+# First deployment #21 (0123456) is queued. Follow it with: paas logs 21 -f
+paas logs 21 -f            # deployment ready → çıkış kodu 0, failed → 1
+paas env set web DATABASE_URL=postgres://… DEBUG=1
+paas deployments web
+paas rollback web 18
+```
+
+**Ortak bayraklar ve çıktı.** `--url`, `--token` ve `--json` komuttan önce de sonra da yazılabilir
+(`paas --json ls`, `paas ls --json`). `--json` API yanıtını olduğu gibi (girintili) yazar; `ls` her uygulamaya
+`last_deployment` ekler, `logs -f --json` her satırı ve durum olayını ayrı bir JSON satırı (NDJSON) olarak
+verir. Tablolar `text/tabwriter` ile hizalanır, zamanlar göreli yazılır (`5m ago`, `2d ago`).
+
+**Çıkış kodları ve hatalar.** `0` başarılı, `1` hata, `2` hatalı kullanım (eksik argüman, bilinmeyen bayrak
+veya komut). API hataları sunucunun mesajı ve HTTP koduyla, altında bir ipucuyla yazılır: **401** →
+token'ın süresi dolmuş veya iptal edilmiş, `/tokens`'ta yenisini oluşturup `paas login`; **403** → ekipteki
+rol yetmiyor (okuma viewer, değişiklik member ister); **404** → adı / id'yi `paas ls` ile kontrol edin,
+başka ekibin uygulamaları da 404 döner; sunucuya ulaşılamazsa URL'yi kontrol etme ipucu.
+
+**Testler.** `internal/cli` paketi `httptest` ile sahte bir API sunucusuna karşı test edilir: giriş ve
+yapılandırma dosyasının yazılması (geçici dizin, `APPDATA` / `HOME` / `XDG_CONFIG_HOME`), token'ın başka
+sunucuya gönderilmemesi, `ls`, SSE üzerinden `logs -f` (kopan bağlantıdan `after=` ile devam, `failed` →
+çıkış kodu 1), log sayfalama, pod logları, `env set` / `rm` istek gövdeleri, rollback, import, alan adları,
+401 / 403 / 404 / 500 ve kullanım hatalarının çıkış kodlarına eşlenmesi.
+
+```bash
+go test ./cmd/paas-cli/... ./internal/cli/...
+```
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -724,6 +807,7 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 cmd/paas/             giriş noktası: API, worker'lar, routing, cleanup tek süreçte; graceful shutdown
 cmd/paas-dockerfile/  bir dizin için üretilecek Dockerfile'ı yazdırır (go run ./cmd/paas-dockerfile <dizin>)
 cmd/paas-envkey/      env şifreleme anahtarı üretir, durumunu gösterir, rotasyon yapar
+cmd/paas-cli/         `paas` komut satırı istemcisi (go build -o paas ./cmd/paas-cli)
 internal/config/      ortam değişkenleri
 internal/api/         HTTP uçları, SSE log akışı
 internal/webhook/     GitHub imza doğrulama, push / pull_request ayrıştırma
@@ -736,6 +820,7 @@ internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin 
 internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
+internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar
 internal/web/         web arayüzü (html/template + htmx)
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/secret/      env değerleri için AES-256-GCM, anahtar halkası ve rotasyon

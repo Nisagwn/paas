@@ -132,5 +132,13 @@ queued → building → deploying → ready
 - GitHub ile giriş aynı App üzerinden; eski token + webhook yolu yedek olarak çalışır
 - **Çıktı:** yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmiyor
 
+### Faz 18 — `paas` komut satırı aracı ✅ (sahte API sunucusuna karşı test edildi)
+- `cmd/paas-cli` (ikili adı `paas`) ve test edilebilir `internal/cli` paketi; yalnızca standart kütüphane
+- `paas login` kişisel API token'ını `GET /api/me` ile doğrular, URL ve token'ı `os.UserConfigDir()/paas/config.json`'a (`0600`) yazar; `logout`, `whoami`
+- `ls`, `deployments`, `inspect`; `logs` (sayfalı), `logs -f` (SSE, kopan bağlantıda kaldığı satırdan devam, bitişte çıkış kodu), `logs --runtime` (pod logları)
+- `rollback`, `env ls|set|rm`, `domains ls|add|verify|rm`, `import`, `open`
+- Ortak bayraklar `--url`, `--token`, `--json` (veya `PAAS_URL` / `PAAS_TOKEN`); tablolar, göreli zamanlar, çıkış kodları 0 / 1 / 2, 401 / 403 / 404 için ipuçlu hatalar
+- **Çıktı:** web arayüzünde yapılan her günlük işlem terminalden ve CI'dan da yapılabiliyor
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.
