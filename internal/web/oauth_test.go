@@ -248,3 +248,53 @@ func TestGitHubLoginRejectsBadState(t *testing.T) {
 		t.Fatalf("bad verifier: %d", code)
 	}
 }
+
+// Open signup: any GitHub account gets in with a personal team, and an App
+// installation on its own account shows up for import without a claim step.
+func TestOpenSignupAndOwnInstallation(t *testing.T) {
+	u := setupOAuth(t)
+	u.s.GitHub.OpenSignup = true
+	ctx := context.Background()
+
+	// Someone else's installation, and the stranger's own one.
+	u.st.UpsertInstallation(ctx, store.Installation{ID: 7, AccountLogin: "friend", AccountType: "User"})
+	u.st.SetInstallationRepos(ctx, 7, []store.InstallationRepo{{RepoID: 70, FullName: "friend/secret"}})
+	u.st.UpsertInstallation(ctx, store.Installation{ID: 9, AccountLogin: "Stranger", AccountType: "User"})
+	u.st.SetInstallationRepos(ctx, 9, []store.InstallationRepo{{RepoID: 90, FullName: "Stranger/site"}})
+
+	if code, body := u.signIn("stranger"); code != http.StatusOK {
+		t.Fatalf("open signup: %d\n%s", code, body)
+	}
+	usr, err := u.st.UserByLogin(ctx, "stranger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teams, _ := u.st.TeamsForUser(ctx, usr.ID)
+	if len(teams) != 1 || teams[0].Slug != "stranger" || teams[0].Role != store.RoleOwner {
+		t.Fatalf("personal team: %+v", teams)
+	}
+	// The callback finishes with a same-site hop; the session is set.
+	code, body, _ := u.get("/import")
+	if code != http.StatusOK || !strings.Contains(body, "Stranger/site") || strings.Contains(body, "friend/secret") {
+		t.Fatalf("import page: %d\n%s", code, body)
+	}
+	if in, _ := u.st.GetInstallation(ctx, 7); in.TeamID != nil {
+		t.Fatalf("someone else's installation was claimed: %+v", in)
+	}
+	// Signing in again does not create a second team.
+	u.signIn("stranger")
+	if teams, _ := u.st.TeamsForUser(ctx, usr.ID); len(teams) != 1 {
+		t.Fatalf("teams after second sign-in: %+v", teams)
+	}
+}
+
+func TestTeamSlug(t *testing.T) {
+	for in, want := range map[string]string{
+		"Nisagwn": "nisagwn", "my_user.name": "myusername", "123abc": "u-123abc", "-x-": "x-team",
+		strings.Repeat("a", 39): strings.Repeat("a", 28),
+	} {
+		if got := auth.TeamSlug(in); got != want {
+			t.Errorf("TeamSlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

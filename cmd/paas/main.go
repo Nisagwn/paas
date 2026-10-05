@@ -260,11 +260,11 @@ func newAuth(cfg config.Config, st *store.Store, log *slog.Logger) (*auth.Sessio
 			ClientID: cfg.GitHubOAuthClientID, ClientSecret: cfg.GitHubOAuthClientSecret, WebURL: cfg.GitHubWebURL,
 		},
 		APIURL: cfg.GitHubAPIURL, RedirectURI: cfg.PublicURL + "/auth/github/callback",
-		Admins: cfg.AdminGitHubLogins, AllowedUsers: cfg.AllowedGitHubUsers, AllowedOrgs: cfg.AllowedGitHubOrgs, Log: log,
+		Admins: cfg.AdminGitHubLogins, AllowedUsers: cfg.AllowedGitHubUsers, AllowedOrgs: cfg.AllowedGitHubOrgs, OpenSignup: cfg.OpenSignup, Log: log,
 	}
 	log.Info("github login enabled", "callback", gl.RedirectURI, "admins", len(gl.Admins),
-		"allowed_users", len(gl.AllowedUsers), "allowed_orgs", gl.AllowedOrgs, "legacy_token", cfg.APIToken != "")
-	if len(gl.Admins)+len(gl.AllowedUsers)+len(gl.AllowedOrgs) == 0 {
+		"allowed_users", len(gl.AllowedUsers), "allowed_orgs", gl.AllowedOrgs, "open_signup", gl.OpenSignup, "legacy_token", cfg.APIToken != "")
+	if len(gl.Admins)+len(gl.AllowedUsers)+len(gl.AllowedOrgs) == 0 && !gl.OpenSignup {
 		log.Warn("no GitHub allowlist: only users already added to a team can sign in " +
 			"(set PAAS_ADMIN_GITHUB_LOGINS to bootstrap the first owner)")
 	}

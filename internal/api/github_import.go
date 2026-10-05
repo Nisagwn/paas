@@ -42,6 +42,9 @@ func ImportableRepos(ctx context.Context, st *store.Store, a *auth.Authenticator
 	if err != nil {
 		return nil, err
 	}
+	if err := claimOwnInstallations(ctx, st, p, teams); err != nil {
+		return nil, err
+	}
 	out := []ImportableView{}
 	for _, t := range teams {
 		repos, err := st.ImportableRepos(ctx, []int64{t.ID})
@@ -258,4 +261,38 @@ func (s *Server) importApp(w http.ResponseWriter, r *http.Request) {
 		out.Deployment = &v
 	}
 	writeJSON(w, http.StatusCreated, out)
+}
+
+// claimOwnInstallations links unclaimed installations on the caller's own
+// GitHub account to one of the caller's teams ("default" first), so a user
+// who installs the App on their account sees the repositories right away,
+// without the setup URL round trip. Only the account owner can install an
+// App on a personal account, so the login match is the proof; installations
+// on organizations still go through the verified claim (web/github.go).
+func claimOwnInstallations(ctx context.Context, st *store.Store, p auth.Principal, teams []store.Team) error {
+	if p.UserID == 0 || p.Login == "" {
+		return nil
+	}
+	var team *store.Team
+	for i, t := range teams {
+		if store.RoleAllows(t.Role, store.RoleMember) && (team == nil || t.Slug == "default") {
+			team = &teams[i]
+		}
+	}
+	if team == nil {
+		return nil
+	}
+	installs, err := st.ListInstallations(ctx)
+	if err != nil {
+		return err
+	}
+	for _, in := range installs {
+		if in.TeamID != nil || in.AccountType != "User" || !strings.EqualFold(in.AccountLogin, p.Login) {
+			continue
+		}
+		if err := st.ClaimInstallation(ctx, in.ID, team.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
+	return nil
 }

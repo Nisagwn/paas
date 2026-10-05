@@ -133,6 +133,9 @@ spec:
             - name: PAAS_GITHUB_OAUTH_CLIENT_ID
               valueFrom:
                 secretKeyRef: { name: paas, key: github-oauth-client-id, optional: true }
+            - name: PAAS_OPEN_SIGNUP
+              valueFrom:
+                secretKeyRef: { name: paas, key: open-signup, optional: true }
             - name: PAAS_ADMIN_GITHUB_LOGINS
               valueFrom:
                 secretKeyRef: { name: paas, key: admin-github-logins, optional: true }

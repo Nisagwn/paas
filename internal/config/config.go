@@ -106,6 +106,8 @@ type Config struct {
 	AllowedGitHubOrgs  []string
 	// Always allowed; made owners of the "default" team at sign-in.
 	AdminGitHubLogins []string
+	// Any GitHub account may sign in and gets a personal team.
+	OpenSignup bool
 	// Faz 11: scale to zero (see scale.go).
 	Scale Scale
 	// Faz 15: GitHub App (github_app.go); replaces GitHubToken when enabled.
@@ -126,6 +128,7 @@ func (c *Config) loadUsers() error {
 	c.AllowedGitHubUsers = splitList(os.Getenv("PAAS_ALLOWED_GITHUB_USERS"))
 	c.AllowedGitHubOrgs = splitList(os.Getenv("PAAS_ALLOWED_GITHUB_ORG"))
 	c.AdminGitHubLogins = splitList(os.Getenv("PAAS_ADMIN_GITHUB_LOGINS"))
+	c.OpenSignup = os.Getenv("PAAS_OPEN_SIGNUP") == "true"
 	if (c.GitHubOAuthClientID == "") != (c.GitHubOAuthClientSecret == "") {
 		return errors.New("set both PAAS_GITHUB_OAUTH_CLIENT_ID and PAAS_GITHUB_OAUTH_CLIENT_SECRET, or neither")
 	}

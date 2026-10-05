@@ -19,9 +19,11 @@ import (
 //     of the "default" team on every sign-in (bootstrap),
 //   - logins in AllowedUsers (PAAS_ALLOWED_GITHUB_USERS),
 //   - members of an organization in AllowedOrgs (PAAS_ALLOWED_GITHUB_ORG),
-//   - users a team owner added to a team (invitation).
+//   - users a team owner added to a team (invitation),
+//   - with OpenSignup, every GitHub account (a public platform): a new user
+//     gets a personal team and sees only its own projects.
 //
-// Everyone else is refused: an arbitrary GitHub account never gets in.
+// Otherwise everyone else is refused.
 type GitHubLogin struct {
 	App *github.OAuthApp
 	// APIURL is the REST API used with the user's token.
@@ -32,7 +34,9 @@ type GitHubLogin struct {
 	Admins       []string
 	AllowedUsers []string
 	AllowedOrgs  []string
-	Log          *slog.Logger
+	// OpenSignup lets any GitHub account sign in (PAAS_OPEN_SIGNUP).
+	OpenSignup bool
+	Log        *slog.Logger
 }
 
 // ErrNotAllowed: the GitHub account is not on any allowlist.
@@ -73,7 +77,7 @@ func (g *GitHubLogin) Complete(ctx context.Context, st *store.Store, code, verif
 		return store.User{}, errors.New("github: /user returned no account")
 	}
 	admin := hasFold(g.Admins, acct.Login)
-	allowed := admin || hasFold(g.AllowedUsers, acct.Login)
+	allowed := admin || g.OpenSignup || hasFold(g.AllowedUsers, acct.Login)
 	if !allowed && len(g.AllowedOrgs) > 0 {
 		orgs, err := gh.UserOrgs(ctx)
 		if err != nil {
@@ -109,7 +113,54 @@ func (g *GitHubLogin) Complete(ctx context.Context, st *store.Store, code, verif
 			return u, fmt.Errorf("bootstrap admin: %w", err)
 		}
 	}
+	if g.OpenSignup && !admin {
+		if err := personalTeam(ctx, st, u); err != nil {
+			return u, fmt.Errorf("personal team: %w", err)
+		}
+	}
 	return u, nil
+}
+
+// personalTeam gives a user without any team one of their own, named after
+// the GitHub login, with the user as owner.
+func personalTeam(ctx context.Context, st *store.Store, u store.User) error {
+	if ok, err := st.HasTeams(ctx, u.ID); err != nil || ok {
+		return err
+	}
+	base := TeamSlug(u.Login)
+	for i := 0; i < 20; i++ {
+		slug := base
+		if i > 0 {
+			slug = fmt.Sprintf("%s-%d", base, i+1)
+		}
+		_, err := st.CreateTeam(ctx, slug, u.Login, u.ID)
+		if !errors.Is(err, store.ErrConflict) {
+			return err
+		}
+	}
+	return errors.New("no free team name for " + u.Login)
+}
+
+// TeamSlug turns a GitHub login into a valid team slug
+// (^[a-z][a-z0-9-]{1,30}$): lowercase, other characters dropped.
+func TeamSlug(login string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(login) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if s == "" || s[0] < 'a' || s[0] > 'z' {
+		s = "u-" + s
+	}
+	if len(s) > 28 { // room for a "-NN" suffix
+		s = strings.TrimRight(s[:28], "-")
+	}
+	if len(s) < 2 {
+		s += "-team"
+	}
+	return s
 }
 
 // GitHubDirectory resolves logins through the GitHub API (UserDirectory).

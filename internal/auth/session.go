@@ -88,7 +88,7 @@ func (s *Sessions) IssueUser(w http.ResponseWriter, r *http.Request, userID int6
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: exp + "." + uid + "." + n + "." + b64.EncodeToString(s.mac("session", exp, uid, n)),
 		Path: "/", MaxAge: int(s.TTL.Seconds()),
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: IsTLS(r),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: IsTLS(r),
 	})
 }
 
@@ -96,7 +96,7 @@ func (s *Sessions) IssueUser(w http.ResponseWriter, r *http.Request, userID int6
 func (s *Sessions) Clear(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: CookieName, Value: "", Path: "/", MaxAge: -1,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: IsTLS(r),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: IsTLS(r),
 	})
 }
 
@@ -179,8 +179,10 @@ func (s *Sessions) CSRFToken(r *http.Request) string {
 
 // CheckCSRF validates an unsafe request made with a session cookie: the
 // Origin (or, failing that, Referer) must be this host when present, and
-// the form or header token must match the session. SameSite=Strict already
-// keeps the cookie off cross-site requests; this is the second layer.
+// the form or header token must match the session. SameSite=Lax keeps the
+// cookie off cross-site POSTs; this is the second layer. (Lax, not Strict:
+// coming back from github.com after installing the App is a cross-site
+// navigation, and Strict would sign the user out on every return.)
 func (s *Sessions) CheckCSRF(r *http.Request) bool {
 	if !SameOrigin(r) {
 		return false
