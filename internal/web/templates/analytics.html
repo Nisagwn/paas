@@ -1,0 +1,77 @@
+{{define "content"}}
+{{template "apphead" .}}
+{{$a := .Data.App}}{{$x := .Data.A}}{{$t := $x.View.Totals}}
+
+<div class="head" style="align-items:center;margin-top:24px">
+  <h2 style="margin:0">Trafik</h2>
+  <nav class="seg actions" aria-label="Zaman aralığı">
+    {{range $x.Ranges}}<a href="/apps/{{$a.Name}}/analytics?range={{.ID}}"{{if .Active}} class="on" aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+  </nav>
+</div>
+
+<div class="stats" style="margin-top:12px">
+  <div class="card pad stat"><div class="k">İstek</div><div class="v">{{num $t.Requests}}</div></div>
+  <div class="card pad stat"><div class="k">Hata oranı (5xx)</div><div class="v{{if ge $t.ErrorRate 0.01}} bad{{end}}">{{pct $t.ErrorRate}}</div>
+    <div class="muted small">{{num $t.Errors}} hata</div></div>
+  <div class="card pad stat"><div class="k">p95 yanıt süresi</div><div class="v">{{ms $t.P95}}</div>
+    <div class="muted small">p50 {{ms $t.P50}}</div></div>
+</div>
+
+<div class="card pad" style="margin-top:12px">
+  <div class="legend small">
+    <span><i class="sw sw-req"></i>İstekler</span>
+    <span><i class="sw sw-err"></i>5xx hataları</span>
+    <span class="muted">· {{if eq $x.Range "1h"}}dakikalık{{else if eq $x.Range "24h"}}10 dakikalık{{else}}saatlik{{end}} adımlar, UTC</span>
+  </div>
+  {{$x.Chart}}
+  {{if not $x.View.Histogram}}<p class="muted small" style="margin:8px 0 0">Yanıt süreleri için Traefik'in süre histogramı gerekir (bkz. README, Analitik).</p>{{end}}
+</div>
+
+<h2>Deploy sağlığı <span class="muted small" style="font-weight:400">· son 15 dakika</span></h2>
+<div class="card">
+  {{with $x.Health.Deployments}}
+  <table>
+    <thead><tr><th>Durum</th><th>Deploy</th><th class="hide-sm">Branch</th><th>İstek</th><th>5xx</th><th>Hata oranı</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><span class="badge h-{{.Health}}">{{health .Health}}</span></td>
+        <td><a class="mono" href="/deployments/{{.DeploymentID}}">{{short .CommitSHA}}</a> {{if .Production}}<span class="tag prod">Canlı</span>{{end}}</td>
+        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
+        <td>{{num .Requests}}</td>
+        <td>{{num .Errors}}</td>
+        <td>{{if .Requests}}{{pct .ErrorRate}}{{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">Çalışan deploy yok.</div>
+  {{end}}
+</div>
+<p class="muted small">Sağlıklı: 5xx &lt; %1 · Sorunlu: &lt; %10 · Çöküyor: %10 ve üzeri.</p>
+
+<h2>Kaynak kullanımı <span class="muted small" style="font-weight:400">· anlık</span></h2>
+<div class="card">
+  {{if $x.UsageNote}}
+  <div class="empty">{{$x.UsageNote}}</div>
+  {{else}}{{with $x.Usage}}
+  <table>
+    <thead><tr><th>Deploy</th><th class="hide-sm">Branch</th><th>Pod</th><th>CPU</th><th>Bellek</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><a class="mono" href="/deployments/{{.DeploymentID}}">{{short .CommitSHA}}</a></td>
+        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
+        <td>{{len .Pods}}</td>
+        <td>{{cpu .CPUMillicores}}{{if .CPULimit}} <span class="muted small">/ {{cpu .CPULimit}}</span>{{end}}</td>
+        <td>{{bytes .MemoryBytes}}{{if .MemoryLimit}} <span class="muted small">/ {{bytes .MemoryLimit}}</span>{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">Çalışan pod yok; uyuyan deploy'lar burada görünmez.</div>
+  {{end}}{{end}}
+</div>
+{{end}}

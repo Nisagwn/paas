@@ -462,14 +462,8 @@ func parseEnvChanges(r *http.Request) ([]store.EnvChange, error) {
 			req.Vars[k] = val
 		}
 	}
-	if req.Target != "" && !store.ValidEnvTarget(req.Target) {
-		return nil, errors.New(`target must be "production", "preview" or "all"`)
-	}
-	if req.GitBranch != "" && req.Target != store.EnvPreview {
-		return nil, errors.New(`git_branch needs target "preview"`)
-	}
-	if len(req.GitBranch) > 255 {
-		return nil, errors.New("git_branch is too long")
+	if err := CheckEnvScope(req.Target, req.GitBranch); err != nil {
+		return nil, err
 	}
 	keys := make([]string, 0, len(req.Vars))
 	for k := range req.Vars {

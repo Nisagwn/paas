@@ -15,6 +15,7 @@
   --accent: #0a66ff; --accent-text: #fff; --code-bg: #0d0d0d; --code-text: #e6e6e6;
   --ok: #0f7b3d; --ok-bg: #e6f6ec; --err: #c62828; --err-bg: #fdecec;
   --run: #0a5bd6; --run-bg: #e8f0fe; --idle: #666; --idle-bg: #f0f0f0;
+  --warn: #9a5b00; --warn-bg: #fff4e0; --chart-req: #2f6fde; --chart-err: #d03b3b; --grid: #ececec;
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -23,6 +24,7 @@
     --accent: #4d8dff; --code-bg: #070708; --code-text: #d8d8d8;
     --ok: #4ade80; --ok-bg: #0f2a1a; --err: #f87171; --err-bg: #2c1212;
     --run: #7aa7ff; --run-bg: #12203a; --idle: #a0a0a0; --idle-bg: #1f1f22;
+    --warn: #f5b454; --warn-bg: #2c2110; --chart-req: #4f86f0; --chart-err: #e04f4f; --grid: #232327;
   }
 }
 * { box-sizing: border-box; }
@@ -129,6 +131,51 @@ details.section > .body > .card.pad { padding: 0; }
   border-radius: 8px; padding: 8px 12px; min-width: 140px; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
 header.top nav a.cta { color: var(--text); font-weight: 600; }
 form.inline { display: inline; }
+/* Faz 20: app tabs, deploy controls, environments, analytics. */
+.s-canceled { background: var(--idle-bg); color: var(--idle); }
+.s-canceled::before { border-radius: 1px; }
+.s-queued::before { animation: pulse 1.6s ease-in-out infinite; }
+.tag.warn { border-color: var(--warn); color: var(--warn); }
+.tag.env-production { border-color: var(--ok); color: var(--ok); }
+.tag.env-preview { border-color: var(--run); color: var(--run); }
+.h-healthy { background: var(--ok-bg); color: var(--ok); }
+.h-degraded { background: var(--warn-bg); color: var(--warn); }
+.h-failing { background: var(--err-bg); color: var(--err); }
+.h-no_traffic { background: var(--idle-bg); color: var(--idle); }
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0 0; overflow-x: auto; }
+nav.tabs a { padding: 8px 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+nav.tabs a:hover { color: var(--text); text-decoration: none; }
+nav.tabs a.on { color: var(--text); border-bottom-color: var(--text); font-weight: 600; }
+nav.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; }
+nav.seg a { padding: 5px 12px; font-size: 13px; color: var(--muted); background: var(--surface); }
+nav.seg a + a { border-left: 1px solid var(--border); }
+nav.seg a.on { background: var(--text); color: var(--bg); font-weight: 600; }
+nav.seg a:hover { text-decoration: none; }
+td.controls { text-align: right; white-space: nowrap; }
+td.controls form { margin-left: 4px; }
+label.check { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px 0 0; cursor: pointer; }
+input[type=checkbox] { width: auto; margin: 0; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+fieldset:disabled input, fieldset:disabled select { opacity: .7; }
+h3.group { font-size: 13px; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.secret { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin: 8px 0; word-break: break-all; user-select: all; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 26px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.stat .v.bad { color: var(--err); }
+.legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; color: var(--text); }
+.legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.sw-req { background: var(--chart-req); }
+.sw-err { background: var(--chart-err); }
+svg.chart { display: block; width: 100%; height: auto; }
+svg.chart .bar { fill: var(--chart-req); }
+svg.chart .bar-err { fill: var(--chart-err); }
+svg.chart .hit { fill: transparent; }
+svg.chart g:hover .bar { opacity: .75; }
+svg.chart .grid { stroke: var(--grid); stroke-width: 1; }
+svg.chart .axis { stroke: var(--border); stroke-width: 1; }
+svg.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
 @media (max-width: 720px) { .hide-sm { display: none; } th, td { padding: 8px; } }
 </style>
 </head>

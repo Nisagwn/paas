@@ -168,5 +168,21 @@ queued → building → deploying → ready
 - `GET /api/apps/{name}/health`: deploy başına son 15 dakikanın 5xx oranı; `GET /api/apps/{name}/usage`: metrics-server'dan canlı CPU / bellek
 - **Çıktı:** bir uygulamanın trafiği, hataları, gecikmesi ve kaynak kullanımı ek bir izleme yığını olmadan API'den okunuyor
 
+### Faz 20 — Arayüz: proje ayarları, ortamlar, deploy kontrolleri ve analitik ✅ (Postgres'e karşı test edildi)
+- Proje sayfası sunucuda çizilen sekmelere ayrıldı: Genel (`/apps/{name}`), Deploy'lar, Analitik, Ayarlar
+- Deploy listesi: deploy'un kendi adresi (`Deployment.Host`, nesil ekiyle; önceden commit'ten türetiliyordu), framework,
+  ortam rozeti, kaynak (redeploy / promote / hook); member+ için "Production'a taşı", "Yeniden deploy et"
+  ("Önbelleği kullanma"), "İptal et"; yeni "İptal edildi" rozeti
+- Ayarlar: build ayarları formu (`build.Frameworks`, "Otomatik algıla (<algılanan>)", `build.NormalizeSettings` hataları
+  Türkçe), hedefli ortam değişkenleri (Tümü / Production / Önizleme + branch), deploy hook'ları (URL bir kez gösterilir),
+  alan adları ve uyku modu
+- Analitik: 1 sa / 24 sa / 7 gün, toplamlar (istek, hata oranı, p95), JavaScript'siz SVG grafik (açık / koyu temada
+  doğrulanmış renkler), deploy sağlığı, canlı CPU / bellek; kullanım API'si yoksa "Kullanım verisi yok"
+- API'deki iş mantığı dışa açık yardımcılara taşındı (`api.Promote`, `Redeploy`, `Cancel`, `NormalizeHook`, `CreateHook`,
+  `CheckEnvScope`, `Analytics`, `Health`, `Usage`); JSON API ve arayüz aynı kodu çalıştırır, davranış değişmedi
+- Her form CSRF + aynı-origin kontrolünden geçer, izleyicinin POST'u 403 alır; testler her form, doğrulama hatası,
+  rol / duruma göre düğme görünürlüğü ve örnek metriklerle analitik sayfası için
+- **Çıktı:** Faz 16–19'da API'ye eklenen her şey tarayıcıdan da kullanılabiliyor
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

@@ -22,7 +22,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +59,12 @@ type Server struct {
 	GitHubAppSlug string
 	GitHubApp     api.RepoInspector
 
+	// Faz 20 (analytics.go). Usage reads live CPU/memory; nil (dry run)
+	// shows "no usage data". Now is the analytics clock (tests); nil is
+	// time.Now.
+	Usage api.UsageSource
+	Now   func() time.Time
+
 	pages map[string]*template.Template
 }
 
@@ -75,6 +80,21 @@ var funcs = template.FuncMap{
 	"status": statusLabel,
 	"role":   roleLabel,
 	"kind":   kindLabel,
+	// Faz 20.
+	"target": targetLabel,
+	"origin": originLabel,
+	"health": healthLabel,
+	"envtarget": func(t string) string {
+		if t == store.EnvAll {
+			return "Tümü"
+		}
+		return targetLabel(t)
+	},
+	"pct":   pct,
+	"ms":    millis,
+	"bytes": byteSize,
+	"cpu":   cpuLabel,
+	"num":   number,
 	"active": func(status string) bool {
 		return status == store.StatusQueued || status == store.StatusBuilding || status == store.StatusDeploying
 	},
@@ -91,7 +111,8 @@ func (s *Server) Handler() http.Handler {
 	if s.Auth == nil {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
-	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import"} {
+	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
+		"deploys", "analytics", "settings"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html"))
 	}
@@ -107,7 +128,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /{$}", s.authed(s.appsPage))
 	mux.Handle("POST /apps", s.authed(s.createApp))
 	mux.Handle("GET /apps/{name}", s.authed(s.appPage))
-	mux.Handle("GET /apps/{name}/deployments", s.authed(s.deploymentsPartial))
+	// Faz 20: the app's tabs (app.go, controls.go, analytics.go). The
+	// deployments tab is also the htmx fragment polled while one runs.
+	mux.Handle("GET /apps/{name}/deployments", s.authed(s.deploymentsPage))
+	mux.Handle("GET /apps/{name}/analytics", s.authed(s.analyticsPage))
+	mux.Handle("GET /apps/{name}/settings", s.authed(s.settingsPage))
+	mux.Handle("POST /apps/{name}/settings", s.authed(s.saveSettings))
+	mux.Handle("POST /apps/{name}/promote", s.authed(s.promote))
+	mux.Handle("POST /apps/{name}/redeploy", s.authed(s.redeploy))
+	mux.Handle("POST /apps/{name}/cancel", s.authed(s.cancel))
+	mux.Handle("POST /apps/{name}/hooks", s.authed(s.createHook))
+	mux.Handle("POST /apps/{name}/hooks/delete", s.authed(s.deleteHook))
 	mux.Handle("POST /apps/{name}/rollback", s.authed(s.rollback))
 	mux.Handle("POST /apps/{name}/env", s.authed(s.setEnv))
 	mux.Handle("POST /apps/{name}/env/delete", s.authed(s.deleteEnv))
@@ -269,11 +300,19 @@ func redirect(w http.ResponseWriter, r *http.Request, path string) {
 var flashes = map[string]string{
 	"created":  "Proje oluşturuldu. Deploy için repoya /webhooks/github adresine giden bir push webhook'u ekle.",
 	"rollback": "Canlı site artık seçtiğin sürümü gösteriyor.",
-	"env":      "Kaydedildi. Yeni değerler bir sonraki deploy'da geçerli olur.",
-	"domain":   "Alan adları güncellendi.",
-	"team":     "Ekip oluşturuldu.",
-	"member":   "Ekip üyeleri güncellendi.",
-	"revoked":  "Token iptal edildi.",
+	// Faz 20.
+	"promoted":       "Production'a taşınıyor: aynı imajla yeni bir deploy kuyruğa alındı.",
+	"promoted-alias": "Canlı site artık seçtiğin deploy'u gösteriyor.",
+	"redeploy":       "Yeni deploy kuyruğa alındı.",
+	"canceled":       "Deploy iptal edildi.",
+	"cancel":         "İptal istendi; deploy birkaç saniye içinde durur.",
+	"settings":       "Build ayarları kaydedildi. Bir sonraki deploy'da geçerli olur.",
+	"hook-deleted":   "Deploy hook'u silindi.",
+	"env":            "Kaydedildi. Yeni değerler bir sonraki deploy'da geçerli olur.",
+	"domain":         "Alan adları güncellendi.",
+	"team":           "Ekip oluşturuldu.",
+	"member":         "Ekip üyeleri güncellendi.",
+	"revoked":        "Token iptal edildi.",
 	// Faz 15.
 	"imported":       "Proje oluşturuldu, ilk deploy başladı.",
 	"imported-idle":  "Proje oluşturuldu. Deploy için canlı branch'e push et.",
@@ -432,227 +471,6 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/apps/"+name+"?ok=created", http.StatusSeeOther)
 }
 
-// ---- app detail ----
-
-type deploymentRow struct {
-	store.Deployment
-	URL         string
-	Production  bool
-	CanRollback bool
-	AliasesHere []string
-}
-
-type appDetail struct {
-	App           store.App
-	ProductionURL string
-	Aliases       []aliasRow
-	Deployments   []deploymentRow
-	Active        bool // something is in progress: the table polls
-	EnvKeys       []string
-	HasProduction bool
-	Domains       []api.DomainView
-	// Faz 13: the caller's role on the app's team; CanWrite = member+.
-	Team     store.Team
-	Role     string
-	CanWrite bool
-}
-
-type aliasRow struct {
-	store.Alias
-	URL string
-	SHA string
-}
-
-// loadApp loads the {name} app and checks the caller's team role: viewer
-// for GET, member for POST. Apps of other teams look like missing ones.
-func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, bool) {
-	app, err := s.Store.GetAppByName(r.Context(), r.PathValue("name"))
-	if errors.Is(err, store.ErrNotFound) {
-		s.errorPage(w, r, http.StatusNotFound, "Proje bulunamadı.")
-		return app, false
-	}
-	if err != nil {
-		s.internalError(w, r, err)
-		return app, false
-	}
-	need := store.RoleMember
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		need = store.RoleViewer
-	}
-	if !s.checkTeam(w, r, app.TeamID, need, "Proje bulunamadı.") {
-		return app, false
-	}
-	return app, true
-}
-
-func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error) {
-	v := appDetail{App: app, ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(app.Name, s.Domain))}
-	me, _ := auth.From(ctx)
-	role, err := s.Auth.TeamRole(ctx, me, app.TeamID)
-	if err != nil {
-		return v, err
-	}
-	if v.Team, err = s.Store.GetTeam(ctx, app.TeamID); err != nil {
-		return v, err
-	}
-	v.Role, v.CanWrite = role, store.RoleAllows(role, store.RoleMember)
-	aliases, err := s.Store.ListAliases(ctx, app.ID)
-	if err != nil {
-		return v, err
-	}
-	deps, err := s.Store.ListDeployments(ctx, app.ID, 50)
-	if err != nil {
-		return v, err
-	}
-	env, err := s.Store.AppEnv(ctx, app.ID)
-	if err != nil {
-		return v, err
-	}
-	shas := map[int64]string{}
-	for _, d := range deps {
-		shas[d.ID] = d.CommitSHA
-	}
-	hosts := map[int64][]string{}
-	var prodID int64
-	for _, a := range aliases {
-		v.Aliases = append(v.Aliases, aliasRow{Alias: a, URL: naming.URL(s.Scheme, a.Hostname), SHA: shas[a.DeploymentID]})
-		hosts[a.DeploymentID] = append(hosts[a.DeploymentID], a.Hostname)
-		if a.Kind == store.AliasProduction {
-			prodID = a.DeploymentID
-			v.HasProduction = true
-		}
-	}
-	for _, d := range deps {
-		v.Deployments = append(v.Deployments, deploymentRow{
-			Deployment:  d,
-			URL:         naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
-			Production:  d.ID == prodID,
-			CanRollback: v.CanWrite && v.HasProduction && d.ID != prodID && d.Status == store.StatusReady,
-			AliasesHere: hosts[d.ID],
-		})
-		if !d.Finished() {
-			v.Active = true
-		}
-	}
-	for k := range env {
-		v.EnvKeys = append(v.EnvKeys, k)
-	}
-	sort.Strings(v.EnvKeys)
-	v.Domains, err = s.domainViews(ctx, app)
-	return v, err
-}
-
-func (s *Server) appPage(w http.ResponseWriter, r *http.Request) {
-	s.renderApp(w, r, http.StatusOK, "")
-}
-
-func (s *Server) renderApp(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
-	app, ok := s.loadApp(w, r)
-	if !ok {
-		return
-	}
-	v, err := s.appDetail(r.Context(), app)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	s.render(w, r, status, "app", app.Name, v, errMsg)
-}
-
-// deploymentsPartial is polled by htmx while a deployment is in progress.
-func (s *Server) deploymentsPartial(w http.ResponseWriter, r *http.Request) {
-	app, ok := s.loadApp(w, r)
-	if !ok {
-		return
-	}
-	v, err := s.appDetail(r.Context(), app)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	s.partial(w, r, http.StatusOK, "deployments", v, "")
-}
-
-func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
-	app, ok := s.loadApp(w, r)
-	if !ok {
-		return
-	}
-	id, err := strconv.ParseInt(r.PostFormValue("deployment_id"), 10, 64)
-	if err != nil || id <= 0 {
-		s.renderApp(w, r, http.StatusBadRequest, "Geçersiz deploy.")
-		return
-	}
-	_, err = s.Store.Rollback(r.Context(), app.ID, id)
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		s.renderApp(w, r, http.StatusNotFound, "Bu projede böyle bir deploy ya da canlı adres yok.")
-		return
-	case errors.Is(err, store.ErrNotReady):
-		s.renderApp(w, r, http.StatusConflict, "Yalnızca hazır bir deploy canlıya alınabilir.")
-		return
-	case errors.Is(err, store.ErrRetired):
-		s.renderApp(w, r, http.StatusConflict,
-			"Bu deploy emekliye ayrıldı ve artık çalışmıyor; yeniden yayınlamak için commit'i tekrar push et.")
-		return
-	case err != nil:
-		s.internalError(w, r, err)
-		return
-	}
-	s.Log.Info("rollback", "app", app.Name, "deployment", id, "via", "web")
-	if s.Router != nil {
-		if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
-			s.Log.Error("rollback: route sync", "app", app.Name, "err", err)
-			s.renderApp(w, r, http.StatusBadGateway,
-				"Geri alma kaydedildi ama yönlendirme güncellenemedi; otomatik olarak tekrar denenecek.")
-			return
-		}
-	}
-	redirect(w, r, "/apps/"+app.Name+"?ok=rollback")
-}
-
-// ---- environment ----
-
-func (s *Server) setEnv(w http.ResponseWriter, r *http.Request) {
-	key := strings.TrimSpace(r.PostFormValue("key"))
-	value := r.PostFormValue("value")
-	s.changeEnv(w, r, key, &value)
-}
-
-func (s *Server) deleteEnv(w http.ResponseWriter, r *http.Request) {
-	s.changeEnv(w, r, r.PostFormValue("key"), nil)
-}
-
-func (s *Server) changeEnv(w http.ResponseWriter, r *http.Request, key string, value *string) {
-	app, ok := s.loadApp(w, r)
-	if !ok {
-		return
-	}
-	status, msg := http.StatusOK, ""
-	if err := api.CheckEnvVar(key, value); err != nil {
-		status, msg = http.StatusBadRequest, err.Error()
-	} else if err := s.Store.UpdateAppEnv(r.Context(), app.ID, map[string]*string{key: value}); err != nil {
-		s.internalError(w, r, err)
-		return
-	} else {
-		s.Log.Info("env updated", "app", app.Name, "changed", 1, "via", "web")
-	}
-	switch {
-	case isHTMX(r):
-		v, err := s.appDetail(r.Context(), app)
-		if err != nil {
-			s.internalError(w, r, err)
-			return
-		}
-		s.partial(w, r, status, "env", v, msg)
-		return
-	case msg != "":
-		s.renderApp(w, r, status, msg)
-		return
-	}
-	http.Redirect(w, r, "/apps/"+app.Name+"?ok=env#env", http.StatusSeeOther)
-}
-
 // ---- deployment detail ----
 
 func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
@@ -681,7 +499,7 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, http.StatusOK, "deployment", fmt.Sprintf("%s · %s", d.AppName, naming.ShortSHA(d.CommitSHA)),
 		map[string]any{
 			"D":           d,
-			"URL":         naming.URL(s.Scheme, naming.DeploymentHost(d.CommitSHA, d.AppName, s.Domain)),
+			"URL":         naming.URL(s.Scheme, d.Host(s.Domain)),
 			"RuntimeLogs": s.RuntimeLogs,
 		}, "")
 }

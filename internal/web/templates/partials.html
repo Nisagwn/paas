@@ -1,6 +1,76 @@
 {{/* Fragments shared by full pages and htmx responses. Both pass a value
      with .Data (the app detail) and .CSRF. */}}
 
+{{define "apphead"}}
+{{$a := .Data.App}}{{$tab := .Data.Tab}}
+<p class="sub" style="margin:0 0 4px"><a href="/">Projeler</a> /</p>
+<div class="card pad" style="margin-bottom:8px">
+  <div class="head" style="align-items:center">
+    <div style="min-width:0">
+      <h1>{{$a.Name}}
+        {{range $i, $d := .Data.Deployments}}{{if eq $i 0}}<a href="/deployments/{{$d.ID}}" style="vertical-align:middle"><span class="badge s-{{$d.Status}}">{{status $d.Status}}</span></a>{{end}}{{end}}
+      </h1>
+      {{if .Data.HasProduction}}
+      <a class="prod-url" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">{{.Data.ProductionURL}} ↗</a>
+      {{else}}
+      <p class="muted" style="margin:4px 0 0">Canlı adres ilk başarılı deploy'dan sonra burada görünür.</p>
+      {{end}}
+      <p class="sub small" style="margin:8px 0 0"><span class="mono">{{$a.Repo}}</span> · canlı branch <span class="tag">{{$a.ProductionBranch}}</span>
+        · ekip <a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Name}}</a>{{if not .Data.CanWrite}} · <span class="tag">{{role .Data.Role}}</span>{{end}}</p>
+    </div>
+    {{if .Data.HasProduction}}
+    <div class="actions"><a class="btn primary" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Siteyi aç ↗</a></div>
+    {{end}}
+  </div>
+</div>
+<nav class="tabs" aria-label="Proje sekmeleri">
+  <a href="/apps/{{$a.Name}}"{{if eq $tab "app"}} class="on" aria-current="page"{{end}}>Genel</a>
+  <a href="/apps/{{$a.Name}}/deployments"{{if eq $tab "deploys"}} class="on" aria-current="page"{{end}}>Deploy'lar</a>
+  <a href="/apps/{{$a.Name}}/analytics"{{if eq $tab "analytics"}} class="on" aria-current="page"{{end}}>Analitik</a>
+  <a href="/apps/{{$a.Name}}/settings"{{if eq $tab "settings"}} class="on" aria-current="page"{{end}}>Ayarlar</a>
+</nav>
+{{end}}
+
+{{/* depbadges: status, production, sleeping, environment of one row. */}}
+{{define "depbadges"}}
+<a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
+{{if .Production}}<span class="tag prod">Canlı</span>{{end}}
+{{if and (eq .Status "ready") .SleepingSince}}<span class="tag" title="{{ago .SleepingSince}} uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}
+{{if and .CancelRequestedAt (active .Status)}}<span class="tag warn">İptal isteniyor</span>{{end}}
+{{end}}
+
+{{define "depcommit"}}
+<a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a>
+{{with .Target}}<span class="tag env-{{.}}">{{target .}}</span>{{end}}
+{{with .Framework}}<span class="tag">{{.}}</span>{{end}}
+{{if and .Origin (ne .Origin "git")}}<span class="tag" title="Kaynak deploy{{with .SourceDeploymentID}} #{{.}}{{end}}">{{origin .Origin}}</span>{{end}}
+<div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
+{{if eq .Status "ready"}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>{{end}}
+{{if .Error}}<div class="small" style="color:var(--err)">{{tr .Error}}</div>{{end}}
+{{end}}
+
+{{define "recent"}}
+<div class="card">
+{{with .Data.Recent}}
+  <table>
+    <thead><tr><th>Durum</th><th>Commit</th><th class="hide-sm">Branch</th><th class="hide-sm">Zaman</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td>{{template "depbadges" .}}</td>
+        <td>{{template "depcommit" .}}</td>
+        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
+        <td class="hide-sm muted small" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">Henüz deploy yok. <span class="mono">{{.Data.App.Repo}}</span> reposuna push ettiğinde burada görünür.</div>
+{{end}}
+</div>
+{{end}}
+
 {{define "deployments"}}
 <div id="deployments" class="card"
   {{if .Data.Active}}hx-get="/apps/{{.Data.App.Name}}/deployments" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
@@ -11,18 +81,20 @@
     <tbody>
     {{range .}}
       <tr>
-        <td><a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
-          {{if .Production}}<span class="tag prod">Canlı</span>{{end}}
-          {{if and (eq .Status "ready") .SleepingSince}}<span class="tag" title="{{ago .SleepingSince}} uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}</td>
-        <td>
-          <a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a>
-          <div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
-          {{if eq .Status "ready"}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>{{end}}
-          {{if .Error}}<div class="small" style="color:var(--err)">{{.Error}}</div>{{end}}
-        </td>
+        <td>{{template "depbadges" .}}</td>
+        <td>{{template "depcommit" .}}</td>
         <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
         <td class="hide-sm muted small" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
-        <td style="text-align:right">
+        <td class="controls">
+          {{if .CanPromote}}
+          <form class="inline" method="post" action="/apps/{{$app}}/promote"
+            hx-post="/apps/{{$app}}/promote" hx-target="main" hx-select="main" hx-swap="outerHTML"
+            hx-confirm="{{short .CommitSHA}} production'a taşınsın mı? Aynı imaj production değişkenleriyle yeniden yayınlanır.">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="deployment_id" value="{{.ID}}">
+            <button class="small primary" type="submit">Production'a taşı</button>
+          </form>
+          {{end}}
           {{if .CanRollback}}
           <form class="inline" method="post" action="/apps/{{$app}}/rollback"
             hx-post="/apps/{{$app}}/rollback" hx-target="main" hx-select="main" hx-swap="outerHTML"
@@ -30,6 +102,24 @@
             <input type="hidden" name="csrf" value="{{$csrf}}">
             <input type="hidden" name="deployment_id" value="{{.ID}}">
             <button class="small" type="submit">Bu sürüme dön</button>
+          </form>
+          {{end}}
+          {{if .CanRedeploy}}
+          <form class="inline" method="post" action="/apps/{{$app}}/redeploy"
+            hx-post="/apps/{{$app}}/redeploy" hx-target="main" hx-select="main" hx-swap="outerHTML">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="deployment_id" value="{{.ID}}">
+            <label class="check small" title="İşaretlersen imaj yeniden kullanılmaz, commit baştan build edilir"><input type="checkbox" name="no_cache" value="1"> Önbelleği kullanma</label>
+            <button class="small" type="submit">Yeniden deploy et</button>
+          </form>
+          {{end}}
+          {{if .CanCancel}}
+          <form class="inline" method="post" action="/apps/{{$app}}/cancel"
+            hx-post="/apps/{{$app}}/cancel" hx-target="main" hx-select="main" hx-swap="outerHTML"
+            hx-confirm="{{short .CommitSHA}} deploy'u iptal edilsin mi?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="deployment_id" value="{{.ID}}">
+            <button class="small danger" type="submit">İptal et</button>
           </form>
           {{end}}
         </td>
@@ -45,22 +135,29 @@
 
 {{define "env"}}
 <div id="env-card" class="card pad">
-  {{$csrf := .CSRF}}{{$app := .Data.App.Name}}
+  {{$csrf := .CSRF}}{{$app := .Data.App.Name}}{{$write := .Data.CanWrite}}
   {{with .EnvError}}<div class="flash err" role="alert">{{.}}</div>{{end}}
-  {{with .Data.EnvKeys}}
+  {{range .Data.EnvGroups}}
+  {{$t := .Target}}
+  <h3 class="group">{{envtarget .Target}} <span class="muted small">· {{len .Vars}} değişken</span></h3>
+  {{with .Vars}}
   <table style="margin-bottom:12px">
     <tbody>
     {{range .}}
       <tr>
-        <td class="mono">{{.}}</td>
-        <td class="muted mono">••••••••</td>
+        <td class="mono">{{.Key}}</td>
+        <td>{{with .GitBranch}}<span class="tag" title="Yalnızca bu branch'in önizlemeleri">{{.}}</span>{{end}}</td>
+        <td class="muted mono hide-sm">••••••••</td>
+        <td class="muted small hide-sm">{{ago .UpdatedAt}}</td>
         <td style="text-align:right">
-          {{if $.Data.CanWrite}}
+          {{if $write}}
           <form class="inline" method="post" action="/apps/{{$app}}/env/delete"
             hx-post="/apps/{{$app}}/env/delete" hx-target="#env-card" hx-swap="outerHTML"
-            hx-confirm="{{.}} silinsin mi?">
+            hx-confirm="{{if eq $t "all"}}{{.Key}} tüm ortamlardan (branch'e özel değerler dahil) silinsin mi?{{else}}{{.Key}} ({{envtarget $t}}{{with .GitBranch}} · {{.}}{{end}}) silinsin mi?{{end}}">
             <input type="hidden" name="csrf" value="{{$csrf}}">
-            <input type="hidden" name="key" value="{{.}}">
+            <input type="hidden" name="key" value="{{.Key}}">
+            <input type="hidden" name="target" value="{{$t}}">
+            <input type="hidden" name="git_branch" value="{{.GitBranch}}">
             <button class="small danger" type="submit">Sil</button>
           </form>
           {{end}}
@@ -70,20 +167,30 @@
     </tbody>
   </table>
   {{else}}
-  <p class="muted" style="margin-top:0">Henüz değişken yok.</p>
+  <p class="muted small" style="margin-top:0">Değişken yok.</p>
   {{end}}
-  {{if .Data.CanWrite}}
+  {{end}}
+  {{if $write}}
   <form method="post" action="/apps/{{$app}}/env"
     hx-post="/apps/{{$app}}/env" hx-target="#env-card" hx-swap="outerHTML">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <div class="row">
       <div><label for="env-key">Ad</label><input id="env-key" name="key" placeholder="DATABASE_URL" required pattern="[A-Za-z_][A-Za-z0-9_]*"></div>
       <div><label for="env-value">Değer</label><input id="env-value" name="value" type="password" autocomplete="off"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label for="env-target">Ortam</label>
+        <select id="env-target" name="target">
+          <option value="all">Tümü</option>
+          <option value="production">Production</option>
+          <option value="preview">Önizleme</option>
+        </select></div>
+      <div><label for="env-branch">Branch <span class="muted">(isteğe bağlı, yalnızca Önizleme)</span></label><input id="env-branch" name="git_branch" placeholder="feature/x"></div>
       <div style="flex:0"><button type="submit">Kaydet</button></div>
     </div>
   </form>
   {{end}}
-  <p class="muted small" style="margin-bottom:0">Değerler gizli tutulur ve bir sonraki deploy'da geçerli olur.</p>
+  <p class="muted small" style="margin-bottom:0">Değerler gizli tutulur ve bir sonraki deploy'da geçerli olur. En özel olan kazanır: Tümü &lt; Production / Önizleme &lt; Önizleme + branch.</p>
 </div>
 {{end}}
 

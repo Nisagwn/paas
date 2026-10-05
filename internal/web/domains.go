@@ -118,8 +118,8 @@ func (s *Server) domainsResponse(w http.ResponseWriter, r *http.Request, app sto
 		w.WriteHeader(status)
 		buf.WriteTo(w)
 	case msg != "":
-		s.renderApp(w, r, status, msg)
+		s.renderTabOf(w, r, app, status, tabSettings, msg, nil)
 	default:
-		http.Redirect(w, r, "/apps/"+app.Name+"?ok=domain#custom-domains", http.StatusSeeOther)
+		http.Redirect(w, r, "/apps/"+app.Name+"/settings?ok=domain#custom-domains", http.StatusSeeOther)
 	}
 }

@@ -1,35 +1,20 @@
 {{define "content"}}
+{{template "apphead" .}}
 {{$a := .Data.App}}
-<p class="sub" style="margin:0 0 4px"><a href="/">Projeler</a> /</p>
-<div class="card pad" style="margin-bottom:8px">
-  <div class="head" style="align-items:center">
-    <div style="min-width:0">
-      <h1>{{$a.Name}}
-        {{range $i, $d := .Data.Deployments}}{{if eq $i 0}}<a href="/deployments/{{$d.ID}}" style="vertical-align:middle"><span class="badge s-{{$d.Status}}">{{status $d.Status}}</span></a>{{end}}{{end}}
-      </h1>
-      {{if .Data.HasProduction}}
-      <a class="prod-url" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">{{.Data.ProductionURL}} ↗</a>
-      {{else}}
-      <p class="muted" style="margin:4px 0 0">Canlı adres ilk başarılı deploy'dan sonra burada görünür.</p>
-      {{end}}
-      <p class="sub small" style="margin:8px 0 0"><span class="mono">{{$a.Repo}}</span> · canlı branch <span class="tag">{{$a.ProductionBranch}}</span>
-        · ekip <a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Name}}</a></p>
-    </div>
-    {{if .Data.HasProduction}}
-    <div class="actions"><a class="btn primary" href="{{.Data.ProductionURL}}" target="_blank" rel="noopener">Siteyi aç ↗</a></div>
-    {{end}}
-  </div>
+
+{{with .Data.Production}}
+<h2>Production</h2>
+<div class="card pad grid kv">
+  <div><div class="k">Deploy</div><a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a> <span class="muted small">#{{.ID}}</span></div>
+  <div><div class="k">Branch</div><span class="tag">{{.Branch}}</span></div>
+  <div><div class="k">Framework</div>{{with .Framework}}{{.}}{{else}}<span class="muted">—</span>{{end}}</div>
+  <div><div class="k">Yayına alındı</div><span title="{{time .CreatedAt}}">{{ago .CreatedAt}}</span>{{if and .Origin (ne .Origin "git")}} · {{origin .Origin}}{{end}}</div>
+  <div style="grid-column:1/-1"><div class="k">Commit</div>{{firstLine .CommitMessage}}</div>
 </div>
+{{end}}
 
-<h2>Deploy'lar</h2>
-<p class="sub small">Her push yeni bir deploy oluşturur; eski bir sürüme tek tıkla dönebilirsin.</p>
-{{template "deployments" .}}
-
-<h2>Ayarlar</h2>
-
-<details class="card section" id="addresses">
-  <summary>Adresler <span class="muted">· canlı ve önizleme bağlantıları</span></summary>
-  <div class="body">
+<h2>Adresler</h2>
+<div class="card">
   {{with .Data.Aliases}}
   <table>
     <tbody>
@@ -45,25 +30,13 @@
     </tbody>
   </table>
   {{else}}
-  <p class="muted" style="margin:0">Adresler ilk başarılı deploy'dan sonra görünür.</p>
+  <div class="empty">Adresler ilk başarılı deploy'dan sonra görünür.</div>
   {{end}}
-  </div>
-</details>
+</div>
 
-<details class="card section" id="env" {{if .Data.EnvKeys}}open{{end}}>
-  <summary>Ortam değişkenleri <span class="muted">· {{len .Data.EnvKeys}} değişken</span></summary>
-  <div class="body">{{template "env" .}}</div>
-</details>
-
-<details class="card section" id="custom-domains" {{if .Data.Domains}}open{{end}}>
-  <summary>Alan adları <span class="muted">· kendi alan adını bağla</span></summary>
-  <div class="body">{{template "domains" .}}</div>
-</details>
-
-<details class="card section" id="sleep">
-  <summary>Uyku modu <span class="muted">· platform ayarı</span></summary>
-  <div class="body">
-    <p class="muted small" style="margin:0">Uyku modu sunucuda açıksa, bir süre istek almayan deploy'lar uyutulur ve ilk istekte uyanır; listede “Uykuda” etiketiyle görünürler.</p>
-  </div>
-</details>
+<div class="head" style="align-items:baseline;margin-top:32px">
+  <h2 style="margin:0 0 12px">Son deploy'lar</h2>
+  <div class="actions"><a class="small" href="/apps/{{$a.Name}}/deployments">Tümü ve deploy kontrolleri →</a></div>
+</div>
+{{template "recent" .}}
 {{end}}

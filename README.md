@@ -95,6 +95,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
   ([ayrıntılar](#ortamlar-ve-deploy-kontrolleri-faz-17))
 - [x] Faz 18: `paas` komut satırı aracı (`vercel` CLI tarzı): kişisel token ile giriş, uygulamalar, deployment'lar,
   canlı build logu (`logs -f`), pod logları, rollback, ortam değişkenleri, alan adları, import ([kullanım](#cli-faz-18))
+- [x] Faz 20: arayüzde proje sekmeleri (Genel / Deploy'lar / Analitik / Ayarlar): build ayarları, ortama özel
+  değişkenler, deploy hook'ları, promote / redeploy / iptal düğmeleri, sunucuda çizilen trafik grafiği, deploy sağlığı ve
+  canlı kaynak kullanımı ([ayrıntılar](#web-arayüzü-ve-canlı-loglar-faz-5))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -463,7 +466,25 @@ Arayüz `/` adresinde: GitHub ile giriş yapılır (geliştirme modunda API toke
 [Kullanıcılar ve ekipler](#kullanıcılar-ve-ekipler-faz-13)). Sayfalar:
 
 - **Uygulamalar:** liste, her birinin son deploy durumu, yeni uygulama formu
-- **Uygulama:** alias'lar, deploy geçmişi, tek tıkla rollback, ortam değişkeni anahtarları (değerler asla gösterilmez)
+- **Uygulama** (Faz 20'den beri dört sekme):
+  - **Genel** (`/apps/{name}`): adresler, production deploy'u, son deploy'lar
+  - **Deploy'lar** (`/apps/{name}/deployments`): geçmiş; her deploy kendi adresini (nesil ekiyle, ör.
+    `<sha7>-1-<app>`), framework'ünü, ortamını (Production / Önizleme) ve kaynağını (push, yeniden deploy,
+    production'a taşıma, deploy hook'u) gösterir. Member+ için "Production'a taşı" (hazır önizlemeler),
+    "Bu sürüme dön", "Yeniden deploy et" ("Önbelleği kullanma" seçeneğiyle) ve "İptal et" (sıradaki ve
+    süren deploy'lar) düğmeleri
+  - **Analitik** (`/apps/{name}/analytics?range=1h|24h|7d`): istek, hata oranı (5xx), p95; istekler ve 5xx
+    için sunucuda çizilen SVG grafik (JavaScript yok, her adımın üzerine gelince değerleri görünür); son
+    15 dakikanın deploy sağlığı (Sağlıklı / Sorunlu / Çöküyor / Trafik yok); anlık CPU / bellek
+    (metrics-server ya da Kubernetes yoksa "Kullanım verisi yok")
+  - **Ayarlar** (`/apps/{name}/settings`): build ayarları (framework seçimi, "Otomatik algıla (<algılanan>)",
+    kök dizin, komutlar, çıktı dizini, Node sürümü; API ile aynı doğrulama), ortam değişkenleri (Tümü /
+    Production / Önizleme, önizleme için isteğe bağlı branch; değerler asla gösterilmez), deploy hook'ları
+    (URL yalnızca oluşturulunca bir kez gösterilir), alan adları, uyku modu
+
+  Sekmeler JSON API ile aynı fonksiyonları çağırır (`api.Promote`, `api.Redeploy`, `api.Cancel`,
+  `api.Analytics`, `api.Health`, `api.Usage`, `build.NormalizeSettings`); izleyiciler her şeyi salt okunur
+  görür, deploy hook'ları yalnızca üyelere listelenir.
 - **Deployment** (`/deployments/{id}`): canlı build logu, bitince durum rozeti güncellenir; Kubernetes'te pod logları
 - **Ekipler** (`/teams`): ekip oluşturma, üyeler ve roller; **Tokens** (`/tokens`): kişisel API token'ları
 

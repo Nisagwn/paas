@@ -41,7 +41,8 @@ const (
 	healthFailing  = 0.10
 )
 
-type trafficView struct {
+// TrafficView counts requests by status class.
+type TrafficView struct {
 	Requests  int64 `json:"requests"`
 	Status2xx int64 `json:"status_2xx"`
 	Status3xx int64 `json:"status_3xx"`
@@ -52,23 +53,24 @@ type trafficView struct {
 	ErrorRate float64 `json:"error_rate"`
 }
 
-func newTrafficView(requests int64, c [4]int64) trafficView {
-	v := trafficView{Requests: requests, Status2xx: c[0], Status3xx: c[1], Status4xx: c[2], Status5xx: c[3], Errors: c[3]}
+func newTrafficView(requests int64, c [4]int64) TrafficView {
+	v := TrafficView{Requests: requests, Status2xx: c[0], Status3xx: c[1], Status4xx: c[2], Status5xx: c[3], Errors: c[3]}
 	if requests > 0 {
 		v.ErrorRate = float64(c[3]) / float64(requests)
 	}
 	return v
 }
 
-type latencyView struct {
+// LatencyView holds latency percentiles.
+type LatencyView struct {
 	// Milliseconds; nil without a duration histogram.
 	P50 *float64 `json:"p50_ms"`
 	P95 *float64 `json:"p95_ms"`
 	Avg *float64 `json:"avg_ms"`
 }
 
-func newLatencyView(p store.MetricPoint) latencyView {
-	var v latencyView
+func newLatencyView(p store.MetricPoint) LatencyView {
+	var v LatencyView
 	ms := func(sec float64) *float64 {
 		x := math.Round(sec*1e4) / 10 // 0.1 ms resolution
 		return &x
@@ -85,22 +87,25 @@ func newLatencyView(p store.MetricPoint) latencyView {
 	return v
 }
 
-type pointView struct {
+// PointView is one step of the series (or the totals).
+type PointView struct {
 	Time time.Time `json:"time"`
-	trafficView
-	latencyView
+	TrafficView
+	LatencyView
 }
 
-type deploymentTrafficView struct {
+// DeploymentTrafficView is one deployment's traffic in the range.
+type DeploymentTrafficView struct {
 	DeploymentID int64  `json:"deployment_id"`
 	CommitSHA    string `json:"commit_sha"`
 	Branch       string `json:"branch"`
 	Status       string `json:"status"`
 	Production   bool   `json:"production"`
-	trafficView
+	TrafficView
 }
 
-type analyticsView struct {
+// AnalyticsView is the answer of GET /analytics (Analytics).
+type AnalyticsView struct {
 	Range        string    `json:"range"`
 	StepSeconds  int64     `json:"step_seconds"`
 	From         time.Time `json:"from"`
@@ -109,9 +114,9 @@ type analyticsView struct {
 	// Histogram: latency percentiles are available (Traefik exports the
 	// duration histogram).
 	Histogram   bool                    `json:"histogram"`
-	Totals      pointView               `json:"totals"`
-	Series      []pointView             `json:"series"`
-	Deployments []deploymentTrafficView `json:"deployments"`
+	Totals      PointView               `json:"totals"`
+	Series      []PointView             `json:"series"`
+	Deployments []DeploymentTrafficView `json:"deployments"`
 }
 
 func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
@@ -123,9 +128,8 @@ func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
 	if rng == "" {
 		rng = "24h"
 	}
-	spec, ok := analyticsRanges[rng]
-	if !ok {
-		writeError(w, http.StatusBadRequest, "range must be 1h, 24h or 7d")
+	if _, ok := analyticsRanges[rng]; !ok {
+		writeError(w, http.StatusBadRequest, ErrRange.Error())
 		return
 	}
 	var depID int64
@@ -146,25 +150,43 @@ func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
 		}
 		depID = id
 	}
+	out, err := Analytics(r.Context(), s.Store, app.ID, rng, depID, s.clock())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
 
+// AnalyticsRanges are the ranges Analytics accepts, shortest first.
+var AnalyticsRanges = []string{"1h", "24h", "7d"}
+
+// ErrRange: the range is not one of AnalyticsRanges.
+var ErrRange = errors.New("range must be 1h, 24h or 7d")
+
+// Analytics builds the traffic of an app (or of deployment depID when not
+// 0) over range rng ending at now. GET /analytics and the web UI share it.
+func Analytics(ctx context.Context, st *store.Store, appID int64, rng string, depID int64, now time.Time) (AnalyticsView, error) {
+	spec, ok := analyticsRanges[rng]
+	if !ok {
+		return AnalyticsView{}, ErrRange
+	}
 	// Steps are aligned to multiples of step; the last one is in progress.
-	to := s.clock().UTC().Truncate(spec.step).Add(spec.step)
+	to := now.UTC().Truncate(spec.step).Add(spec.step)
 	from := to.Add(-spec.span)
-	points, err := s.Store.RequestSeries(r.Context(), store.MetricsQuery{
-		AppID: app.ID, DeploymentID: depID, From: from, To: to, Step: spec.step,
+	points, err := st.RequestSeries(ctx, store.MetricsQuery{
+		AppID: appID, DeploymentID: depID, From: from, To: to, Step: spec.step,
 	})
 	if err != nil {
-		s.internalError(w, err)
-		return
+		return AnalyticsView{}, err
 	}
-	traffic, err := s.Store.DeploymentTraffic(r.Context(), app.ID, from, to)
+	traffic, err := st.DeploymentTraffic(ctx, appID, from, to)
 	if err != nil {
-		s.internalError(w, err)
-		return
+		return AnalyticsView{}, err
 	}
 
-	out := analyticsView{Range: rng, StepSeconds: int64(spec.step.Seconds()), From: from, To: to, DeploymentID: depID,
-		Series: []pointView{}, Deployments: []deploymentTrafficView{}}
+	out := AnalyticsView{Range: rng, StepSeconds: int64(spec.step.Seconds()), From: from, To: to, DeploymentID: depID,
+		Series: []PointView{}, Deployments: []DeploymentTrafficView{}}
 	byTime := make(map[int64]store.MetricPoint, len(points))
 	var total store.MetricPoint
 	for _, p := range points {
@@ -173,37 +195,40 @@ func (s *Server) getAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	for t := from; t.Before(to); t = t.Add(spec.step) {
 		p := byTime[t.Unix()]
-		out.Series = append(out.Series, pointView{Time: t, trafficView: newTrafficView(p.Requests, p.Classes),
-			latencyView: newLatencyView(p)})
+		out.Series = append(out.Series, PointView{Time: t, TrafficView: newTrafficView(p.Requests, p.Classes),
+			LatencyView: newLatencyView(p)})
 	}
 	out.Histogram = len(total.Buckets) > 0
-	out.Totals = pointView{Time: from, trafficView: newTrafficView(total.Requests, total.Classes),
-		latencyView: newLatencyView(total)}
+	out.Totals = PointView{Time: from, TrafficView: newTrafficView(total.Requests, total.Classes),
+		LatencyView: newLatencyView(total)}
 	for _, d := range traffic {
 		if d.Requests == 0 || (depID != 0 && d.DeploymentID != depID) {
 			continue
 		}
-		out.Deployments = append(out.Deployments, deploymentTrafficView{
+		out.Deployments = append(out.Deployments, DeploymentTrafficView{
 			DeploymentID: d.DeploymentID, CommitSHA: d.CommitSHA, Branch: d.Branch, Status: d.Status,
-			Production: d.Production, trafficView: newTrafficView(d.Requests, d.Classes),
+			Production: d.Production, TrafficView: newTrafficView(d.Requests, d.Classes),
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
-type deploymentHealthView struct {
-	deploymentTrafficView
+// DeploymentHealthView is one deployment's health.
+type DeploymentHealthView struct {
+	DeploymentTrafficView
 	// Health: "no_traffic", "healthy" (5xx < 1%), "degraded" (< 10%) or
 	// "failing".
 	Health string `json:"health"`
 }
 
-type healthView struct {
+// HealthView is the answer of GET /health (Health).
+type HealthView struct {
 	WindowSeconds int64                  `json:"window_seconds"`
-	Deployments   []deploymentHealthView `json:"deployments"`
+	Deployments   []DeploymentHealthView `json:"deployments"`
 }
 
-func healthOf(t store.DeploymentTraffic) string {
+// HealthOf classifies a deployment by its 5xx rate.
+func HealthOf(t store.DeploymentTraffic) string {
 	switch {
 	case t.Requests == 0:
 		return "no_traffic"
@@ -222,26 +247,36 @@ func (s *Server) getHealth(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	now := s.clock().UTC()
-	traffic, err := s.Store.DeploymentTraffic(r.Context(), app.ID, now.Add(-HealthWindow), now.Add(time.Minute))
+	out, err := Health(r.Context(), s.Store, app.ID, s.clock())
 	if err != nil {
 		s.internalError(w, err)
 		return
 	}
-	out := healthView{WindowSeconds: int64(HealthWindow.Seconds()), Deployments: []deploymentHealthView{}}
-	for _, d := range traffic {
-		out.Deployments = append(out.Deployments, deploymentHealthView{
-			deploymentTrafficView: deploymentTrafficView{
-				DeploymentID: d.DeploymentID, CommitSHA: d.CommitSHA, Branch: d.Branch, Status: d.Status,
-				Production: d.Production, trafficView: newTrafficView(d.Requests, d.Classes),
-			},
-			Health: healthOf(d),
-		})
-	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-type deploymentUsageView struct {
+// Health builds the deployment health of the HealthWindow before now.
+func Health(ctx context.Context, st *store.Store, appID int64, now time.Time) (HealthView, error) {
+	now = now.UTC()
+	traffic, err := st.DeploymentTraffic(ctx, appID, now.Add(-HealthWindow), now.Add(time.Minute))
+	if err != nil {
+		return HealthView{}, err
+	}
+	out := HealthView{WindowSeconds: int64(HealthWindow.Seconds()), Deployments: []DeploymentHealthView{}}
+	for _, d := range traffic {
+		out.Deployments = append(out.Deployments, DeploymentHealthView{
+			DeploymentTrafficView: DeploymentTrafficView{
+				DeploymentID: d.DeploymentID, CommitSHA: d.CommitSHA, Branch: d.Branch, Status: d.Status,
+				Production: d.Production, TrafficView: newTrafficView(d.Requests, d.Classes),
+			},
+			Health: HealthOf(d),
+		})
+	}
+	return out, nil
+}
+
+// DeploymentUsageView is the live usage of one deployment's pods.
+type DeploymentUsageView struct {
 	DeploymentID  int64             `json:"deployment_id"`
 	CommitSHA     string            `json:"commit_sha"`
 	Branch        string            `json:"branch"`
@@ -250,8 +285,9 @@ type deploymentUsageView struct {
 	Pods          []deploy.PodUsage `json:"pods"`
 }
 
-type usageView struct {
-	Deployments []deploymentUsageView `json:"deployments"`
+// UsageView is the answer of GET /usage (Usage).
+type UsageView struct {
+	Deployments []DeploymentUsageView `json:"deployments"`
 }
 
 // getUsage reports the live CPU and memory of the app's running pods,
@@ -261,31 +297,47 @@ func (s *Server) getUsage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.Usage == nil {
-		writeError(w, http.StatusNotImplemented, "resource usage needs the kubernetes deployer")
+	out, err := Usage(r.Context(), s.Store, s.Usage, app)
+	switch {
+	case errors.Is(err, ErrNoUsage):
+		writeError(w, http.StatusNotImplemented, err.Error())
 		return
-	}
-	pods, err := s.Usage.AppUsage(r.Context(), app.Name)
-	if errors.Is(err, deploy.ErrNoMetricsAPI) {
+	case errors.Is(err, deploy.ErrNoMetricsAPI):
 		writeError(w, http.StatusServiceUnavailable, "resource metrics unavailable: metrics-server (metrics.k8s.io) is not running")
 		return
-	}
-	if err != nil {
+	case err != nil:
 		s.internalError(w, err)
 		return
 	}
-	out := usageView{Deployments: []deploymentUsageView{}}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// ErrNoUsage: there is no usage source (dry-run deployer).
+var ErrNoUsage = errors.New("resource usage needs the kubernetes deployer")
+
+// Usage reads the live usage of the app's pods from src, grouped by
+// deployment. It fails with ErrNoUsage when src is nil and with
+// deploy.ErrNoMetricsAPI without metrics-server.
+func Usage(ctx context.Context, st *store.Store, src UsageSource, app store.App) (UsageView, error) {
+	if src == nil {
+		return UsageView{}, ErrNoUsage
+	}
+	pods, err := src.AppUsage(ctx, app.Name)
+	if err != nil {
+		return UsageView{}, err
+	}
+	out := UsageView{Deployments: []DeploymentUsageView{}}
 	index := map[int64]int{}
 	for _, p := range pods {
 		i, seen := index[p.DeploymentID]
 		if !seen {
-			d, err := s.Store.GetDeployment(r.Context(), p.DeploymentID)
+			d, err := st.GetDeployment(ctx, p.DeploymentID)
 			if err != nil || d.AppID != app.ID {
 				continue // not (or no longer) a deployment of this app
 			}
 			i = len(out.Deployments)
 			index[p.DeploymentID] = i
-			out.Deployments = append(out.Deployments, deploymentUsageView{
+			out.Deployments = append(out.Deployments, DeploymentUsageView{
 				DeploymentID: d.ID, CommitSHA: d.CommitSHA, Branch: d.Branch, Pods: []deploy.PodUsage{},
 			})
 		}
@@ -294,7 +346,7 @@ func (s *Server) getUsage(w http.ResponseWriter, r *http.Request) {
 		du.MemoryBytes += p.MemoryBytes
 		du.Pods = append(du.Pods, p)
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 func (s *Server) clock() time.Time {

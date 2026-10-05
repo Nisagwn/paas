@@ -195,7 +195,7 @@ func TestPagesAndRollback(t *testing.T) {
 	if code, body, _ := u.post("/apps/blog/env", form, "self"); code >= 400 {
 		t.Fatalf("set env: %d\n%s", code, body)
 	}
-	if _, body, _ := u.get("/apps/blog"); !strings.Contains(body, "DB_URL") || strings.Contains(body, "s3cret") {
+	if _, body, _ := u.get("/apps/blog/settings"); !strings.Contains(body, "DB_URL") || strings.Contains(body, "s3cret") {
 		t.Fatal("env key must be listed and its value hidden")
 	}
 

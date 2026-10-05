@@ -40,11 +40,11 @@ func TestDomainForms(t *testing.T) {
 	ctx := context.Background()
 	app, _ := u.st.CreateApp(ctx, "blog", "nisagwn/blog", "main")
 
-	code, body, _ := u.get("/apps/blog")
+	code, body, _ := u.get("/apps/blog/settings")
 	if code != 200 || !strings.Contains(body, "Alan adları") || !strings.Contains(body, "Henüz alan adı yok.") {
 		t.Fatalf("app page: %d", code)
 	}
-	csrf := u.csrf("/apps/blog")
+	csrf := u.csrf("/apps/blog/settings")
 
 	// CSRF and same-origin are required.
 	if code, _, _ := u.post("/apps/blog/domains", url.Values{"hostname": {"www.example.com"}}, "self"); code != http.StatusForbidden {
@@ -61,7 +61,7 @@ func TestDomainForms(t *testing.T) {
 	}
 
 	code, _, h := u.post("/apps/blog/domains", url.Values{"hostname": {"www.example.com"}, "csrf": {csrf}}, "self")
-	if code != http.StatusSeeOther || h.Get("Location") != "/apps/blog?ok=domain#custom-domains" {
+	if code != http.StatusSeeOther || h.Get("Location") != "/apps/blog/settings?ok=domain#custom-domains" {
 		t.Fatalf("add: %d %q", code, h.Get("Location"))
 	}
 	d, err := u.st.GetDomain(ctx, app.ID, "www.example.com")
@@ -70,11 +70,11 @@ func TestDomainForms(t *testing.T) {
 	}
 
 	// The page lists it with its status and the DNS records to create.
-	_, body, _ = u.get("/apps/blog")
+	_, body, _ = u.get("/apps/blog/settings")
 	for _, want := range []string{"www.example.com", "s-verified", "İlk canlı deploy bekleniyor",
 		"_paas-challenge.www.example.com", d.Token, "blog.paas.test", "Alan adları güncellendi."} {
 		if want == "Alan adları güncellendi." {
-			_, body, _ = u.get("/apps/blog?ok=domain")
+			_, body, _ = u.get("/apps/blog/settings?ok=domain")
 		}
 		if !strings.Contains(body, want) {
 			t.Errorf("app page lacks %q", want)
