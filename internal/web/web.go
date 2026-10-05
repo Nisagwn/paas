@@ -69,8 +69,12 @@ var funcs = template.FuncMap{
 		s, _, _ = strings.Cut(s, "\n")
 		return s
 	},
-	"ago":  ago,
-	"time": func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") },
+	"ago":    ago,
+	"time":   func(t time.Time) string { return t.UTC().Format("02.01.2006 15:04:05 UTC") },
+	"tr":     tr,
+	"status": statusLabel,
+	"role":   roleLabel,
+	"kind":   kindLabel,
 	"active": func(status string) bool {
 		return status == store.StatusQueued || status == store.StatusBuilding || status == store.StatusDeploying
 	},
@@ -78,7 +82,7 @@ var funcs = template.FuncMap{
 		if d.StartedAt == nil || d.FinishedAt == nil {
 			return ""
 		}
-		return d.FinishedAt.Sub(*d.StartedAt).Round(time.Second).String()
+		return shortDuration(d.FinishedAt.Sub(*d.StartedAt))
 	},
 }
 
@@ -129,7 +133,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /import", s.authed(s.importPage))
 	mux.Handle("POST /import", s.authed(s.importApp))
 	mux.Handle("/", s.authed(func(w http.ResponseWriter, r *http.Request) {
-		s.errorPage(w, r, http.StatusNotFound, "Page not found.")
+		s.errorPage(w, r, http.StatusNotFound, "Sayfa bulunamadı.")
 	}))
 	return securityHeaders(mux)
 }
@@ -167,7 +171,7 @@ func (s *Server) authed(h http.HandlerFunc) http.Handler {
 		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
 			p, err := s.Auth.Bearer(r.Context(), token)
 			if err != nil {
-				http.Error(w, "invalid bearer token", http.StatusUnauthorized)
+				http.Error(w, "geçersiz bearer token", http.StatusUnauthorized)
 				return
 			}
 			h(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
@@ -183,13 +187,13 @@ func (s *Server) authed(h http.HandlerFunc) http.Handler {
 				http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 				return
 			}
-			http.Error(w, "login required", http.StatusUnauthorized)
+			http.Error(w, "giriş yapmalısın", http.StatusUnauthorized)
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			if !s.Sessions.CheckCSRF(r) {
-				http.Error(w, "invalid CSRF token or cross-origin request", http.StatusForbidden)
+				http.Error(w, "geçersiz CSRF token'ı ya da başka siteden gelen istek; sayfayı yenileyip tekrar dene", http.StatusForbidden)
 				return
 			}
 		}
@@ -218,7 +222,7 @@ type page struct {
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
 	p := page{
-		Title: title, CSRF: s.Sessions.CSRFToken(r), Domain: s.Domain, Data: data, Error: errMsg,
+		Title: tr(title), CSRF: s.Sessions.CSRFToken(r), Domain: s.Domain, Data: data, Error: tr(errMsg),
 		Flash: flashes[r.URL.Query().Get("ok")],
 	}
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
@@ -226,7 +230,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("render", "page", name, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "sunucu hatası", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -237,9 +241,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 // partial renders a fragment for htmx.
 func (s *Server) partial(w http.ResponseWriter, r *http.Request, status int, name string, data any, envErr string) {
 	var buf bytes.Buffer
-	if err := s.pages[name].Execute(&buf, page{Data: data, CSRF: s.Sessions.CSRFToken(r), EnvError: envErr}); err != nil {
+	if err := s.pages[name].Execute(&buf, page{Data: data, CSRF: s.Sessions.CSRFToken(r), EnvError: tr(envErr)}); err != nil {
 		s.Log.Error("render", "partial", name, "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		http.Error(w, "sunucu hatası", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -263,41 +267,27 @@ func redirect(w http.ResponseWriter, r *http.Request, path string) {
 // flashes are fixed messages selected by ?ok=, so nothing user-supplied is
 // reflected into the page.
 var flashes = map[string]string{
-	"created":  "App created. Point a GitHub push webhook at /webhooks/github to deploy it.",
-	"rollback": "Production now serves the selected deployment.",
-	"env":      "Environment updated. New values apply to the next deployment.",
-	"domain":   "Custom domains updated.",
-	"team":     "Team created.",
-	"member":   "Team members updated.",
-	"revoked":  "Token revoked.",
+	"created":  "Proje oluşturuldu. Deploy için repoya /webhooks/github adresine giden bir push webhook'u ekle.",
+	"rollback": "Canlı site artık seçtiğin sürümü gösteriyor.",
+	"env":      "Kaydedildi. Yeni değerler bir sonraki deploy'da geçerli olur.",
+	"domain":   "Alan adları güncellendi.",
+	"team":     "Ekip oluşturuldu.",
+	"member":   "Ekip üyeleri güncellendi.",
+	"revoked":  "Token iptal edildi.",
 	// Faz 15.
-	"imported":       "App imported from GitHub. Its first deployment is queued.",
-	"imported-idle":  "App imported. Push to its production branch to deploy it.",
-	"github":         "GitHub App installation linked to your team. Its repositories are listed below.",
-	"github-updated": "GitHub App settings saved. Repository changes appear once GitHub notifies the platform.",
+	"imported":       "Proje oluşturuldu, ilk deploy başladı.",
+	"imported-idle":  "Proje oluşturuldu. Deploy için canlı branch'e push et.",
+	"github":         "GitHub bağlandı. Repoların aşağıda.",
+	"github-updated": "GitHub ayarları kaydedildi. Repo değişiklikleri birkaç saniye içinde burada görünür.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	s.render(w, r, status, "error", http.StatusText(status), nil, msg)
+	s.render(w, r, status, "error", statusTitle(status), nil, msg)
 }
 
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
 	s.Log.Error("web: internal error", "path", r.URL.Path, "err", err)
-	s.errorPage(w, r, http.StatusInternalServerError, "Something went wrong. The server log has details.")
-}
-
-func ago(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		return "just now"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
-	}
+	s.errorPage(w, r, http.StatusInternalServerError, "Bir şeyler ters gitti. Ayrıntılar sunucu logunda.")
 }
 
 // ---- login ----
@@ -307,7 +297,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, http.StatusOK, "login", "Log in", s.loginData(safeNext(r.URL.Query().Get("next"))),
+	s.render(w, r, http.StatusOK, "login", "Giriş yap", s.loginData(safeNext(r.URL.Query().Get("next"))),
 		loginErrors[r.URL.Query().Get("error")])
 }
 
@@ -320,16 +310,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	next := safeNext(r.PostFormValue("next"))
 	if !s.Auth.TokenLogin() {
-		http.Error(w, "token login is disabled: sign in with GitHub", http.StatusNotFound)
+		http.Error(w, "token ile giriş kapalı: GitHub ile giriş yap", http.StatusNotFound)
 		return
 	}
 	if !auth.SameOrigin(r) {
-		http.Error(w, "cross-origin login rejected", http.StatusForbidden)
+		http.Error(w, "başka siteden gelen giriş isteği reddedildi", http.StatusForbidden)
 		return
 	}
 	if !s.Sessions.CheckToken(strings.TrimSpace(r.PostFormValue("token"))) {
 		s.Log.Warn("web: failed login", "remote", r.RemoteAddr)
-		s.render(w, r, http.StatusUnauthorized, "login", "Log in", s.loginData(next), "Invalid API token.")
+		s.render(w, r, http.StatusUnauthorized, "login", "Giriş yap", s.loginData(next), "Geçersiz API token'ı.")
 		return
 	}
 	s.Sessions.Issue(w, r)
@@ -398,7 +388,7 @@ func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, 
 	if form == nil {
 		form = map[string]string{"Branch": "main"}
 	}
-	s.render(w, r, status, "apps", "Apps", map[string]any{"Apps": rows, "Form": form, "Teams": writable}, errMsg)
+	s.render(w, r, status, "apps", "Projeler", map[string]any{"Apps": rows, "Form": form, "Teams": writable}, errMsg)
 }
 
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
@@ -413,16 +403,16 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case !naming.ValidAppName(name):
 		s.renderApps(w, r, http.StatusBadRequest,
-			"Name must be 2-31 chars: lowercase letters, digits and '-', starting with a letter.", form)
+			"Ad 2-31 karakter olmalı: a-z harfleri, rakamlar ve '-'; harfle başlamalı.", form)
 		return
 	case !api.ValidRepo(repo):
-		s.renderApps(w, r, http.StatusBadRequest, `Repository must look like "owner/repo".`, form)
+		s.renderApps(w, r, http.StatusBadRequest, `Repo "sahip/repo" biçiminde olmalı.`, form)
 		return
 	}
 	me, _ := auth.From(r.Context())
 	team, err := s.Auth.TeamForApps(r.Context(), me, teamSlug)
 	if errors.Is(err, store.ErrNotFound) || errors.Is(err, auth.ErrForbidden) {
-		s.renderApps(w, r, http.StatusForbidden, "You need the member role on a team to create apps there.", form)
+		s.renderApps(w, r, http.StatusForbidden, "Proje eklemek için ekipte üye rolü gerekir.", form)
 		return
 	}
 	if err != nil {
@@ -431,7 +421,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = s.Store.CreateAppInTeam(r.Context(), team.ID, name, repo, branch)
 	if errors.Is(err, store.ErrConflict) {
-		s.renderApps(w, r, http.StatusConflict, "An app with this name or repository already exists.", form)
+		s.renderApps(w, r, http.StatusConflict, "Bu ad ya da repo ile bir proje zaten var.", form)
 		return
 	}
 	if err != nil {
@@ -478,7 +468,7 @@ type aliasRow struct {
 func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, bool) {
 	app, err := s.Store.GetAppByName(r.Context(), r.PathValue("name"))
 	if errors.Is(err, store.ErrNotFound) {
-		s.errorPage(w, r, http.StatusNotFound, "App not found.")
+		s.errorPage(w, r, http.StatusNotFound, "Proje bulunamadı.")
 		return app, false
 	}
 	if err != nil {
@@ -489,7 +479,7 @@ func (s *Server) loadApp(w http.ResponseWriter, r *http.Request) (store.App, boo
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		need = store.RoleViewer
 	}
-	if !s.checkTeam(w, r, app.TeamID, need, "App not found.") {
+	if !s.checkTeam(w, r, app.TeamID, need, "Proje bulunamadı.") {
 		return app, false
 	}
 	return app, true
@@ -590,20 +580,20 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := strconv.ParseInt(r.PostFormValue("deployment_id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.renderApp(w, r, http.StatusBadRequest, "Invalid deployment.")
+		s.renderApp(w, r, http.StatusBadRequest, "Geçersiz deploy.")
 		return
 	}
 	_, err = s.Store.Rollback(r.Context(), app.ID, id)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		s.renderApp(w, r, http.StatusNotFound, "Deployment or production alias not found for this app.")
+		s.renderApp(w, r, http.StatusNotFound, "Bu projede böyle bir deploy ya da canlı adres yok.")
 		return
 	case errors.Is(err, store.ErrNotReady):
-		s.renderApp(w, r, http.StatusConflict, "Only ready deployments can receive production traffic.")
+		s.renderApp(w, r, http.StatusConflict, "Yalnızca hazır bir deploy canlıya alınabilir.")
 		return
 	case errors.Is(err, store.ErrRetired):
 		s.renderApp(w, r, http.StatusConflict,
-			"This deployment is retired and no longer runs; push its commit again to redeploy it.")
+			"Bu deploy emekliye ayrıldı ve artık çalışmıyor; yeniden yayınlamak için commit'i tekrar push et.")
 		return
 	case err != nil:
 		s.internalError(w, r, err)
@@ -614,7 +604,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
 			s.Log.Error("rollback: route sync", "app", app.Name, "err", err)
 			s.renderApp(w, r, http.StatusBadGateway,
-				"Rollback saved, but updating the router failed; it is retried automatically.")
+				"Geri alma kaydedildi ama yönlendirme güncellenemedi; otomatik olarak tekrar denenecek.")
 			return
 		}
 	}
@@ -668,12 +658,12 @@ func (s *Server) changeEnv(w http.ResponseWriter, r *http.Request, key string, v
 func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		s.errorPage(w, r, http.StatusNotFound, "Deployment not found.")
+		s.errorPage(w, r, http.StatusNotFound, "Deploy bulunamadı.")
 		return
 	}
 	d, err := s.Store.GetDeployment(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
-		s.errorPage(w, r, http.StatusNotFound, "Deployment not found.")
+		s.errorPage(w, r, http.StatusNotFound, "Deploy bulunamadı.")
 		return
 	}
 	if err != nil {
@@ -685,7 +675,7 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	if !s.checkTeam(w, r, app.TeamID, store.RoleViewer, "Deployment not found.") {
+	if !s.checkTeam(w, r, app.TeamID, store.RoleViewer, "Deploy bulunamadı.") {
 		return
 	}
 	s.render(w, r, http.StatusOK, "deployment", fmt.Sprintf("%s · %s", d.AppName, naming.ShortSHA(d.CommitSHA)),

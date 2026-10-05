@@ -14,7 +14,7 @@ import (
 	"github.com/nisagwn/paas/internal/store"
 )
 
-// installFlow runs the browser side of "Install GitHub App" for team as the
+// installFlow runs the browser side of "GitHub'da repo seç" for team as the
 // signed-in user, with GitHub authorizing code (the GitHub login), and
 // returns the final callback's status and body.
 func (u *oauthUI) installFlow(team string, installation int64, code string) (int, string) {
@@ -63,7 +63,7 @@ func TestGitHubAppClaim(t *testing.T) {
 	def, _ := u.st.GetTeamBySlug(ctx, store.DefaultTeam)
 
 	// The import page offers the install button to members.
-	if code, body, _ := u.get("/import"); code != 200 || !strings.Contains(body, "Install GitHub App") {
+	if code, body, _ := u.get("/import"); code != 200 || !strings.Contains(body, "GitHub'da repo seç") {
 		t.Fatalf("import page: %d\n%s", code, body)
 	}
 
@@ -78,7 +78,7 @@ func TestGitHubAppClaim(t *testing.T) {
 		t.Fatalf("installation: %+v %v", in, err)
 	}
 	if code, body, _ := u.get("/import?ok=github"); code != 200 || !strings.Contains(body, "acme/Web") ||
-		!strings.Contains(body, "linked to your team") || !strings.Contains(body, `value="web"`) {
+		!strings.Contains(body, "GitHub bağlandı") || !strings.Contains(body, `value="web"`) {
 		t.Fatalf("import page after claim: %d\n%s", code, body)
 	}
 
@@ -98,10 +98,10 @@ func TestGitHubAppClaim(t *testing.T) {
 	if app, err := u.st.GetAppByName(ctx, "web"); err != nil || app.Repo != "acme/Web" || app.TeamID != def.ID {
 		t.Fatalf("imported app: %+v %v", app, err)
 	}
-	if _, body, _ := u.get("/import"); !strings.Contains(body, "already imported as") {
+	if _, body, _ := u.get("/import"); !strings.Contains(body, "Zaten eklendi") {
 		t.Fatal("imported repository not marked")
 	}
-	if code, body, _ := u.post("/import", form, "self"); code != http.StatusConflict || !strings.Contains(body, "already deployed as app web") {
+	if code, body, _ := u.post("/import", form, "self"); code != http.StatusConflict || !strings.Contains(body, "zaten web projesi") {
 		t.Fatalf("import twice: %d", code)
 	}
 
@@ -134,14 +134,14 @@ func TestGitHubAppClaimRefused(t *testing.T) {
 
 	// A valid session and state, but orgie's GitHub account cannot see 42:
 	// the installation id alone must not be enough.
-	if code, body := u.installFlow("web", 42, "orgie"); code != http.StatusForbidden || !strings.Contains(body, "cannot access") {
+	if code, body := u.installFlow("web", 42, "orgie"); code != http.StatusForbidden || !strings.Contains(body, "erişimi yok") {
 		t.Fatalf("foreign installation: %d\n%s", code, body)
 	}
 	if _, err := u.st.GetInstallation(ctx, 42); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("refused claim recorded the installation: %v", err)
 	}
 	// Orgie's state, but GitHub authorizes another account (root) that can.
-	if code, body := u.installFlow("web", 42, "root"); code != http.StatusForbidden || !strings.Contains(body, "different account") {
+	if code, body := u.installFlow("web", 42, "root"); code != http.StatusForbidden || !strings.Contains(body, "farklı bir hesabı") {
 		t.Fatalf("wrong account: %d\n%s", code, body)
 	}
 
@@ -172,13 +172,13 @@ func TestGitHubAppClaimRefused(t *testing.T) {
 	friend, _ := u.st.UpsertUser(ctx, 4, "friend", "", "")
 	u.st.SetMember(ctx, team.ID, friend.ID, store.RoleOwner)
 	u.st.SetMember(ctx, team.ID, orgie.ID, store.RoleViewer)
-	if code, body := u.setup(55, "install", state, "orgie"); code != http.StatusForbidden || !strings.Contains(body, "member role") {
+	if code, body := u.setup(55, "install", state, "orgie"); code != http.StatusForbidden || !strings.Contains(body, "üye rolü") {
 		t.Fatalf("viewer claim: %d\n%s", code, body)
 	}
 	if code, _, _ := u.get("/github/install?team=web"); code != http.StatusForbidden {
 		t.Fatalf("viewer install link: %d", code)
 	}
-	if code, body, _ := u.get("/import"); code != 200 || strings.Contains(body, "Install GitHub App") {
+	if code, body, _ := u.get("/import"); code != 200 || strings.Contains(body, "GitHub'da repo seç") {
 		t.Fatalf("viewer import page: %d", code)
 	}
 	if claimed(55) {
@@ -217,11 +217,11 @@ func TestImportPageDevMode(t *testing.T) {
 	u := setup(t)
 	u.login()
 	if code, body, _ := u.get("/github/setup?installation_id=1&setup_action=install&state=x"); code != http.StatusNotImplemented ||
-		!strings.Contains(body, "GitHub sign-in") {
+		!strings.Contains(body, "GitHub ile giriş") {
 		t.Fatalf("setup in dev mode: %d\n%s", code, body)
 	}
 	code, body, _ := u.get("/import")
-	if code != 200 || !strings.Contains(body, "No GitHub App is configured") || strings.Contains(body, "Install GitHub App") {
+	if code != 200 || !strings.Contains(body, "GitHub bağlantısı ayarlı değil") || strings.Contains(body, "GitHub'da repo seç") {
 		t.Fatalf("import page: %d\n%s", code, body)
 	}
 	if _, body, _ := u.get("/"); !strings.Contains(body, `href="/import"`) {

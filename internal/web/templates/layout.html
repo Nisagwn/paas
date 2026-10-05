@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="en">
+<html lang="tr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -95,6 +95,39 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 .live { font-size: 12px; color: var(--muted); }
 .empty { padding: 32px; text-align: center; color: var(--muted); }
 details summary { cursor: pointer; }
+details.section { margin-top: 12px; }
+details.section > summary { font-weight: 600; padding: 12px 16px; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::before { content: "›"; display: inline-block; width: 10px; color: var(--muted); transition: transform .15s; }
+details.section[open] > summary::before { transform: rotate(90deg); }
+details.section > summary .muted { font-weight: 400; font-size: 13px; }
+details.section > .body { padding: 0 16px 16px; }
+details.section > .body > .card { border: 0; }
+details.section > .body > .card.pad { padding: 0; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.big, button.big { font-size: 15px; padding: 10px 20px; }
+.hero { padding: 72px 24px; text-align: center; }
+.hero h1 { font-size: 28px; margin-bottom: 8px; }
+.hero p { color: var(--muted); margin: 0 auto 24px; max-width: 460px; }
+.projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.project { padding: 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.project:hover { border-color: var(--muted); }
+.project .name { font-size: 16px; font-weight: 700; color: var(--text); }
+.project .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project .meta { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prod-url { font-size: 18px; font-weight: 600; word-break: break-all; }
+.repo-row { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.repo-row:last-child { border-bottom: 0; }
+.repo-row .repo { flex: 1; min-width: 200px; padding-top: 6px; }
+.repo-row form { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.repo-row details { font-size: 13px; }
+.repo-row details .row { margin-top: 8px; text-align: left; }
+.user-menu { position: relative; }
+.user-menu > summary { list-style: none; color: var(--muted); font-size: 14px; }
+.user-menu > summary::-webkit-details-marker { display: none; }
+.user-menu .menu { position: absolute; right: 0; top: 28px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; min-width: 140px; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+header.top nav a.cta { color: var(--text); font-weight: 600; }
 form.inline { display: inline; }
 @media (max-width: 720px) { .hide-sm { display: none; } th, td { padding: 8px; } }
 </style>
@@ -104,14 +137,19 @@ form.inline { display: inline; }
   <a class="brand" href="/">▲ paas</a>
   {{if .LoggedIn}}
   <nav>
-    <a href="/">Apps</a>
-    <a href="/teams">Teams</a>
-    <a href="/tokens">Tokens</a>
-    <span class="muted small">{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}}</span>
-    <form class="inline" method="post" action="/logout">
-      <input type="hidden" name="csrf" value="{{.CSRF}}">
-      <button class="link" type="submit">Log out</button>
-    </form>
+    <a href="/">Projeler</a>
+    <a class="cta" href="/import">+ Yeni proje</a>
+    <a href="/teams">Ekipler</a>
+    <a href="/tokens">Token'lar</a>
+    <details class="user-menu">
+      <summary>{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}} ▾</summary>
+      <div class="menu">
+        <form class="inline" method="post" action="/logout">
+          <input type="hidden" name="csrf" value="{{.CSRF}}">
+          <button class="link" type="submit">Çıkış yap</button>
+        </form>
+      </div>
+    </details>
   </nav>
   {{end}}
 </header>
@@ -120,5 +158,17 @@ form.inline { display: inline; }
   {{if .Error}}<div class="flash err" role="alert">{{.Error}}</div>{{end}}
   {{template "content" .}}
 </main>
+<script nonce="{{.Nonce}}">
+// A link to #section opens the collapsed section it points at.
+(() => {
+  const open = () => {
+    const el = location.hash && document.getElementById(location.hash.slice(1));
+    const d = el && (el.tagName === "DETAILS" ? el : el.closest("details"));
+    if (d) d.open = true;
+  };
+  open();
+  window.addEventListener("hashchange", open);
+})();
+</script>
 </body>
 </html>{{end}}

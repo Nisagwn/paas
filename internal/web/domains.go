@@ -55,12 +55,12 @@ func (s *Server) verifyDomain(w http.ResponseWriter, r *http.Request) {
 	d, err := s.Store.GetDomain(r.Context(), app.ID, r.PostFormValue("hostname"))
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		status, msg = http.StatusNotFound, "Domain not found."
+		status, msg = http.StatusNotFound, "Alan adı bulunamadı."
 	case err != nil:
 		s.internalError(w, r, err)
 		return
 	case s.Domains == nil:
-		status, msg = http.StatusNotImplemented, "Domain verification is not running."
+		status, msg = http.StatusNotImplemented, "Alan adı doğrulama şu an çalışmıyor."
 	default:
 		if _, err := s.Domains.Check(r.Context(), d); err != nil {
 			s.Log.Error("domain check", "domain", d.Hostname, "err", err)
@@ -82,7 +82,7 @@ func (s *Server) deleteDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		status, msg = http.StatusNotFound, "Domain not found."
+		status, msg = http.StatusNotFound, "Alan adı bulunamadı."
 	case err != nil:
 		s.internalError(w, r, err)
 		return
@@ -91,7 +91,7 @@ func (s *Server) deleteDomain(w http.ResponseWriter, r *http.Request) {
 		if s.Router != nil && d.Routed {
 			if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
 				s.Log.Error("domain delete: route sync", "app", app.Name, "err", err)
-				status, msg = http.StatusBadGateway, "Domain deleted, but removing its route failed; it is retried automatically."
+				status, msg = http.StatusBadGateway, "Alan adı silindi ama yönlendirmesi kaldırılamadı; otomatik olarak tekrar denenecek."
 			}
 		}
 	}
@@ -109,7 +109,7 @@ func (s *Server) domainsResponse(w http.ResponseWriter, r *http.Request, app sto
 			return
 		}
 		var buf bytes.Buffer
-		p := page{Data: v, CSRF: s.Sessions.CSRFToken(r), DomainError: msg}
+		p := page{Data: v, CSRF: s.Sessions.CSRFToken(r), DomainError: tr(msg)}
 		if err := s.pages["domains"].Execute(&buf, p); err != nil {
 			s.internalError(w, r, err)
 			return

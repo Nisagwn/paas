@@ -2,38 +2,38 @@
 {{$d := .Data.D}}
 <div class="head">
   <div>
-    <p class="sub" style="margin:0"><a href="/">Apps</a> / <a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a> /</p>
-    <h1><span class="mono">{{short $d.CommitSHA}}</span> <span id="status" class="badge s-{{$d.Status}}">{{$d.Status}}</span>
-      {{if and (eq $d.Status "ready") $d.SleepingSince}}<span class="tag" title="Scaled to zero; the next request wakes it">sleeping</span>{{end}}</h1>
+    <p class="sub" style="margin:0"><a href="/">Projeler</a> / <a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a> /</p>
+    <h1><span class="mono">{{short $d.CommitSHA}}</span> <span id="status" class="badge s-{{$d.Status}}">{{status $d.Status}}</span>
+      {{if and (eq $d.Status "ready") $d.SleepingSince}}<span class="tag" title="Uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}</h1>
     <p class="sub">{{firstLine $d.CommitMessage}}</p>
   </div>
   <div class="actions">
-    <a id="visit" class="btn" href="{{.Data.URL}}" target="_blank" rel="noopener" {{if ne $d.Status "ready"}}hidden{{end}}>Visit ↗</a>
+    <a id="visit" class="btn primary" href="{{.Data.URL}}" target="_blank" rel="noopener" {{if ne $d.Status "ready"}}hidden{{end}}>Siteyi aç ↗</a>
   </div>
 </div>
 
 <div class="card pad grid kv" style="margin-bottom:20px">
-  <div><div class="k">Deployment</div>#{{$d.ID}}</div>
+  <div><div class="k">Deploy</div>#{{$d.ID}}</div>
   <div><div class="k">Branch</div><span class="tag">{{$d.Branch}}</span></div>
   <div><div class="k">Commit</div><span class="mono small">{{$d.CommitSHA}}</span></div>
-  <div><div class="k">Created</div><span title="{{time $d.CreatedAt}}">{{ago $d.CreatedAt}}</span>{{with duration $d}} · took {{.}}{{end}}</div>
-  <div style="grid-column:1/-1"><div class="k">URL</div><a href="{{.Data.URL}}" target="_blank" rel="noopener">{{.Data.URL}}</a></div>
-  {{with $d.Image}}<div style="grid-column:1/-1"><div class="k">Image</div><span class="mono small">{{.}}</span></div>{{end}}
+  <div><div class="k">Başladı</div><span title="{{time $d.CreatedAt}}">{{ago $d.CreatedAt}}</span>{{with duration $d}} · {{.}} sürdü{{end}}</div>
+  <div style="grid-column:1/-1"><div class="k">Adres</div><a href="{{.Data.URL}}" target="_blank" rel="noopener">{{.Data.URL}}</a></div>
+  {{with $d.Image}}<div style="grid-column:1/-1"><div class="k">İmaj</div><span class="mono small">{{.}}</span></div>{{end}}
 </div>
 
 <div id="error" class="flash err" role="alert" {{if not $d.Error}}hidden{{end}}>{{$d.Error}}</div>
 
 <div class="head" style="align-items:center;margin-bottom:8px">
-  <h2 style="margin:0">Build log</h2>
+  <h2 style="margin:0">Build log'u</h2>
   <span id="live" class="live"></span>
 </div>
 <div id="log" class="log" data-src="/api/deployments/{{$d.ID}}/logs/stream" aria-live="polite"></div>
 
 {{if .Data.RuntimeLogs}}
 <div class="head" style="align-items:center;margin:28px 0 8px">
-  <h2 style="margin:0">Runtime log</h2>
+  <h2 style="margin:0">Çalışma log'u</h2>
   <span id="rt-live" class="live"></span>
-  <div class="actions"><button id="rt-toggle" type="button">Follow runtime log</button></div>
+  <div class="actions"><button id="rt-toggle" type="button">Canlı izle</button></div>
 </div>
 <div id="rt-log" class="log" style="height:40vh"
   data-src="/api/apps/{{$d.AppName}}/deployments/{{$d.ID}}/runtime-logs?follow=1&tail=200"></div>
@@ -63,19 +63,21 @@
   const log = document.getElementById("log");
   const live = document.getElementById("live");
   const badge = document.getElementById("status");
+  const labels = {queued: "Sırada", building: "Kuruluyor", deploying: "Yayına alınıyor", ready: "Hazır", failed: "Başarısız", retired: "Emekli"};
+  const label = (s) => labels[s] || s;
   // EventSource resumes with Last-Event-ID after a dropped connection, so
   // no line is shown twice or skipped.
   const es = new EventSource(log.dataset.src);
-  live.textContent = "● live";
+  live.textContent = "● bağlı";
   es.onmessage = (e) => append(log, e.data);
   es.addEventListener("status", (e) => {
     const s = JSON.parse(e.data);
-    badge.textContent = s.status;
+    badge.textContent = label(s.status);
     badge.className = "badge s-" + s.status;
     if (!s.final) return;
     es.close();
-    live.textContent = "finished";
-    meta(log, "— deployment " + s.status + " —");
+    live.textContent = "bitti";
+    meta(log, "— deploy: " + label(s.status) + " —");
     if (s.status === "ready") document.getElementById("visit").hidden = false;
     if (s.error) {
       const box = document.getElementById("error");
@@ -83,8 +85,8 @@
       box.hidden = false;
     }
   });
-  es.onerror = () => { if (es.readyState !== EventSource.CLOSED) live.textContent = "reconnecting…"; };
-  es.onopen = () => { live.textContent = "● live"; };
+  es.onerror = () => { if (es.readyState !== EventSource.CLOSED) live.textContent = "yeniden bağlanıyor…"; };
+  es.onopen = () => { live.textContent = "● bağlı"; };
 
   const rtBtn = document.getElementById("rt-toggle");
   if (!rtBtn) return;
@@ -94,25 +96,25 @@
   rtBtn.addEventListener("click", () => {
     if (rt) {
       rt.close(); rt = null;
-      rtBtn.textContent = "Follow runtime log"; rtLive.textContent = "";
+      rtBtn.textContent = "Canlı izle"; rtLive.textContent = "";
       return;
     }
     rtLog.textContent = "";
     rt = new EventSource(rtLog.dataset.src);
-    rtBtn.textContent = "Stop";
-    rtLive.textContent = "● live";
+    rtBtn.textContent = "Durdur";
+    rtLive.textContent = "● bağlı";
     rt.onmessage = (e) => append(rtLog, e.data);
     rt.addEventListener("end", (e) => {
       rt.close(); rt = null;
-      meta(rtLog, e.data ? "— " + e.data + " —" : "— stream ended —");
-      rtBtn.textContent = "Follow runtime log"; rtLive.textContent = "";
+      meta(rtLog, e.data ? "— " + e.data + " —" : "— akış bitti —");
+      rtBtn.textContent = "Canlı izle"; rtLive.textContent = "";
     });
     rt.onerror = () => {
       // Non-SSE error responses (404: no pod yet, 501) close the source.
       if (rt && rt.readyState === EventSource.CLOSED) {
-        meta(rtLog, "— runtime log unavailable (no running pod?) —");
-        rt = null; rtBtn.textContent = "Follow runtime log"; rtLive.textContent = "";
-      } else rtLive.textContent = "reconnecting…";
+        meta(rtLog, "— çalışma log'u alınamadı (çalışan bir kopya yok mu?) —");
+        rt = null; rtBtn.textContent = "Canlı izle"; rtLive.textContent = "";
+      } else rtLive.textContent = "yeniden bağlanıyor…";
     };
   });
 })();

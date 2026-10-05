@@ -26,10 +26,10 @@ const (
 
 // loginErrors are fixed messages selected by /login?error=.
 var loginErrors = map[string]string{
-	"denied":      "GitHub sign-in was cancelled.",
-	"state":       "The sign-in attempt expired or did not start here. Please try again.",
-	"not_allowed": "This GitHub account is not allowed to sign in. Ask an owner to add you to a team.",
-	"failed":      "Signing in with GitHub failed. The server log has details.",
+	"denied":      "GitHub ile giriş iptal edildi.",
+	"state":       "Giriş denemesinin süresi doldu ya da burada başlatılmadı. Tekrar dene.",
+	"not_allowed": "Bu GitHub hesabının giriş izni yok. Bir ekip sahibinden seni eklemesini iste.",
+	"failed":      "GitHub ile giriş başarısız oldu. Ayrıntılar sunucu logunda.",
 }
 
 func randomString() string {
@@ -40,7 +40,7 @@ func randomString() string {
 
 func (s *Server) githubStart(w http.ResponseWriter, r *http.Request) {
 	if s.GitHub == nil {
-		s.errorPage(w, r, http.StatusNotFound, "GitHub sign-in is not configured.")
+		s.errorPage(w, r, http.StatusNotFound, "GitHub ile giriş ayarlı değil.")
 		return
 	}
 	state, verifier := randomString(), randomString()
@@ -57,7 +57,7 @@ func (s *Server) githubStart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 	if s.GitHub == nil {
-		s.errorPage(w, r, http.StatusNotFound, "GitHub sign-in is not configured.")
+		s.errorPage(w, r, http.StatusNotFound, "GitHub ile giriş ayarlı değil.")
 		return
 	}
 	// Faz 15: the authorization was started by the GitHub App's setup URL
@@ -101,9 +101,9 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 	// A plain redirect would still count as part of the cross-site
 	// navigation from github.com, and the SameSite=Strict session cookie
 	// would not be sent with it. A same-site page that navigates on is.
-	s.render(w, r, http.StatusOK, "redirect", "Signing in", map[string]string{"Next": next}, "")
+	s.render(w, r, http.StatusOK, "redirect", "Giriş yapılıyor", map[string]string{"Next": next}, "")
 }
 
 func (s *Server) loginFailed(w http.ResponseWriter, r *http.Request, status int, code string) {
-	s.render(w, r, status, "login", "Log in", s.loginData("/"), loginErrors[code])
+	s.render(w, r, status, "login", "Giriş yap", s.loginData("/"), loginErrors[code])
 }

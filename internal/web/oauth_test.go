@@ -164,7 +164,7 @@ func TestGitHubLogin(t *testing.T) {
 	ctx := context.Background()
 
 	// Dev-mode token login is gone once GitHub login is configured.
-	if _, body, _ := u.get("/login"); !strings.Contains(body, "Sign in with GitHub") || strings.Contains(body, `name="token"`) {
+	if _, body, _ := u.get("/login"); !strings.Contains(body, "GitHub ile giriş yap") || strings.Contains(body, `name="token"`) {
 		t.Fatalf("login page:\n%s", body)
 	}
 	if code, _, _ := u.post("/login", url.Values{"token": {""}}, "self"); code != http.StatusNotFound {
@@ -201,7 +201,7 @@ func TestGitHubLogin(t *testing.T) {
 	}
 	// Stranger: refused, no session, no user row.
 	stranger := &oauthUI{ui: &ui{t: t, st: u.st, srv: u.srv, client: newClient()}, gh: u.gh}
-	if code, body := stranger.signIn("stranger"); code != http.StatusForbidden || !strings.Contains(body, "not allowed") {
+	if code, body := stranger.signIn("stranger"); code != http.StatusForbidden || !strings.Contains(body, "giriş izni yok") {
 		t.Fatalf("stranger: %d", code)
 	}
 	if code, _, _ := stranger.get("/"); code != http.StatusSeeOther {
