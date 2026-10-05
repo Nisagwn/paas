@@ -46,6 +46,7 @@ kubectl get nodes
 echo "ready: registry localhost:$port, apps at http://<host>.localtest.me"
 # Scale to zero with the control plane on the host: Traefik reaches the
 # activator at the host's address inside the cluster (host.k3d.internal).
-# k3s's Traefik exports the Prometheus metrics idle detection needs by default.
+# Per-service Traefik metrics for idle detection and analytics (Faz 19).
+kubectl apply -f "$(dirname "$0")/../infra/k8s/05-traefik-config.yaml"
 host_ip=$(kubectl -n kube-system get configmap coredns -o jsonpath='{.data.NodeHosts}' | awk '/host.k3d.internal/ {print $1}')
 echo "scale to zero: PAAS_ACTIVATOR_IP=$host_ip PAAS_ACTIVATOR_UPSTREAM=http://127.0.0.1:80"

@@ -132,5 +132,12 @@ queued → building → deploying → ready
 - GitHub ile giriş aynı App üzerinden; eski token + webhook yolu yedek olarak çalışır
 - **Çıktı:** yeni bir proje eklemek GitHub'da hiçbir ayar gerektirmiyor
 
+### Faz 19 — Analitik ve gözlemlenebilirlik (migration 012) ✅ (birim ve veritabanı testleriyle doğrulandı; canlı kümede deneme bekliyor)
+- Traefik'in servis başına sayaçlarından deploy başına dakikalık istek metrikleri: 2xx/3xx/4xx/5xx, yanıt süresi histogramı; sayaç sıfırlanmalarına dayanıklı fark hesabı, 7 günlük saklama
+- `HelmChartConfig` (`infra/k8s/05-traefik-config.yaml`) ile Traefik'te servis / entrypoint etiketleri ve ince histogram kovaları; sıfıra ölçekleme de buna dayanır
+- `GET /api/apps/{name}/analytics?range=1h|24h|7d`: zaman serisi, toplamlar, p50/p95, deploy dağılımı
+- `GET /api/apps/{name}/health`: deploy başına son 15 dakikanın 5xx oranı; `GET /api/apps/{name}/usage`: metrics-server'dan canlı CPU / bellek
+- **Çıktı:** bir uygulamanın trafiği, hataları, gecikmesi ve kaynak kullanımı ek bir izleme yığını olmadan API'den okunuyor
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

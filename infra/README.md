@@ -23,6 +23,7 @@ infra/
 │       └── credential-provider.yaml    kubelet ECR credential provider
 └── k8s/                        küme manifest'leri (${PLACEHOLDER}'lı)
     ├── 00-namespace.yaml
+    ├── 05-traefik-config.yaml  k3s Traefik HelmChartConfig: servis başına Prometheus metrikleri
     ├── 10-postgres.yaml        StatefulSet + Service (local-path PVC)
     ├── 20-buildkitd.yaml       rootless BuildKit Deployment + Service + PVC
     ├── 30-control-plane-rbac.yaml  ServiceAccount + ClusterRole + binding
