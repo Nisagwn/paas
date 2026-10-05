@@ -112,6 +112,8 @@ type Config struct {
 	Scale Scale
 	// Faz 15: GitHub App (github_app.go); replaces GitHubToken when enabled.
 	GitHubApp GitHubApp
+	// Faz 19: request analytics (analytics.go).
+	Analytics Analytics
 }
 
 // OAuthEnabled reports whether GitHub login is configured.
@@ -264,6 +266,9 @@ func Load() (Config, error) {
 		return c, err
 	}
 	if err := c.loadUsers(); err != nil {
+		return c, err
+	}
+	if err := c.loadAnalytics(); err != nil {
 		return c, err
 	}
 	if err := c.loadScale(); err != nil {

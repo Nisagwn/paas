@@ -69,6 +69,12 @@ type Server struct {
 	// deployment, default branch); nil means no GitHub App is configured,
 	// and imports create the app without a deployment.
 	GitHubApp RepoInspector
+
+	// Faz 19 (analytics.go): live CPU/memory of app pods; nil (dry-run
+	// deployer) answers 501. Now is the clock of the analytics windows
+	// (tests); nil is time.Now.
+	Usage UsageSource
+	Now   func() time.Time
 }
 
 func (s *Server) Handler() http.Handler {
@@ -103,6 +109,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/apps/{name}/domains/{hostname}", s.requireApp(member, s.deleteDomain))
 	api.HandleFunc("GET /api/apps/{name}/scale-to-zero", s.requireApp(viewer, s.getScaleToZero))
 	api.HandleFunc("PUT /api/apps/{name}/scale-to-zero", s.requireApp(member, s.putScaleToZero))
+	// Faz 19: request analytics, deployment health, live resource usage.
+	api.HandleFunc("GET /api/apps/{name}/analytics", s.requireApp(viewer, s.getAnalytics))
+	api.HandleFunc("GET /api/apps/{name}/health", s.requireApp(viewer, s.getHealth))
+	api.HandleFunc("GET /api/apps/{name}/usage", s.requireApp(viewer, s.getUsage))
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
 	api.HandleFunc("GET /api/apps/{name}/deployments/{id}/runtime-logs", s.runtimeLogs)
 	// Deployment endpoints check the deployment's app (lookupDeployment).

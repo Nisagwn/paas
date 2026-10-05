@@ -1,0 +1,32 @@
+# Faz 19: Prometheus metrics of k3s's bundled Traefik, used by scale to zero
+# (Faz 11, idle detection) and request analytics (Faz 19).
+#
+# k3s installs Traefik from a HelmChart in kube-system; a HelmChartConfig of
+# the same name overrides its values and k3s re-runs the Helm upgrade (one
+# Traefik restart; the counters start from zero, which both consumers
+# handle). Without addServicesLabels Traefik only exports per-entrypoint
+# totals and the control plane logs
+#   "traefik_service_requests_total not exported (enable metrics.prometheus.addServicesLabels)"
+# and keeps every deployment awake.
+#
+# buckets: response time histogram bounds (seconds) for the p50/p95 latency
+# of the analytics API; Traefik's default (0.1,0.3,1.2,5.0) is too coarse.
+#
+# Apply on an existing cluster: kubectl apply -f infra/k8s/05-traefik-config.yaml
+# Check: kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik
+#        (a new pod appears after the helm-install-traefik job finishes)
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  valuesContent: |-
+    metrics:
+      prometheus:
+        entryPoint: metrics
+        addEntryPointsLabels: true
+        addServicesLabels: true
+        buckets: "0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10"

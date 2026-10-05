@@ -267,7 +267,8 @@ deploy'unu bir sonraki turda kendisi uyandırır. Uyuyan deploy'lar API'de `"sle
 
 1. **Boşta olma tespiti:** Ölçekleyici her turda (`PAAS_SCALE_INTERVAL`, varsayılan
    `min(süre/4, 30s)`) Traefik'in servis başına `traefik_service_requests_total` sayaçlarını
-   okur (k3s'in Traefik'inde varsayılan açık, `:9100`; API sunucusunun pod proxy'si üzerinden).
+   okur (k3s'in Traefik'i, `:9100`; API sunucusunun pod proxy'si üzerinden; servis etiketleri
+   [05-traefik-config.yaml](infra/k8s/05-traefik-config.yaml) ile açılır, bkz. [Analitik](#analitik-faz-19)).
    Sayaç süre boyunca değişmemişse deploy boştadır. Her değişiklik (Traefik yeniden başlayınca
    sıfırlanma dahil) etkinlik sayılır; sayaçlar okunamazsa hiçbir şey uyutulmaz.
 2. **Uyutma:** Deploy'un Service'inin selector'ı kaldırılır ve aynı Service'e kontrol
@@ -290,6 +291,76 @@ deploy'unu bir sonraki turda kendisi uyandırır. Uyuyan deploy'lar API'de `"sle
 
 Yerel k3d ile: `scripts/k3d-up.sh` gereken `PAAS_ACTIVATOR_IP` değerini yazdırır;
 `PAAS_ACTIVATOR_UPSTREAM=http://127.0.0.1:80` kullanılır.
+
+### Analitik (Faz 19)
+
+Vercel'in Observability / Analytics ekranlarının kendi sunucumuzda çalışan karşılığı: istek
+sayıları, hata oranları, yanıt süresi yüzdelikleri, deploy sağlığı ve canlı CPU / bellek kullanımı.
+Ek bir izleme yığını (Prometheus, Grafana) gerekmez; veriler mevcut Postgres'te tutulur.
+
+**İstek metrikleri.** Toplayıcı (`internal/analytics`) dakikada bir Traefik'in servis başına
+sayaçlarını okur (`traefik_service_requests_total` ve varsa `traefik_service_request_duration_seconds`
+histogramı; sıfıra ölçeklemenin kullandığı aynı pod proxy yolu). Sayaçlar kümülatif olduğundan farkı
+Traefik pod'u × servis serisi başına hesaplar ve deploy başına bir dakikalık satır olarak
+`request_metrics` tablosuna yazar (migration 012; trafik olmayan dakikalar satır üretmez):
+
+- Sayaçlardan biri azalmışsa (Traefik yeniden başladı) seri sıfırlanmış sayılır, güncel değer fark olur.
+- Önceki okumadan sonra ortaya çıkan seri (yeni deploy'un ilk isteği, sonradan başlayan Traefik pod'u)
+  tamamen sayılır; toplayıcının ilk okuması yalnızca taban çizgisidir (öncesi bilinmez).
+- Başarısız okuma hiçbir şey yazmaz; bir sonraki başarılı okuma aradaki tüm istekleri taşır.
+- Durum kodları 2xx / 3xx / 4xx / 5xx sınıflarına ayrılır; **hata** = 5xx.
+- p50 / p95, Prometheus'un `histogram_quantile` yöntemiyle (kova içinde doğrusal ara değer)
+  dakikalık histogramların toplamından hesaplanır.
+- `PAAS_ANALYTICS_RETENTION` (varsayılan `168h`) süresinden eski satırlar saatte bir silinir.
+
+**Traefik ayarı.** Servis başına seriler için Traefik'te `metrics.prometheus.addServicesLabels`
+açık olmalıdır. Kapalıysa kontrol düzlemi `traefik_service_requests_total not exported (enable
+metrics.prometheus.addServicesLabels)` uyarısı verir; sıfıra ölçekleme hiçbir deploy'u uyutmaz ve
+analitik boş kalır. [infra/k8s/05-traefik-config.yaml](infra/k8s/05-traefik-config.yaml) k3s'in
+Traefik'i için bir `HelmChartConfig`'tir (`kube-system/traefik`): servis ve entrypoint etiketlerini
+açar, p50 / p95 için daha ince histogram kovaları (`0.005 … 10 s`) tanımlar. Bootstrap tüm
+manifest'lerle birlikte uygular; çalışan bir kümede:
+
+```bash
+kubectl apply -f infra/k8s/05-traefik-config.yaml
+kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik   # yeni pod gelir (sayaçlar sıfırlanır)
+```
+
+`scripts/k3d-up.sh` aynı dosyayı yerel kümeye de uygular.
+
+**Kaynak kullanımı.** `GET /api/apps/{name}/usage`, uygulamanın çalışan pod'larının CPU (millicore)
+ve bellek (working set, bayt) değerlerini k3s ile gelen metrics-server'dan (`metrics.k8s.io`)
+anlık okur; değerler saklanmaz. Pod limitleri de döner, böylece kullanım oranı gösterilebilir.
+Uyuyan deploy'ların pod'u olmadığından listede yer almazlar. metrics-server yoksa `503` döner.
+Kontrol düzleminin ClusterRole'üne `metrics.k8s.io/pods` (get, list) eklendi.
+
+**Deploy sağlığı.** `GET /api/apps/{name}/health`, hazır her deploy için son 15 dakikadaki istek ve
+5xx sayısını, hata oranını ve durumu döner: `no_traffic`, `healthy` (5xx < %1), `degraded`
+(< %10), `failing`.
+
+```bash
+curl -H "Authorization: Bearer $PAAS_API_TOKEN" "localhost:8080/api/apps/blog/analytics?range=24h"
+# {"range":"24h","step_seconds":600,"histogram":true,
+#  "totals":{"requests":1130,"status_2xx":1110,…,"errors":15,"error_rate":0.013,"p50_ms":50,"p95_ms":550,"avg_ms":50},
+#  "series":[{"time":"…","requests":100,"errors":5,"p50_ms":50,…},…],
+#  "deployments":[{"deployment_id":12,"commit_sha":"…","production":true,"requests":120,…}]}
+```
+
+| Aralık | Adım | Nokta |
+|---|---|---|
+| `1h` | 1 dakika | 60 |
+| `24h` (varsayılan) | 10 dakika | 144 |
+| `7d` | 1 saat | 168 |
+
+`&deployment=<id>` tek bir deploy'a süzer. Gecikme alanları histogram yoksa `null`'dır.
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_ANALYTICS_INTERVAL` | Traefik okuma aralığı (varsayılan `1m`, `0` toplamayı kapatır; `1m` dakika başına hizalanır) |
+| `PAAS_ANALYTICS_RETENTION` | dakikalık satırların saklama süresi (varsayılan `168h`) |
+
+Toplayıcı ve kullanım ucu yalnızca `kubernetes` deployer ile çalışır; dry-run'da analitik boş döner,
+`/usage` `501` verir.
 
 ### Build nasıl çalışır
 
@@ -783,6 +854,9 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | PUT | `/api/apps/{name}/env` | `{"KEY":"değer","ESKI":null}` — birleştirir, `null` siler. `PORT` ve `PAAS_*` platforma ait |
 | GET | `/api/apps/{name}/scale-to-zero` | `{"production": bool}` — production deploy'u boştayken uyuyabilir mi |
 | PUT | `/api/apps/{name}/scale-to-zero` | `{"production": true\|false}` (preview'ler her zaman uyuyabilir) |
+| GET | `/api/apps/{name}/analytics?range=1h\|24h\|7d&deployment=` | İstek analitiği: zaman serisi (istek, 2xx–5xx, hata, p50/p95/ortalama ms) + toplamlar + deploy dağılımı |
+| GET | `/api/apps/{name}/health` | Deploy başına son 15 dakikanın 5xx oranı ve durumu (`healthy` / `degraded` / `failing` / `no_traffic`) |
+| GET | `/api/apps/{name}/usage` | Çalışan deploy pod'larının anlık CPU / bellek kullanımı ve limitleri (metrics-server; yalnızca `kubernetes` deployer) |
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 | GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
@@ -818,6 +892,7 @@ internal/deploy/      Kubernetes: namespace, kota, Secret, Deployment, Service, 
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
 internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
 internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
+internal/analytics/   istek metrikleri: Traefik sayaçlarından dakikalık farklar, saklama, p50/p95
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar

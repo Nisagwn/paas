@@ -30,6 +30,8 @@ type teamFixture struct {
 	web    store.Team
 	d1, d2 store.Deployment
 	ss     *auth.Sessions
+	// Faz 19: live resource usage served by /usage.
+	usage *fakeUsage
 }
 
 func setupTeams(t *testing.T) *teamFixture {
@@ -69,11 +71,12 @@ func setupTeams(t *testing.T) *teamFixture {
 	st.MarkReady(ctx, f.d2, prod)
 
 	f.ss = auth.New(token)
+	f.usage = &fakeUsage{}
 	srv := httptest.NewServer((&api.Server{
 		Store: st, Domain: domain, APIToken: token, WebhookSecret: secret,
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Sessions: f.ss,
-		RuntimeLogs: &fakeRuntime{lines: "hello"},
-		Stream:      api.StreamTiming{Poll: 50 * time.Millisecond, FinishGrace: 50 * time.Millisecond},
+		RuntimeLogs: &fakeRuntime{lines: "hello"}, Usage: f.usage,
+		Stream: api.StreamTiming{Poll: 50 * time.Millisecond, FinishGrace: 50 * time.Millisecond},
 	}).Handler())
 	t.Cleanup(srv.Close)
 	f.srv = srv
@@ -134,6 +137,10 @@ func TestAuthorizationMatrix(t *testing.T) {
 		// Faz 11 scale to zero setting.
 		{"GET", "/api/apps/blog/scale-to-zero", nil, read, nil},
 		{"PUT", "/api/apps/blog/scale-to-zero", func(string) any { return map[string]bool{"production": false} }, write, nil},
+		// Faz 19 analytics, deployment health and resource usage: viewer.
+		{"GET", "/api/apps/blog/analytics?range=1h", nil, read, nil},
+		{"GET", "/api/apps/blog/health", nil, read, nil},
+		{"GET", "/api/apps/blog/usage", nil, read, nil},
 		// Faz 12 custom domains: reading is viewer, changes are member.
 		{"GET", "/api/apps/blog/domains", nil, read, nil},
 		{"POST", "/api/apps/blog/domains", func(w string) any { return map[string]string{"hostname": "www-" + w + ".example.com"} },

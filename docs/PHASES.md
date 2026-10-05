@@ -88,7 +88,7 @@ queued → building → deploying → ready
 
 ---
 
-## Kapsam genişlemesi (Faz 9–14)
+## Kapsam genişlemesi (Faz 9 ve sonrası)
 
 İlk sürümün ardından, birbirinden bağımsız ilerleyebilen fazlar. Migration numaraları
 çakışmasın diye önceden ayrıldı.
@@ -139,6 +139,13 @@ queued → building → deploying → ready
 - `rollback`, `env ls|set|rm`, `domains ls|add|verify|rm`, `import`, `open`
 - Ortak bayraklar `--url`, `--token`, `--json` (veya `PAAS_URL` / `PAAS_TOKEN`); tablolar, göreli zamanlar, çıkış kodları 0 / 1 / 2, 401 / 403 / 404 için ipuçlu hatalar
 - **Çıktı:** web arayüzünde yapılan her günlük işlem terminalden ve CI'dan da yapılabiliyor
+
+### Faz 19 — Analitik ve gözlemlenebilirlik (migration 012) ✅ (birim ve veritabanı testleriyle doğrulandı; canlı kümede deneme bekliyor)
+- Traefik'in servis başına sayaçlarından deploy başına dakikalık istek metrikleri: 2xx/3xx/4xx/5xx, yanıt süresi histogramı; sayaç sıfırlanmalarına dayanıklı fark hesabı, 7 günlük saklama
+- `HelmChartConfig` (`infra/k8s/05-traefik-config.yaml`) ile Traefik'te servis / entrypoint etiketleri ve ince histogram kovaları; sıfıra ölçekleme de buna dayanır
+- `GET /api/apps/{name}/analytics?range=1h|24h|7d`: zaman serisi, toplamlar, p50/p95, deploy dağılımı
+- `GET /api/apps/{name}/health`: deploy başına son 15 dakikanın 5xx oranı; `GET /api/apps/{name}/usage`: metrics-server'dan canlı CPU / bellek
+- **Çıktı:** bir uygulamanın trafiği, hataları, gecikmesi ve kaynak kullanımı ek bir izleme yığını olmadan API'den okunuyor
 
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

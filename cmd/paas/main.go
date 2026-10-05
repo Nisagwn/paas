@@ -176,6 +176,8 @@ func run(log *slog.Logger) error {
 	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
 
 	var wg sync.WaitGroup
+	// Faz 19: request analytics and live resource usage (read per request).
+	apiSrv.Usage = startAnalytics(ctx, cfg, st, applier, log, &wg)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
