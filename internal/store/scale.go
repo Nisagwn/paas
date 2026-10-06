@@ -23,6 +23,9 @@ type ScaleCandidate struct {
 	Production bool
 	// ScaleProduction: the app lets its production deployment sleep too.
 	ScaleProduction bool
+	// InRollout: either side of an active canary or guard rollout (Faz 21).
+	// It never sleeps: its metrics decide the rollout.
+	InRollout bool
 }
 
 // ScaleCandidates returns every ready deployment that has not been retired.
@@ -30,7 +33,9 @@ func (s *Store) ScaleCandidates(ctx context.Context) ([]ScaleCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT d.id, d.app_id, a.name, d.commit_sha, d.generation, COALESCE(d.finished_at, d.created_at), d.sleeping_since,
 			EXISTS (SELECT 1 FROM aliases al WHERE al.deployment_id = d.id AND al.kind = 'production'),
-			a.scale_to_zero_production
+			a.scale_to_zero_production,
+			EXISTS (SELECT 1 FROM rollouts r WHERE r.state IN ('running', 'paused')
+				AND (r.from_deployment_id = d.id OR r.to_deployment_id = d.id))
 		FROM deployments d JOIN apps a ON a.id = d.app_id
 		WHERE d.status = 'ready' AND d.retired_at IS NULL
 		ORDER BY d.id`)
@@ -42,7 +47,7 @@ func (s *Store) ScaleCandidates(ctx context.Context) ([]ScaleCandidate, error) {
 	for rows.Next() {
 		var c ScaleCandidate
 		if err := rows.Scan(&c.DeploymentID, &c.AppID, &c.AppName, &c.CommitSHA, &c.Generation, &c.FinishedAt, &c.SleepingSince,
-			&c.Production, &c.ScaleProduction); err != nil {
+			&c.Production, &c.ScaleProduction, &c.InRollout); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

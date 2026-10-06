@@ -84,10 +84,24 @@ func (k *Kubernetes) RequestCounts(ctx context.Context) (map[string]float64, err
 	total := map[string]float64{}
 	for _, p := range pods {
 		for svc, s := range p.Services {
-			total[svc] += s.Requests
+			total[IngressMetricKey(svc)] += s.Requests
 		}
 	}
 	return total, nil
+}
+
+// IngressMetricKey maps the name a deployment's Service has under
+// Traefik's CRD provider (a canary's weighted children, Faz 21:
+// CRDMetricKey) to its Ingress provider name (MetricKey); other names are
+// returned unchanged. Both series of a deployment then add up to one
+// request total. Traefik keeps exporting a CRD series after the canary
+// ends, so the sum only grows; a drop (Traefik restart) is a change, which
+// idle detection counts as activity anyway.
+func IngressMetricKey(svc string) string {
+	if base, ok := strings.CutSuffix(svc, "-http@kubernetescrd"); ok {
+		return base + "-http@kubernetes"
+	}
+	return svc
 }
 
 // TraefikStats scrapes every running Traefik pod. Any failure is an error,

@@ -125,6 +125,10 @@ type Kubernetes struct {
 	// Processes provides process sets (Faz 20, processes.go). New takes it
 	// from env when env implements it; nil deploys the web process only.
 	Processes ProcessSource
+
+	// Traefik manages the canary overlay (Faz 21, canary.go); nil uses
+	// Certificates, the same generic dynamic client.
+	Traefik dynamic.Interface
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)

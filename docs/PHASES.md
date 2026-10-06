@@ -209,5 +209,16 @@ queued → building → deploying → ready
 - **Çıktı:** Vercel'in sunucusuz modelinin taşıyamadığı iş yükleri (Discord botu, kuyruk işleyici, zamanlanmış iş, WebSocket sunucusu)
   aynı push → deploy → rollback akışıyla çalışıyor
 
+### Faz 21 — Kademeli yayın (canary) ve otomatik geri alma (migration 014) ✅ (birim, veritabanı ve sahte dinamik istemci testleri; ağırlıklı yönlendirme k3d / Traefik 3.6 üzerinde canlı denendi)
+- Uygulama başına yayın biçimi (`rollout_settings`): `instant` (varsayılan, eskisi gibi), `guarded` (anında geçiş + izleme süresi + otomatik geri alma), `canary` (adımlar varsayılan %10 → %50 → %100, adım 5 dk, en az 2 dk)
+- Eşikler: en fazla 5xx oranı (%5) ve production'dan en fazla fark (2 puan), p95 gecikme için mutlak ms ve production'ın katı (2×), karar için en az istek (50); az trafikli projelerde hata kanıtı yoksa adım süre dolunca ilerler
+- `rollouts` tablosu: önceki / yeni deploy, mod, adım, ağırlık, durum (`running`, `paused`, `promoted`, `rolled_back`, `aborted`, `superseded`), neden ve adım adım karar günlüğü; uygulama başına tek etkin yayın (kısmi unique index)
+- Boru hattına bağlantı `MarkReady` transaction'ı içinde: canary'de production alias'ı yerinde kalır, branch preview'ı yine taşınır; deploy loguna `==> canary: %10 trafik`. Daha yeni bir production deploy'u süren yayının yerini alır; elle geri alma / promote yayını durdurur
+- Ağırlıklı yönlendirme: Traefik'in Ingress sağlayıcısı TraefikService'e bağlanamadığı için (canlı denendi: "Resource backends are not supported") yayın süresince production adı ve özel alan adları için yüksek öncelikli `IngressRoute` + ağırlıklı `TraefikService`; alias Ingress'i hiç silinmez, TLS aynı (wildcard ya da cert-manager Secret'ı)
+- Metrik eşlemesi: ağırlıklı servisin çocukları `<ns>-<svc>-http@kubernetescrd` olarak sayılır; analitik ve sıfıra ölçekleme iki seriyi de deploy'a bağlar. Yayının iki tarafı da uyutulmaz
+- Denetleyici (`internal/rollout`): 30 sn'de bir, birden çok kontrol düzlemi kopyasıyla güvenli (`FOR UPDATE SKIP LOCKED` + compare-and-set); karar fonksiyonu saf ve tablo testli. Başarısızlıkta ağırlık 0, neden, deploy logu, GitHub commit status'u (`paas/deploy/rollout`)
+- API `GET/PUT /api/apps/{name}/rollout-settings`, `GET /api/apps/{name}/rollout`, `POST /api/apps/{name}/rollout/{promote|abort|pause|resume|rollback}`; arayüzde yayın paneli (adımlar, iki tarafın 5xx / p95'i, Hemen tamamla / Durdur / Geri al, ayar formu); `paas rollout status|promote|abort|pause|resume|rollback|settings`
+- **Çıktı:** yeni bir production deploy'u önce trafiğin küçük bir payını alıyor; metrikler bozulursa insan müdahalesi olmadan geri çekiliyor, sağlıklıysa kendiliğinden tamamlanıyor (Vercel'de yalnızca Enterprise'da olan özellik)
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

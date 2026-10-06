@@ -129,6 +129,11 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{name}/processes", s.requireApp(viewer, s.getProcesses))
 	api.HandleFunc("PUT /api/apps/{name}/processes/{proc}", s.requireApp(member, s.putProcess))
 	api.HandleFunc("POST /api/apps/{name}/crons/{cron}/run", s.requireApp(member, s.runCron))
+	// Faz 21: canary / guarded rollouts (rollouts.go).
+	api.HandleFunc("GET /api/apps/{name}/rollout-settings", s.requireApp(viewer, s.getRolloutSettings))
+	api.HandleFunc("PUT /api/apps/{name}/rollout-settings", s.requireApp(member, s.putRolloutSettings))
+	api.HandleFunc("GET /api/apps/{name}/rollout", s.requireApp(viewer, s.getRollout))
+	api.HandleFunc("POST /api/apps/{name}/rollout/{action}", s.requireApp(member, s.rolloutAction))
 	// Checks member on the deployment's app (lookupDeploymentAs).
 	api.HandleFunc("POST /api/deployments/{id}/cancel", s.cancelDeployment)
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.

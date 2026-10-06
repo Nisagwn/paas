@@ -10,6 +10,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -28,6 +29,9 @@ type Syncer struct {
 	// Interval of the reconcile loop in Run. Zero means one minute.
 	Interval time.Duration
 	Log      *slog.Logger
+	// Rollouts applies canary traffic splits (Faz 21); nil uses Applier
+	// when it implements RolloutApplier.
+	Rollouts RolloutApplier
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -58,7 +62,34 @@ func (s *Syncer) SyncApp(ctx context.Context, appName string) error {
 	if err := s.Applier.ApplyAliases(ctx, app.Name, routes); err != nil {
 		return err
 	}
-	return s.applyProcesses(ctx, app)
+	// Both run even if the other fails: a failed process sync must not
+	// leave a canary split stale, and the reverse.
+	return errors.Join(s.applyProcesses(ctx, app), s.applyRollout(ctx, app))
+}
+
+// RolloutApplier splits an app's production hostnames between two
+// deployments during a canary (Faz 21, deploy.Kubernetes.ApplyRollout);
+// a nil split removes the split.
+type RolloutApplier interface {
+	ApplyRollout(ctx context.Context, app string, split *store.TrafficSplit) error
+}
+
+// applyRollout runs after ApplyAliases, so a split never outlives the
+// alias it overrides: the alias Ingress is up to date before the overlay
+// is added or removed. Rollouts defaults to the Applier when it can split.
+func (s *Syncer) applyRollout(ctx context.Context, app store.App) error {
+	ra := s.Rollouts
+	if ra == nil {
+		ra, _ = s.Applier.(RolloutApplier)
+	}
+	if ra == nil {
+		return nil
+	}
+	split, err := s.Store.TrafficSplit(ctx, app.ID)
+	if err != nil {
+		return err
+	}
+	return ra.ApplyRollout(ctx, app.Name, split)
 }
 
 func (s *Syncer) lock(app string) *sync.Mutex {

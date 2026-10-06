@@ -1,0 +1,129 @@
+{{/* Faz 21: canary / guarded rollout panel of the app page. .Data is the
+     app detail; .Data.Rollout the panel (web/rollouts.go). While a rollout
+     runs, the card refreshes itself from the app page every 30 s. */}}
+
+{{define "rollout"}}
+{{$p := .Data.Rollout}}{{$app := .Data.App.Name}}{{$csrf := .CSRF}}
+<div id="rollout-card" class="card pad"
+  {{if $p.Active}}hx-get="/apps/{{$app}}" hx-trigger="every 30s" hx-select="#rollout-card" hx-swap="outerHTML"{{end}}>
+  {{with $p.Active}}
+  <div class="head" style="align-items:center">
+    <div>
+      <span class="badge {{rolloutBadge .State}}">{{rolloutState .State}}</span>
+      <strong>{{if eq .Mode "canary"}}Kademeli yayın: yeni deploy trafiğin %{{.Weight}} payını alıyor{{else}}İzlemeli geçiş: yeni production izleniyor{{end}}</strong>
+      <div class="small muted" style="margin-top:4px">
+        <a class="mono" href="/deployments/{{.ToDeploymentID}}">#{{.ToDeploymentID}}</a> yeni deploy
+        {{with .FromDeploymentID}}· <a class="mono" href="/deployments/{{.}}">#{{.}}</a> önceki production{{end}}
+        · {{ago .CreatedAt}} başladı
+      </div>
+    </div>
+    {{if $.Data.CanWrite}}
+    <div class="actions">
+      <form class="inline" method="post" action="/apps/{{$app}}/rollout/promote"
+        hx-post="/apps/{{$app}}/rollout/promote" hx-target="main" hx-select="main" hx-swap="outerHTML"
+        hx-confirm="{{if eq .Mode "canary"}}Trafiğin tamamı şimdi yeni deploy'a geçsin mi?{{else}}İzleme bitirilsin mi?{{end}}">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small" type="submit">Hemen tamamla</button>
+      </form>
+      {{if eq .State "running"}}
+      <form class="inline" method="post" action="/apps/{{$app}}/rollout/pause"
+        hx-post="/apps/{{$app}}/rollout/pause" hx-target="main" hx-select="main" hx-swap="outerHTML">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small" type="submit" title="Ağırlıklar olduğu gibi kalır, otomatik karar verilmez">Durdur</button>
+      </form>
+      {{else}}
+      <form class="inline" method="post" action="/apps/{{$app}}/rollout/resume"
+        hx-post="/apps/{{$app}}/rollout/resume" hx-target="main" hx-select="main" hx-swap="outerHTML">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small" type="submit">Sürdür</button>
+      </form>
+      {{end}}
+      <form class="inline" method="post" action="/apps/{{$app}}/rollout/rollback"
+        hx-post="/apps/{{$app}}/rollout/rollback" hx-target="main" hx-select="main" hx-swap="outerHTML"
+        hx-confirm="{{if eq .Mode "canary"}}Yeni deploy trafikten çıkarılsın mı? Kendi adresinde açık kalır.{{else}}Production önceki deploy'a dönsün mü?{{end}}">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="small danger" type="submit">Geri al</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+
+  {{if $p.Steps}}
+  <div style="display:flex;gap:6px;margin:14px 0 4px" aria-label="Adımlar">
+    {{range $p.Steps}}
+    <div style="flex:1;text-align:center;padding:6px 0;border-radius:6px;font-size:13px;border:1px solid {{if .Done}}var(--ok);background:var(--ok-bg);color:var(--ok){{else if .Current}}var(--run);background:var(--run-bg);color:var(--run);font-weight:600{{else}}var(--border){{end}}">
+      %{{.Weight}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{with .Metrics}}
+  <table class="small" style="margin-top:12px">
+    <thead><tr><th></th><th>İstek</th><th>5xx oranı</th><th>p95 gecikme</th></tr></thead>
+    <tbody>
+      <tr><td>Yeni deploy</td><td>{{.Canary.Requests}}</td><td>{{errPct .Canary}}</td><td>{{p95 .Canary}}</td></tr>
+      <tr><td>{{if eq $p.Active.Mode "canary"}}Production (aynı süre){{else}}Önceki production (geçişten önce){{end}}</td>
+        <td>{{.Production.Requests}}</td><td>{{errPct .Production}}</td><td>{{p95 .Production}}</td></tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="margin:8px 0 0">
+    {{if eq $p.Active.Mode "canary"}}Bu adım{{else}}İzleme{{end}}: {{seconds .Elapsed}} / {{seconds .Duration}}
+    · Sıradaki karar: <strong>{{rolloutAction (printf "%s" .Next)}}</strong> — {{.NextWhy}}
+  </p>
+  {{end}}
+  {{if .Reason}}<p class="small muted" style="margin:4px 0 0">Son durum: {{.Reason}}</p>{{end}}
+  {{else}}
+  <p class="muted" style="margin-top:0">Şu an süren bir yayın yok. Yayın biçimi: <strong>{{rolloutMode $p.Settings.Mode}}</strong>.</p>
+  {{end}}
+
+  {{with $p.Recent}}
+  <table class="small" style="margin-top:12px">
+    <thead><tr><th>Yayın</th><th>Durum</th><th class="hide-sm">Neden</th><th class="hide-sm">Zaman</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td><a class="mono" href="/deployments/{{.ToDeploymentID}}">#{{.ToDeploymentID}}</a> <span class="muted">{{rolloutMode .Mode}}</span></td>
+        <td><span class="badge {{rolloutBadge .State}}">{{rolloutState .State}}</span></td>
+        <td class="hide-sm small">{{.Reason}}</td>
+        <td class="hide-sm muted">{{with .FinishedAt}}{{ago .}}{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+
+  {{$s := $p.Settings}}
+  <details style="margin-top:12px">
+    <summary class="small">Yayın ayarları <span class="muted">· {{rolloutMode $s.Mode}}</span></summary>
+    {{if $.Data.CanWrite}}
+    <form method="post" action="/apps/{{$app}}/rollout-settings" style="margin-top:8px"
+      hx-post="/apps/{{$app}}/rollout-settings" hx-target="main" hx-select="main" hx-swap="outerHTML">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="row">
+        <div><label for="ro-mode">Biçim</label>
+          <select id="ro-mode" name="mode">
+            <option value="instant" {{if eq $s.Mode "instant"}}selected{{end}}>Anında (varsayılan)</option>
+            <option value="guarded" {{if eq $s.Mode "guarded"}}selected{{end}}>İzlemeli geçiş: anında geç, bozulursa geri al</option>
+            <option value="canary" {{if eq $s.Mode "canary"}}selected{{end}}>Kademeli (canary)</option>
+          </select></div>
+        <div><label for="ro-steps">Adımlar (%)</label><input id="ro-steps" name="steps" value="{{stepsText $s.Steps}}" placeholder="10,50,100"></div>
+        <div><label for="ro-step">Adım süresi (dk)</label><input id="ro-step" name="step_minutes" type="number" min="2" step="any" value="{{minutes $s.StepSeconds}}"></div>
+        <div><label for="ro-guard">İzleme süresi (dk)</label><input id="ro-guard" name="guard_minutes" type="number" min="2" step="any" value="{{minutes $s.GuardSeconds}}"></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div><label for="ro-err">En fazla 5xx (%)</label><input id="ro-err" name="max_error_pct" type="number" min="0.1" max="100" step="any" value="{{$s.MaxErrorPct}}"></div>
+        <div><label for="ro-inc">Production'dan en fazla fark (puan)</label><input id="ro-inc" name="max_error_increase_pct" type="number" min="0" max="100" step="any" value="{{$s.MaxErrorIncreasePct}}"></div>
+        <div><label for="ro-p95">En fazla p95 (ms, 0 = kapalı)</label><input id="ro-p95" name="max_p95_ms" type="number" min="0" step="1" value="{{$s.MaxP95Ms}}"></div>
+        <div><label for="ro-fac">p95 en fazla × production (0 = kapalı)</label><input id="ro-fac" name="max_p95_factor" type="number" min="0" step="any" value="{{$s.MaxP95Factor}}"></div>
+        <div><label for="ro-min">Karar için en az istek</label><input id="ro-min" name="min_requests" type="number" min="1" step="1" value="{{$s.MinRequests}}"></div>
+      </div>
+      <p class="small muted">Kademeli yayında yeni production deploy'u önce ilk adımdaki payı alır; her adımda yeni deploy'un 5xx oranı ve p95 gecikmesi aynı süredeki production ile karşılaştırılır. Eşik aşılırsa (adım bitmeden de) trafik hemen eski deploy'a döner ve deploy kendi adresinde açık kalır. Az trafikli projelerde en az istek sayısına ulaşılmazsa ve hata kanıtı yoksa adım süre dolunca ilerler. Metrikler dakikalık toplandığı için adım en az 2 dakikadır. İzlemeli geçişte production hemen değişir; izleme süresi boyunca bozulursa önceki deploy'a otomatik dönülür.</p>
+      <button type="submit">Kaydet</button>
+    </form>
+    {{else}}
+    <p class="small muted">Adımlar %{{stepsText $s.Steps}} · adım {{minutes $s.StepSeconds}} dk · 5xx en fazla %{{$s.MaxErrorPct}}</p>
+    {{end}}
+  </details>
+</div>
+{{end}}

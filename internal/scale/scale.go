@@ -177,7 +177,9 @@ func (s *Scaler) Check(ctx context.Context) Result {
 		if !ok || w.DeploymentID != c.DeploymentID {
 			continue // not deployed (yet), or a different commit with the same prefix
 		}
-		eligible := !c.Production || c.ScaleProduction
+		// Faz 21: both sides of an active rollout stay awake (a sleeping
+		// one is woken): their metrics decide the rollout.
+		eligible := (!c.Production || c.ScaleProduction) && !c.InRollout
 
 		// Mirror the cluster state into the database.
 		if w.Sleeping != (c.SleepingSince != nil) {

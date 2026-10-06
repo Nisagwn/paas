@@ -52,6 +52,8 @@ type deploymentRow struct {
 	CanRedeploy bool
 	CanCancel   bool
 	AliasesHere []string
+	// Rollout is the latest canary/guard of this deployment (Faz 21), if any.
+	Rollout *store.Rollout
 }
 
 type aliasRow struct {
@@ -96,6 +98,9 @@ type appDetail struct {
 
 	// Analitik (analytics.go).
 	A *analyticsData
+
+	// Faz 21: canary / guarded rollouts (rollouts.go).
+	Rollout *rolloutPanel
 }
 
 // loadApp loads the {name} app and checks the caller's team role: viewer
@@ -140,6 +145,9 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 	if err != nil {
 		return v, err
 	}
+	if v.Rollout, err = s.rolloutPanel(ctx, app); err != nil {
+		return v, err
+	}
 	shas := map[int64]string{}
 	for _, d := range deps {
 		shas[d.ID] = d.CommitSHA
@@ -162,6 +170,9 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 			URL:         naming.URL(s.Scheme, d.Host(s.Domain)),
 			Production:  d.ID == prodID,
 			AliasesHere: hosts[d.ID],
+		}
+		if r, ok := v.Rollout.ByDeployment[d.ID]; ok {
+			row.Rollout = &r
 		}
 		if v.CanWrite {
 			// Rollback moves production to an older production build;

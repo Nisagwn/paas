@@ -19,6 +19,10 @@
   <div class="card pad muted small">Süreçler yükleniyor…</div>
 </div>
 
+<h2 id="rollout">Yayın</h2>
+<p class="sub small">Yeni production deploy'u anında, izlenerek ya da trafiği adım adım alarak yayına girer; metrikler bozulursa otomatik geri alınır.</p>
+{{template "rollout" .}}
+
 <h2>Adresler</h2>
 <div class="card">
   {{with .Data.Aliases}}

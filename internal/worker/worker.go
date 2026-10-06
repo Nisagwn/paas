@@ -314,12 +314,16 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 		return err
 	}
 	aliases := Aliases(d, app.ProductionBranch, w.Domain)
-	if err := w.Store.MarkReady(ctx, d, aliases); errors.Is(err, store.ErrRetired) {
+	// Faz 21: the app's rollout mode may keep the production alias where
+	// it is (canary) or start a guard; see store.MarkReadyWithRollout.
+	ro, err := w.Store.MarkReadyWithRollout(ctx, d, aliases)
+	if errors.Is(err, store.ErrRetired) {
 		log("==> branch was deleted during the deployment; retired without aliases")
 		return nil
 	} else if err != nil {
 		return err
 	}
+	aliases = rolloutAliases(aliases, ro, log)
 	if w.Router != nil {
 		// The deployment is up and reachable on its own URL either way; a
 		// failed alias sync is retried by the router's reconcile loop.

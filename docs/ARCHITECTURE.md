@@ -274,6 +274,57 @@ ardından gelen senkrona kadar birkaç saniye yenilerle birlikte çalışabilir.
 Web'siz bir deploy'un alias'ları kaydedilir ama `ApplyAliases`'a gönderilmez (olmayan bir Service'e `Ingress`
 açılmaz). Aktivatör `Upgrade` isteklerini tüneller; zaman aşımı yalnızca uyandırma ve bağlanmayı sınırlar.
 
+### 5.3 Kademeli yayın (Faz 21)
+
+Yayın, deploy durum makinesinin dışında, `rollouts` tablosunda yürür (uygulama başına en fazla bir
+`running`/`paused`). Canary'de production alias'ı yayın boyunca önceki deploy'da kalır; trafik
+Traefik'in ağırlıklı servisiyle bölünür. İzlemeli geçişte (`guarded`) alias hemen taşınır, yayın
+yalnızca izler.
+
+```mermaid
+stateDiagram-v2
+    [*] --> running: production deploy'u hazır (MarkReady), mod canary / guarded
+    running --> running: adım geçti → sıradaki ağırlık (%10 → %50)
+    running --> promoted: son adım geçti → production alias'ı yeni deploy'a (canary) / izleme bitti (guarded)
+    running --> rolled_back: 5xx / p95 eşiği aşıldı → ağırlık 0 (canary) / alias önceki deploy'a (guarded)
+    running --> paused: kullanıcı "Durdur"
+    paused --> running: kullanıcı "Sürdür" (yeni adım penceresi)
+    running --> aborted: metrik yok (3 adım), Traefik CRD yok, elle rollback / promote, "abort"
+    paused --> aborted: elle rollback / promote, "abort"
+    running --> superseded: daha yeni production deploy'u
+    paused --> superseded: daha yeni production deploy'u
+    paused --> promoted: "Hemen tamamla"
+    paused --> rolled_back: "Geri al"
+    promoted --> [*]
+    rolled_back --> [*]
+    aborted --> [*]
+    superseded --> [*]
+```
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant DB as Postgres
+    participant R as routing.Syncer
+    participant T as Traefik
+    participant C as rollout.Controller
+    W->>DB: MarkReadyWithRollout: preview alias taşınır, production kalır, rollouts(weight=10)
+    W->>R: SyncApp
+    R->>T: alias Ingress'leri (değişmedi) + TraefikService rollout (90/10) + IngressRoute (öncelik 100000)
+    loop 30 sn
+        C->>DB: ClaimDueRollouts (SKIP LOCKED)
+        C->>R: SyncApp (bölme yerinde mi?)
+        C->>DB: WindowTraffic(yeni), WindowTraffic(production)
+        C->>C: Decide → hold / advance / promote / rollback / abort
+        C->>DB: UpdateRollout (compare-and-set; promote'ta alias aynı transaction'da)
+        C->>R: SyncApp → yeni ağırlık ya da katman silinir
+    end
+```
+
+Metrikler: ağırlıklı servisin çocukları `<ns>-d-<sha7>-http@kubernetescrd`, alias Ingress'inin
+arka ucu `<ns>-d-<sha7>-http@kubernetes` adıyla sayılır; analitik ikisini de aynı deploy'a yazar.
+Karar penceresi adımın başladığı dakikadan sonraki tam dakikalardır.
+
 ## 6. Veri modeli
 
 ```mermaid
@@ -292,6 +343,9 @@ erDiagram
     users ||--o{ api_tokens : ""
     teams ||--o{ github_installations : "bağlar (claim)"
     github_installations ||--o{ github_installation_repos : ""
+    apps ||--o| rollout_settings : "Faz 21"
+    apps ||--o{ rollouts : "en fazla bir etkin"
+    deployments ||--o{ rollouts : "önceki / yeni"
 
     apps {
         bigint id PK

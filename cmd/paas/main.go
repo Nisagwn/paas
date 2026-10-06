@@ -197,6 +197,10 @@ func run(log *slog.Logger) error {
 			router.Run(ctx)
 		}()
 	}
+	// Faz 21: canary and guarded rollouts.
+	if err := startRollouts(ctx, st, router, w.Notifier, log, &wg); err != nil {
+		return err
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

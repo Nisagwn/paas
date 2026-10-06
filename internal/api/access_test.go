@@ -153,6 +153,13 @@ func TestAuthorizationMatrix(t *testing.T) {
 		// Faz 11 scale to zero setting.
 		{"GET", "/api/apps/blog/scale-to-zero", nil, read, nil},
 		{"PUT", "/api/apps/blog/scale-to-zero", func(string) any { return map[string]bool{"production": false} }, write, nil},
+		// Faz 21 rollouts: reading is viewer, settings and actions member
+		// (no active rollout in this fixture: authorized callers get 404).
+		{"GET", "/api/apps/blog/rollout-settings", nil, read, nil},
+		{"PUT", "/api/apps/blog/rollout-settings", func(string) any { return map[string]string{"mode": "guarded"} }, write, nil},
+		{"GET", "/api/apps/blog/rollout", nil, read, nil},
+		{"POST", "/api/apps/blog/rollout/pause", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 404, "alice": 404, "dave": 404, "admin": 404}, nil},
 		// Faz 19 analytics, deployment health and resource usage: viewer.
 		{"GET", "/api/apps/blog/analytics?range=1h", nil, read, nil},
 		{"GET", "/api/apps/blog/health", nil, read, nil},

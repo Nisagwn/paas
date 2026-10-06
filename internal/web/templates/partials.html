@@ -35,6 +35,7 @@
 {{define "depbadges"}}
 <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
 {{if .Production}}<span class="tag prod">Canlı</span>{{end}}
+{{with .Rollout}}{{if .Active}}<span class="tag" style="border-color:var(--run);color:var(--run)" title="{{.Reason}}">{{if eq .Mode "canary"}}Canary %{{.Weight}}{{else}}İzleniyor{{end}}</span>{{else if eq .State "rolled_back"}}<span class="tag" style="border-color:var(--err);color:var(--err)" title="{{.Reason}}">{{if eq .Mode "canary"}}Canary geri alındı{{else}}Otomatik geri alındı{{end}}</span>{{end}}{{end}}
 {{if and (eq .Status "ready") .SleepingSince}}<span class="tag" title="{{ago .SleepingSince}} uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}
 {{if and .CancelRequestedAt (active .Status)}}<span class="tag warn">İptal isteniyor</span>{{end}}
 {{end}}

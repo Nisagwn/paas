@@ -50,8 +50,10 @@ rules:
   - apiGroups: [cert-manager.io]
     resources: [certificates]
     verbs: [get, list, watch]
+  # Canary rollouts (Faz 21): a weighted TraefikService and IngressRoute
+  # overlays split the production hostnames while a canary runs.
   - apiGroups: [traefik.io]
-    resources: [ingressroutes, middlewares]
+    resources: [ingressroutes, middlewares, traefikservices]
     verbs: [get, list, watch, create, update, patch, delete]
   # Scale to zero (Faz 11): a sleeping deployment's Service points at the
   # activator through an EndpointSlice paas maintains; the stale pod

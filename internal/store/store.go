@@ -392,9 +392,18 @@ type AliasSpec struct {
 // If its cancellation was requested meanwhile (Faz 17), it ends as canceled
 // without aliases and ErrCanceled is returned.
 func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec) error {
+	_, err := s.MarkReadyWithRollout(ctx, d, aliases)
+	return err
+}
+
+// MarkReadyWithRollout is MarkReady that also applies the app's rollout
+// mode (Faz 21, rollouts.go): with canary the production alias stays and
+// the returned rollout splits the traffic; with guarded the alias moves and
+// the returned rollout watches it. The rollout is nil otherwise.
+func (s *Store) MarkReadyWithRollout(ctx context.Context, d Deployment, aliases []AliasSpec) (*Rollout, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -405,16 +414,20 @@ func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec
 			error = CASE WHEN retired_at IS NULL AND cancel_requested_at IS NOT NULL THEN '`+CanceledReason+`' ELSE '' END,
 			finished_at = now()
 		WHERE id = $1 RETURNING status`, d.ID).Scan(&status); err != nil {
-		return err
+		return nil, err
 	}
 	if status == StatusRetired || status == StatusCanceled {
 		if err := tx.Commit(); err != nil {
-			return err
+			return nil, err
 		}
 		if status == StatusCanceled {
-			return ErrCanceled
+			return nil, ErrCanceled
 		}
-		return ErrRetired
+		return nil, ErrRetired
+	}
+	aliases, rollout, err := planRolloutTx(ctx, tx, d, aliases)
+	if err != nil {
+		return nil, err
 	}
 	for _, a := range aliases {
 		if _, err := tx.ExecContext(ctx, `
@@ -423,10 +436,10 @@ func (s *Store) MarkReady(ctx context.Context, d Deployment, aliases []AliasSpec
 				SET deployment_id = EXCLUDED.deployment_id, updated_at = now()
 				WHERE aliases.deployment_id < EXCLUDED.deployment_id`,
 			d.AppID, a.Hostname, a.Kind, a.Branch, d.ID); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return tx.Commit()
+	return rollout, tx.Commit()
 }
 
 // Rollback points the app's production alias at an earlier ready deployment.
@@ -467,6 +480,10 @@ func (s *Store) Rollback(ctx context.Context, appID, deploymentID int64) (Alias,
 		return a, ErrNotFound
 	}
 	if err != nil {
+		return a, err
+	}
+	// Faz 21: moving production by hand ends a canary or guard rollout.
+	if err := abortActiveForRollback(ctx, tx, appID, deploymentID); err != nil {
 		return a, err
 	}
 	return a, tx.Commit()

@@ -159,7 +159,9 @@ func (s *Store) Retire(ctx context.Context, id int64, reason string) (bool, erro
 	// A new statement sees aliases committed while we waited for the lock.
 	var aliased bool
 	if err := tx.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM aliases WHERE deployment_id = $1)`, id).Scan(&aliased); err != nil || aliased {
+		`SELECT EXISTS (SELECT 1 FROM aliases WHERE deployment_id = $1)
+			OR EXISTS (SELECT 1 FROM rollouts WHERE state IN ('running', 'paused')
+				AND (from_deployment_id = $1 OR to_deployment_id = $1))`, id).Scan(&aliased); err != nil || aliased {
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, `

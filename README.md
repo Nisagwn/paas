@@ -22,7 +22,8 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 
 **Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · Next.js, Vite, Nuxt, SvelteKit,
 Astro, Remix gibi framework preset'leri ve proje ayarları (monorepo kök dizini, komutlar) · commit başına HTTPS URL ·
-branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · canlı build logu ·
+branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · metriklere bakarak kendini
+tamamlayan ya da geri alan kademeli yayın (canary) · canlı build logu ·
 web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik temizlik ve çökme sonrası kurtarma ·
 `terraform apply` ile AWS'de kurulum.
 
@@ -33,7 +34,7 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Bağlam ve konteyner diyagramları, deploy ve rollback akışları, durum makinesi, veri modeli |
 | [docs/REPORT.md](docs/REPORT.md) | Teknik rapor: problem, tasarım kararları, güvenlik, test, ölçümler, sınırlar |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Kuyruk ölçeklenmesi, build süreleri, imaj boyutları, rollback gecikmesi |
-| [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | 16 arıza senaryosu, beklenen davranış ve testleri |
+| [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | 20 arıza senaryosu, beklenen davranış ve testleri |
 | [docs/DEMO.md](docs/DEMO.md) | Canlı demo ve video senaryosu |
 | [docs/PHASES.md](docs/PHASES.md) | Faz planı |
 | [infra/README.md](infra/README.md) | AWS kurulumu (Terraform, k3s) |
@@ -104,6 +105,9 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
 - [x] Faz 20: süreç tipleri: `paas.yaml` / `Procfile` ile web, worker ve cron; web'siz uygulamalar (bot, kuyruk işleyici),
   yalnızca production neslinde çalışan worker / cron (rollback onları da taşır), kopya sayısı, "şimdi çalıştır", süreç logları,
   uyanan deploy'a WebSocket ([ayrıntılar](#süreç-tipleri-faz-20))
+- [x] Faz 21: kademeli yayın (canary) ve otomatik geri alma: yeni production deploy'u önce trafiğin bir payını alır
+  (Traefik ağırlıklı servisi), 5xx / p95 production ile karşılaştırılır, adım adım ilerler ya da kendiliğinden geri
+  çekilir; "izlemeli geçiş" modu anında geçip bozulursa geri alır ([ayrıntılar](#kademeli-yayın-faz-21))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -377,6 +381,76 @@ curl -H "Authorization: Bearer $PAAS_API_TOKEN" "localhost:8080/api/apps/blog/an
 
 Toplayıcı ve kullanım ucu yalnızca `kubernetes` deployer ile çalışır; dry-run'da analitik boş döner,
 `/usage` `501` verir.
+
+### Kademeli yayın (Faz 21)
+
+Vercel'de yalnızca Enterprise'da olan "rolling releases"in karşılığı. Değişmez deploy'lar, alias
+olarak production, anında rollback ve deploy başına istek metrikleri (Faz 19) zaten vardı; Faz 21
+bunları birleştirir: yeni bir production deploy'u önce trafiğin küçük bir payını alır, metrikleri
+mevcut production ile karşılaştırılır ve yayın ya kendiliğinden ilerler ya da kendiliğinden geri alınır.
+
+| Biçim | Davranış |
+|---|---|
+| `instant` (varsayılan) | Eskisi gibi: hazır olan production deploy'u alias'ı hemen alır |
+| `guarded` | Alias hemen taşınır; yeni production izleme süresi (varsayılan 10 dk) boyunca izlenir, bozulursa önceki deploy'a otomatik dönülür |
+| `canary` | Production alias'ı yerinde kalır; yeni deploy adımlarla (varsayılan %10 → %50 → %100, adım 5 dk) trafiğin payını alır, %100'de alias taşınır |
+
+**Karar kuralları** (`internal/rollout`, saf ve tablo testli `Decide` fonksiyonu; denetleyici 30 sn'de bir çalışır):
+
+1. Yeni deploy adımda en az `min_requests` (50) istek aldıysa, adım bitmesini beklemeden geri alınır:
+   5xx oranı `max_error_pct`'yi (%5) aşarsa; production'ın oranından `max_error_increase_pct`
+   puandan (2) fazla kötüyse; p95'i `max_p95_ms`'yi (varsayılan kapalı) ya da production p95'inin
+   `max_p95_factor` katını (2×; en az 25 ms fark) aşarsa.
+2. Daha az istek varsa yalnızca açık kanıt sayılır: en az 5 yanıt 5xx ve oran eşiğin üstünde.
+3. **Az trafikli projeler:** eşik kadar istek gelmezse ve hata kanıtı yoksa adım süre dolunca ilerler
+   (beklemek hiçbir zaman kanıt üretmez). Bunu istemeyenler `min_requests`'i düşürebilir ya da `guarded` kullanabilir.
+4. Metrik yoksa (iki tarafta da istek yok ama production'ın yayından önce trafiği vardı) yayın bekler,
+   3 adım süresi boyunca metrik gelmezse durdurulur; production değişmez.
+5. Aksi halde adım geçer: sıradaki ağırlık ya da son adımda production alias'ının taşınması.
+
+Metrikler dakikalık toplandığından adım en az 2 dakikadır; karar penceresi adımın başladığı
+dakikadan sonraki tam dakikalardır (ağırlık değişmeden önceki trafik karışmaz).
+
+**Yönlendirme.** Düz `networking/v1` Ingress trafik bölemez ve Traefik'in Ingress sağlayıcısı
+`TraefikService`'e bağlanmayı reddeder (Traefik 3.6'da denendi: `Resource backends are not supported`).
+Bu yüzden canary süresince production adı ve özel alan adları için Traefik CRD'leriyle bir katman eklenir:
+ağırlıklı `TraefikService rollout` (`d-<eski>` 100-w, `d-<yeni>` w) ve host başına yüksek öncelikli
+(`100000`) `IngressRoute`. Alias Ingress'i hiç silinmez; yayın bitince katman silinir ve Ingress
+(promote edildiyse yeni deploy'u gösterir) devam eder. TLS aynıdır (websecure + wildcard, ya da
+`PAAS_INGRESS_CERT_ISSUER` / özel alan adı Secret'ı); ACME HTTP-01 yolu katmandan hariç tutulur.
+Ağırlıklı servisin çocukları Traefik metriklerinde `<ns>-d-<sha7>-http@kubernetescrd` olarak görünür
+(canlı doğrulandı); analitik ve sıfıra ölçekleme bu seriyi de deploy'a bağlar. Yayının iki tarafı da
+uyutulmaz ve emekliye ayrılmaz.
+
+**Boru hattı.** Karar `MarkReady` transaction'ında verilir: canary'de production alias'ı taşınmaz
+(branch preview'ı taşınır), deploy loguna `==> canary: %10 trafik (…)` yazılır. Daha yeni bir production
+deploy'u süren yayının yerini alır (`superseded`; yeni yayın kararlı production'dan başlar). Elle
+rollback ya da production deploy'unun promote edilmesi yayını durdurur (`aborted`); preview'in promote
+edilmesi açık bir istek olduğu için canary'ye girmeden hemen geçer. Geri alınan canary `ready` kalır,
+kendi adresinden açılır; listede "Canary geri alındı" olarak işaretlenir, GitHub'a `paas/deploy/rollout`
+bağlamında commit status'u gider.
+
+```bash
+# Ayarlar (gönderilmeyen alanlar korunur)
+curl -X PUT -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/rollout-settings \
+  -d '{"mode":"canary","steps":[10,50,100],"step_seconds":300,"max_error_pct":5,"max_p95_factor":2}'
+# Durum: etkin yayın, iki tarafın istek / 5xx / p95'i, sıradaki karar; son yayınlar
+curl -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/rollout
+# Elle: promote (hemen tamamla) | pause | resume | rollback | abort
+curl -X POST -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/rollout/pause
+
+paas rollout settings blog --mode canary --steps 10,50,100 --step 5m --max-p95-ms 800
+paas rollout status blog
+paas rollout promote blog
+```
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_ROLLOUT_INTERVAL` | denetleyicinin değerlendirme aralığı (varsayılan `30s`, en az `5s`) |
+
+Denetleyici her kontrol düzlemi kopyasında çalışır; yayınlar `FOR UPDATE SKIP LOCKED` ile alınır,
+her geçiş (durum, adım) üzerinde compare-and-set'tir: aynı anda gelen kullanıcı işlemi ya da yeni
+deploy kazanır, eski karar düşer. Küme RBAC'ına `traefik.io/traefikservices` eklendi.
 
 ### Build nasıl çalışır
 
@@ -1078,6 +1152,10 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/apps/{name}/analytics?range=1h\|24h\|7d&deployment=` | İstek analitiği: zaman serisi (istek, 2xx–5xx, hata, p50/p95/ortalama ms) + toplamlar + deploy dağılımı |
 | GET | `/api/apps/{name}/health` | Deploy başına son 15 dakikanın 5xx oranı ve durumu (`healthy` / `degraded` / `failing` / `no_traffic`) |
 | GET | `/api/apps/{name}/usage` | Çalışan deploy pod'larının anlık CPU / bellek kullanımı ve limitleri (metrics-server; yalnızca `kubernetes` deployer) |
+| GET | `/api/apps/{name}/rollout-settings` | Yayın ayarları: `mode`, `steps`, `step_seconds`, eşikler, `guard_seconds` (viewer) |
+| PUT | `/api/apps/{name}/rollout-settings` | Gönderilen alanları birleştirir; geçersiz değer `400` (member) |
+| GET | `/api/apps/{name}/rollout` | `{"settings","active","recent"}` — etkin yayın iki tarafın metrikleri ve sıradaki kararla (viewer) |
+| POST | `/api/apps/{name}/rollout/{promote\|abort\|pause\|resume\|rollback}` | Etkin yayına elle işlem; yayın yoksa `404`, duruma uymuyorsa `409` (member) |
 | GET | `/api/apps/{name}/settings` | Build ayarları + `detected_framework` + kabul edilen `frameworks` listesi (viewer) |
 | PUT | `/api/apps/{name}/settings` | `{"root_directory"?,"framework"?,"install_command"?,"build_command"?,"start_command"?,"output_directory"?,"node_version"?}` — gönderilenleri birleştirir, `""` sıfırlar; geçersiz değer `400` (member) |
 | GET | `/api/deployments/{id}` | Tek deployment |
@@ -1120,6 +1198,7 @@ internal/process/     süreç tipleri (Faz 20): paas.yaml / Procfile okuma, cron
 internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
 internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
 internal/analytics/   istek metrikleri: Traefik sayaçlarından dakikalık farklar, saklama, p50/p95
+internal/rollout/     kademeli yayın denetleyicisi: karar fonksiyonu, adımlar, otomatik geri alma
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar

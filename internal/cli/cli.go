@@ -101,6 +101,13 @@ func commandList() []command {
 				"NAME=default goes back to the replicas in paas.yaml.",
 			run: cmdPs},
 		{name: "cron", args: "run <app> <name>", summary: "Run a cron job of the production deployment now", run: cmdCron},
+		// Faz 21 (rollout.go).
+		{name: "rollout", args: "status|promote|abort|pause|resume|rollback <app> | settings <app> [--mode canary] [--steps 10,50,100] [--step 5m] ...",
+			summary: "Show or steer canary / guarded rollouts and their settings",
+			help: "Modes: instant (default), guarded (switch at once, watch, roll back on regression),\n" +
+				"canary (the new production takes --steps of the traffic, one --step at a time).\n" +
+				"Without flags `settings` prints the current settings.",
+			run: cmdRollout},
 	}
 }
 

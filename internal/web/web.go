@@ -117,9 +117,9 @@ func (s *Server) Handler() http.Handler {
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
 		"deploys", "analytics", "settings"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
-			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/"+p+".html"))
+			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/rollout.html", "templates/"+p+".html"))
 	}
-	partials := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/partials.html", "templates/processes.html"))
+	partials := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/partials.html", "templates/processes.html", "templates/rollout.html"))
 	s.pages["deployments"] = partials.Lookup("deployments")
 	s.pages["env"] = partials.Lookup("env")
 	s.pages["domains"] = partials.Lookup("domains")
@@ -153,6 +153,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /apps/{name}/processes", s.authed(s.processesPartial))
 	mux.Handle("POST /apps/{name}/processes/scale", s.authed(s.scaleProcess))
 	mux.Handle("POST /apps/{name}/crons/run", s.authed(s.runCron))
+	// Faz 21: rollout panel actions and settings (rollouts.go).
+	mux.Handle("POST /apps/{name}/rollout/{action}", s.authed(s.rolloutAction))
+	mux.Handle("POST /apps/{name}/rollout-settings", s.authed(s.rolloutSettings))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)
@@ -326,6 +329,9 @@ var flashes = map[string]string{
 	"imported-idle":  "Proje oluşturuldu. Deploy için canlı branch'e push et.",
 	"github":         "GitHub bağlandı. Repoların aşağıda.",
 	"github-updated": "GitHub ayarları kaydedildi. Repo değişiklikleri birkaç saniye içinde burada görünür.",
+	// Faz 21.
+	"rollout":          "Yayın güncellendi.",
+	"rollout-settings": "Yayın ayarları kaydedildi. Bir sonraki production deploy'unda geçerli olur.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {

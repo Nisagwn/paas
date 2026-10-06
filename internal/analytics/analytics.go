@@ -145,6 +145,9 @@ func (c *Collector) Collect(ctx context.Context) []store.RequestBucket {
 	for _, w := range workloads {
 		if w.DeploymentID > 0 {
 			byKey[w.MetricKey] = w.DeploymentID
+			// Faz 21: traffic a canary's weighted TraefikService sends to
+			// the deployment is a separate series of the CRD provider.
+			byKey[deploy.CRDMetricKey(w.Namespace, w.Name)] = w.DeploymentID
 		}
 	}
 	buckets := Bucketize(deltas, byKey, c.minuteOf(now))
