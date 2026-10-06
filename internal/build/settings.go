@@ -76,6 +76,10 @@ type Options struct {
 	StartCommand    string
 	OutputDirectory string
 	NodeVersion     string
+
+	// noProcfile: a paas.yaml defines the processes, so the Procfile's web
+	// line is not the start command (Faz 20).
+	noProcfile bool
 }
 
 // OptionsFrom converts stored settings.

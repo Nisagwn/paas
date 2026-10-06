@@ -80,7 +80,7 @@ func commandList() []command {
 		{name: "ls", summary: "List apps with production URL and last deployment", run: cmdLs},
 		{name: "deployments", args: "<app> [--limit N]", summary: "List an app's deployments", run: cmdDeployments},
 		{name: "inspect", args: "<deployment-id>", summary: "Show one deployment", run: cmdInspect},
-		{name: "logs", args: "<deployment-id> [-f] | --runtime <app> <deployment-id> [-f] [--tail N]",
+		{name: "logs", args: "<deployment-id> [-f] | --runtime [--process NAME] <app> <deployment-id> [-f] [--tail N]",
 			summary: "Print build logs (-f follows until the deployment finishes) or pod logs (--runtime)",
 			help:    "With -f the command exits 0 when the deployment is ready and 1 when it failed.",
 			run:     cmdLogs},
@@ -93,6 +93,14 @@ func commandList() []command {
 		{name: "import", args: "<owner/repo> [--name n] [--team t] [--branch b]",
 			summary: "Import a GitHub repository and queue its first deployment", run: cmdImport},
 		{name: "open", args: "<app> [--print]", summary: "Open the app's production URL in the browser", run: cmdOpen},
+		// Faz 20 (processes.go).
+		{name: "ps", args: "<app> [--deployment ID] | scale <app> NAME=N...",
+			summary: "Show an app's processes (web, workers, crons) or scale its workers",
+			help: "Processes come from paas.yaml (or the Procfile) of the deployed commit. Workers and crons run\n" +
+				"for the production deployment only. scale sets an app-wide override for production;\n" +
+				"NAME=default goes back to the replicas in paas.yaml.",
+			run: cmdPs},
+		{name: "cron", args: "run <app> <name>", summary: "Run a cron job of the production deployment now", run: cmdCron},
 	}
 }
 

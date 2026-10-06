@@ -1,0 +1,20 @@
+# Process types (Faz 20): one image, three kinds of processes.
+#
+#   web     the HTTP server (gets the URL and scales to zero when idle)
+#   worker  a long-running consumer, no port; scale it with
+#           `paas ps scale worker-queue worker=2`
+#   report  a cron job (UTC); run it now with `paas cron run worker-queue report`
+#
+# Workers and crons run only for the production deployment: a rollback
+# moves them back to the old one, previews start only "previews: true".
+processes:
+  web:
+    command: node web.js
+  worker:
+    command: node worker.js
+    replicas: 1
+    previews: true
+crons:
+  - name: report
+    schedule: "*/10 * * * *"
+    command: node report.js

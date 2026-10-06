@@ -276,7 +276,9 @@ func ownerRef(dep *appsv1.Deployment) metav1.OwnerReference {
 	}
 }
 
-func (k *Kubernetes) deploymentObject(d store.Deployment, image, envHash string) *appsv1.Deployment {
+// deploymentObject is the web Deployment; exec, when set, replaces the
+// image's command (Faz 20: processes.web of a Dockerfile project).
+func (k *Kubernetes) deploymentObject(d store.Deployment, image, envHash string, exec []string) *appsv1.Deployment {
 	ns, name := naming.Namespace(d.AppName), d.ObjectName()
 	lbl := labels(d)
 	annot := map[string]string{AnnotBranch: d.Branch, AnnotEnvHash: envHash}
@@ -303,10 +305,11 @@ func (k *Kubernetes) deploymentObject(d store.Deployment, image, envHash string)
 					EnableServiceLinks: ptr(false),
 					SecurityContext:    podSec,
 					Containers: []corev1.Container{{
-						Name:  "app",
-						Image: image,
-						Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: Port, Protocol: corev1.ProtocolTCP}},
-						Env:   envVars(d),
+						Name:    "app",
+						Image:   image,
+						Command: exec,
+						Ports:   []corev1.ContainerPort{{Name: "http", ContainerPort: Port, Protocol: corev1.ProtocolTCP}},
+						Env:     envVars(d),
 						EnvFrom: []corev1.EnvFromSource{{
 							SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName(d)}},
 						}},
@@ -332,8 +335,8 @@ func (k *Kubernetes) deploymentObject(d store.Deployment, image, envHash string)
 	}
 }
 
-func (k *Kubernetes) ensureDeployment(ctx context.Context, d store.Deployment, image, envHash string) (*appsv1.Deployment, error) {
-	want := k.deploymentObject(d, image, envHash)
+func (k *Kubernetes) ensureDeployment(ctx context.Context, d store.Deployment, image, envHash string, exec []string) (*appsv1.Deployment, error) {
+	want := k.deploymentObject(d, image, envHash, exec)
 	return apply(ctx, k.client.AppsV1().Deployments(want.Namespace), want.Name, want,
 		func(have *appsv1.Deployment) bool {
 			c := have.Spec.Template.Spec.Containers

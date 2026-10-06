@@ -126,6 +126,11 @@ func run(log *slog.Logger) error {
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
 	}
+	// Faz 20: process status, scaling and cron runs (the API finds the same
+	// deployer through RuntimeLogs).
+	if pc, ok := applier.(api.ProcessCluster); ok {
+		ui.Processes = pc
+	}
 	// Faz 15: install link and import. Assigned only with an App, so the
 	// interfaces stay nil without one.
 	var inspector api.RepoInspector

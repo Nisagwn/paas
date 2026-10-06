@@ -333,6 +333,12 @@ func (s *Store) CopyDeployment(ctx context.Context, src Deployment, o CopyOption
 	if err != nil {
 		return Deployment{}, err
 	}
+	if image != "" {
+		// Faz 20: the image's process set comes with it.
+		if err := s.copyProcesses(ctx, src.ID, id); err != nil {
+			return Deployment{}, err
+		}
+	}
 	return s.GetDeployment(ctx, id)
 }
 

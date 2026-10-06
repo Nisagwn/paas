@@ -77,10 +77,10 @@ func workloadOf(d *appsv1.Deployment) Workload {
 	return w
 }
 
-// Workloads lists every Deployment paas manages, in all namespaces.
+// Workloads lists every web Deployment paas manages, in all namespaces.
 func (k *Kubernetes) Workloads(ctx context.Context) ([]Workload, error) {
 	list, err := k.client.AppsV1().Deployments("").List(ctx, metav1.ListOptions{
-		LabelSelector: LabelManagedBy + "=" + ManagedBy,
+		LabelSelector: webWorkloads, // Faz 20: not worker Deployments
 	})
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (k *Kubernetes) RepointActivator(ctx context.Context) error {
 		return nil
 	}
 	list, err := k.client.AppsV1().Deployments("").List(ctx, metav1.ListOptions{
-		LabelSelector: LabelManagedBy + "=" + ManagedBy,
+		LabelSelector: webWorkloads,
 	})
 	if err != nil {
 		return err

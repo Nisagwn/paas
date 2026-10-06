@@ -1,0 +1,90 @@
+{{/* Faz 20: processes of the production deployment (web/processes.go).
+     .Data is a processesData. */}}
+
+{{define "processes"}}
+{{$d := .Data}}{{$csrf := .CSRF}}{{$app := $d.App.Name}}
+<div id="processes-card" class="card pad"
+  {{if $d.Busy}}hx-get="/apps/{{$app}}/processes" hx-trigger="every 5s" hx-swap="outerHTML"{{end}}>
+  {{with $d.Error}}<div class="flash err" role="alert">{{.}}</div>{{end}}
+  {{with $d.Flash}}<div class="flash" role="status">{{.}}</div>{{end}}
+  {{if not $d.HasProduction}}
+  <p class="muted" style="margin:0">Süreçler ilk canlı deploy'dan sonra burada görünür.</p>
+  {{else}}
+  {{$v := $d.View}}
+  <p class="muted small" style="margin-top:0">
+    Canlı deploy <a class="mono" href="/deployments/{{$v.DeploymentID}}">#{{$v.DeploymentID}}</a> ·
+    tanım: {{if $v.Source}}<span class="mono">{{$v.Source}}</span>{{else}}yok (yalnızca web){{end}}
+    {{with $v.StatusError}}<br><span style="color:var(--err)">Küme durumu okunamadı: {{.}}</span>{{end}}
+  </p>
+  <table>
+    <thead><tr><th>Süreç</th><th class="hide-sm">Komut</th><th>Kopya</th><th>Durum</th><th></th></tr></thead>
+    <tbody>
+    {{range $v.Processes}}
+      <tr>
+        <td><span class="mono">{{.Name}}</span> <span class="tag">{{pkind .Type}}</span>
+          {{if and (eq .Type "worker") .Previews}}<span class="tag" title="Önizleme deploy'larında da çalışır">önizlemede de</span>{{end}}</td>
+        <td class="hide-sm mono small trunc" title="{{.Command}}">{{if .Command}}{{.Command}}{{else}}<span class="muted">algılanan başlatma komutu</span>{{end}}</td>
+        <td class="small">{{.Ready}}/{{.Desired}}
+          {{if and (eq .Type "worker") .Override}}<span class="muted" title="paas.yaml'daki değer: {{.Replicas}}"> · elle ayarlandı</span>{{end}}</td>
+        <td><span class="badge {{pclass .State}}">{{pstate .State}}</span>{{with .Reason}} <span class="small muted">{{.}}</span>{{end}}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <a class="small" href="/deployments/{{$v.DeploymentID}}?process={{.Name}}#runtime">Log</a>
+          {{if and $d.CanWrite (eq .Type "worker")}}
+          <form class="inline" method="post" action="/apps/{{$app}}/processes/scale"
+            hx-post="/apps/{{$app}}/processes/scale" hx-target="#processes-card" hx-swap="outerHTML">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="process" value="{{.Name}}">
+            <input name="replicas" type="number" min="0" max="10" value="{{.Desired}}" aria-label="{{.Name}} kopya sayısı"
+              style="width:64px;padding:3px 6px">
+            <button class="small" type="submit">Ölçekle</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+
+  {{if $v.Crons}}
+  <h3 style="margin:18px 0 6px;font-size:15px">Zamanlanmış işler</h3>
+  <table>
+    <thead><tr><th>İş</th><th>Zamanlama (UTC)</th><th class="hide-sm">Son çalışma</th><th>Durum</th><th></th></tr></thead>
+    <tbody>
+    {{range $v.Crons}}
+      <tr>
+        <td><span class="mono">{{.Name}}</span>
+          <div class="mono small muted trunc" title="{{.Command}}">{{.Command}}</div></td>
+        <td class="mono small">{{.Schedule}}</td>
+        <td class="hide-sm small">
+          {{with .LastJob}}{{with .Started}}<span title="{{time .}}">{{ago .}}</span>{{end}}{{if .Manual}} <span class="muted">· elle</span>{{end}}
+          {{else}}{{with .LastScheduleTime}}<span title="{{time .}}">{{ago .}}</span>{{else}}<span class="muted">henüz yok</span>{{end}}{{end}}
+        </td>
+        <td>
+          {{if .LastJob}}<span class="badge {{pclass .LastJob.Status}}">{{pstate .LastJob.Status}}</span>
+          {{else if not .Exists}}<span class="badge">{{pstate "missing"}}</span>
+          {{else if .Suspended}}<span class="badge">Askıda</span>
+          {{else}}<span class="badge s-ready">Zamanlandı</span>{{end}}
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          <a class="small" href="/deployments/{{$v.DeploymentID}}?process={{.Name}}#runtime">Log</a>
+          {{if $d.CanWrite}}
+          <form class="inline" method="post" action="/apps/{{$app}}/crons/run"
+            hx-post="/apps/{{$app}}/crons/run" hx-target="#processes-card" hx-swap="outerHTML"
+            hx-confirm="{{.Name}} şimdi çalıştırılsın mı?">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="cron" value="{{.Name}}">
+            <button class="small" type="submit" {{if gt .Running 0}}disabled title="Önceki çalışma sürüyor"{{end}}>Şimdi çalıştır</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{end}}
+  {{end}}
+  <p class="muted small" style="margin-bottom:0">Arka plan süreçleri ve zamanlanmış işler repo kökündeki
+    <span class="mono">paas.yaml</span> (ya da <span class="mono">Procfile</span>) dosyasından okunur ve yalnızca canlı
+    deploy'da çalışır; geri alma onları da eski sürüme taşır. Elle verilen kopya sayısı sonraki deploy'larda da geçerlidir.</p>
+</div>
+{{end}}

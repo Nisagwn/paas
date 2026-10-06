@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/process"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -35,6 +36,9 @@ type BuildResult struct {
 	// Framework the build detected or was told to use, e.g. "Next.js";
 	// empty if the builder does not detect one.
 	Framework string
+	// Processes is the process set of the built commit (Faz 20); nil if
+	// the builder does not detect one (the deployment runs web only).
+	Processes *process.Set
 }
 
 // Deployer creates the Kubernetes objects and waits until healthy (Faz 3).
@@ -288,6 +292,11 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 		}
 		if built.Framework != "" {
 			if err := w.Store.SetFramework(ctx, d.ID, built.Framework); err != nil {
+				return err
+			}
+		}
+		if built.Processes != nil {
+			if err := w.Store.SetProcesses(ctx, d.ID, *built.Processes); err != nil {
 				return err
 			}
 		}

@@ -184,5 +184,30 @@ queued → building → deploying → ready
   rol / duruma göre düğme görünürlüğü ve örnek metriklerle analitik sayfası için
 - **Çıktı:** Faz 16–19'da API'ye eklenen her şey tarayıcıdan da kullanılabiliyor
 
+### Faz 20 — Süreç tipleri: web / worker / cron (migration 013) ✅ (birim, veritabanı ve sahte küme testleriyle doğrulandı)
+- Repo kökündeki (kök dizin ayarına göre) `paas.yaml` / `paas.yml` / `paas.json` süreçleri tanımlar: `processes` (web, worker'lar:
+  `command` metin ya da liste, `replicas` 0–10, `previews`) ve `crons` (ad, 5 alanlı ya da `@daily` gibi zamanlama, komut).
+  Yoksa `Procfile`: `web:` başlatma komutu, diğer satırlar 1 kopyalı worker, `release:` yok sayılır. `paas.yaml` varsa `Procfile` tamamen yok sayılır
+- Katı doğrulama: DNS uyumlu en fazla 20 karakterlik adlar, en fazla 10 worker ve 10 cron, tek satırlık komutlar, bilinmeyen alan yok;
+  hatalı tanım build'i açık bir log satırıyla düşürür. Süreç kümesi build edilen commit'ten okunur ve deploy ile saklanır (`deployment_processes`);
+  imajı yeniden kullanan redeploy / promote onu da kopyalar
+- Web'siz uygulamalar: `web: none` ya da (web belirtilmemişse) başlatma komutu algılanamayan ama worker'ı olan proje; Deployment / Service / Ingress
+  oluşmaz, hazır = worker'lar ayakta, alias'lar yine kaydedilir (rollback çalışır) ama `Ingress` üretilmez
+- Kubernetes: worker → `Deployment d-<sha7>-w-<ad>` (aynı imaj, Secret, güvenlik bağlamı ve limitler, `PAAS_PROCESS=<ad>`, port ve probe yok),
+  cron → `CronJob d-<sha7>-c-<ad>` (`Forbid`, başlama ve çalışma süresi sınırlı, kısa geçmiş, ≤ 52 karakter). Web Deployment'ına
+  (web'sizde env Secret'ına) aittirler; emekliye ayırma hepsini siler. Pod'ları `paas/process-of` etiketi taşır, web Service'i onları seçmez
+- Tek nesil kuralı: worker'lar ve cron'lar production alias'ının hedefinde çalışır; preview ortamındaki bir preview alias hedefi yalnızca
+  `previews: true` olanları çalıştırır; diğer her deploy'da worker'lar 0 kopya, cron'lar askıda. Alias senkronundan hemen sonra uygulanır
+  (`routing.ProcessApplier`): hazır olunca, rollback / promote'ta, ölçeklemede ve periyodik olarak. Rollback worker ve cron'ları da geri taşır
+- Deploy sırasında yeni production deploy'unun worker'ları başlatılır ve 10 sn çökmeden ayakta kalmaları beklenir (`CrashLoopBackOff`,
+  `ImagePullBackOff`, kota aşımı hemen başarısız); cron'lar askıda oluşur, alias geçince açılır. Eski ve yeni neslin worker'ları birkaç saniye çakışabilir
+- Uygulama başına kopya sayısı (`app_process_scale`) paas.yaml'ı production'da geçersiz kılar; sıfıra ölçekleme worker'lara hiç dokunmaz
+- WebSocket: aktivatör `Upgrade` isteğini tüneller ve zaman aşımı yalnızca uyandırma + bağlantıyı sınırlar (uyanan ilk WebSocket / SSE artık 2 dakikada kesilmiyor)
+- API: `GET /api/apps/{name}/processes`, `PUT …/processes/{proc}`, `POST …/crons/{cron}/run`, `runtime-logs?process=`;
+  arayüzde "Süreçler" bölümü ve çalışma logunda süreç seçici; CLI: `paas ps`, `paas ps scale`, `paas cron run`, `paas logs --runtime --process`
+- Örnekler: `examples/websocket-chat` (bağımlılıksız WebSocket sohbeti), `examples/worker-queue` (paas.yaml ile web + worker + cron)
+- **Çıktı:** Vercel'in sunucusuz modelinin taşıyamadığı iş yükleri (Discord botu, kuyruk işleyici, zamanlanmış iş, WebSocket sunucusu)
+  aynı push → deploy → rollback akışıyla çalışıyor
+
 ## Sonraki aşamalar
 Veritabanı sağlama, faturalandırma, çok düğümlü küme.

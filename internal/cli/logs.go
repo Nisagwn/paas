@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"time"
 )
@@ -22,6 +23,7 @@ func cmdLogs(r *runner, args []string) error {
 	fs.BoolVar(follow, "follow", false, "same as -f")
 	runtimeLogs := fs.Bool("runtime", false, "pod logs of a running deployment: paas logs --runtime <app> <deployment-id>")
 	tail := fs.Int("tail", 200, "runtime logs: number of recent lines (1-10000)")
+	proc := fs.String("process", "", "runtime logs: process to read (web, a worker or a cron; default web)")
 	pos, err := r.parse(fs, args, 1, 2)
 	if err != nil {
 		return err
@@ -37,7 +39,10 @@ func cmdLogs(r *runner, args []string) error {
 		if err != nil {
 			return err
 		}
-		return r.runtimeLogs(pos[0], id, *follow, *tail)
+		return r.runtimeLogs(pos[0], id, *follow, *tail, *proc)
+	}
+	if *proc != "" {
+		return usagef("--process needs --runtime")
 	}
 	if len(pos) != 1 {
 		return usagef("build logs take one <deployment-id>; pod logs need --runtime <app> <deployment-id>")
@@ -208,7 +213,7 @@ func writeLine(w io.Writer, v any) error {
 }
 
 // runtimeLogs copies the pod's log (chunked text/plain) to stdout.
-func (r *runner) runtimeLogs(appName string, id int64, follow bool, tail int) error {
+func (r *runner) runtimeLogs(appName string, id int64, follow bool, tail int, proc string) error {
 	c, err := r.client()
 	if err != nil {
 		return err
@@ -216,6 +221,9 @@ func (r *runner) runtimeLogs(appName string, id int64, follow bool, tail int) er
 	path := fmt.Sprintf("%s?tail=%d", appPath(appName, "deployments", strconv.FormatInt(id, 10), "runtime-logs"), tail)
 	if follow {
 		path += "&follow=1"
+	}
+	if proc != "" {
+		path += "&process=" + url.QueryEscape(proc)
 	}
 	resp, err := c.Stream(r.ctx, path, "text/plain")
 	if err != nil {

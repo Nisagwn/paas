@@ -279,6 +279,10 @@ func (s *Server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	proc, ok := s.processLogTarget(w, r, d) // Faz 20: ?process=<name>
+	if !ok {
+		return
+	}
 
 	// Headers are sent on the first byte, so an early error (no pod yet)
 	// can still become a proper status code.
@@ -289,7 +293,7 @@ func (s *Server) runtimeLogs(w http.ResponseWriter, r *http.Request) {
 		defer close(hbDone)
 		out.heartbeat(ctx, s.Stream.withDefaults().Heartbeat)
 	}()
-	err = s.RuntimeLogs.RuntimeLogs(ctx, d, follow, tail, out)
+	err = s.streamRuntimeLogs(ctx, d, proc, follow, tail, out)
 	cancel()
 	<-hbDone // no writes after the handler returns
 	if r.Context().Err() != nil {

@@ -48,6 +48,9 @@ type Activator struct {
 
 type targetKey struct{}
 
+// deadlineKey carries the time after which retryTransport stops retrying.
+type deadlineKey struct{}
+
 // Init validates Upstream and builds the proxy. Handler calls it.
 func (a *Activator) Init() error {
 	if a.Upstream != "" && a.Upstream != "pod" {
@@ -144,7 +147,13 @@ func (a *Activator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"wait_ms", time.Since(start).Milliseconds())
 	}
 
-	out := r.WithContext(context.WithValue(ctx, targetKey{}, target))
+	// Faz 20: the timeout bounds waking and connecting only. The proxied
+	// request lives as long as the client's: a WebSocket (Upgrade, which
+	// httputil.ReverseProxy tunnels) or an SSE stream that wakes a
+	// deployment must not be cut when the timeout passes.
+	deadline, _ := ctx.Deadline()
+	pctx := context.WithValue(context.WithValue(r.Context(), targetKey{}, target), deadlineKey{}, deadline)
+	out := r.WithContext(pctx)
 	out.Body = io.NopCloser(bytes.NewReader(body))
 	out.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil }
 	out.ContentLength = int64(len(body))
@@ -153,7 +162,8 @@ func (a *Activator) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // retryTransport retries a request that looped back to the activator or
 // could not connect: right after a wake the ingress controller or the pod
-// may need a moment. It gives up when the request's context ends.
+// may need a moment. It gives up when the request's context ends or the
+// activator's timeout (deadlineKey) has passed.
 type retryTransport struct {
 	base http.RoundTripper
 }
@@ -180,6 +190,12 @@ func (t *retryTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 			resp.Body.Close()
 		case !retryable(err):
 			return nil, err
+		}
+		if dl, ok := r.Context().Value(deadlineKey{}).(time.Time); ok && !dl.IsZero() && time.Now().After(dl) {
+			if err == nil {
+				err = errors.New("route still points at the activator")
+			}
+			return nil, fmt.Errorf("%w (%v)", context.DeadlineExceeded, err)
 		}
 		select {
 		case <-r.Context().Done():

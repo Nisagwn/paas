@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebSocket sohbet</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 640px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; background: #fafafa; }
+  #log { height: 50vh; overflow-y: auto; border: 1px solid #ddd; border-radius: 10px; padding: 10px; background: #fff; }
+  #log div { margin: 4px 0; }
+  .sys { color: #888; font-size: 13px; }
+  form { display: flex; gap: 8px; margin-top: 10px; }
+  input { font: inherit; padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+  #text { flex: 1; }
+  #name { width: 120px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #1d1d1f; background: #1d1d1f; color: #fff; }
+  #state { font-size: 13px; color: #888; }
+</style>
+</head>
+<body>
+<h1>WebSocket sohbet</h1>
+<p id="state">bağlanıyor…</p>
+<div id="log" aria-live="polite"></div>
+<form id="form">
+  <input id="name" placeholder="adın" maxlength="30">
+  <input id="text" placeholder="mesaj" maxlength="500" autocomplete="off" required>
+  <button>Gönder</button>
+</form>
+<script>
+  const log = document.getElementById("log");
+  const state = document.getElementById("state");
+  const name = document.getElementById("name");
+  name.value = localStorage.getItem("name") || "";
+  let ws;
+  function add(text, cls) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    if (cls) div.className = cls;
+    log.append(div);
+    log.scrollTop = log.scrollHeight;
+  }
+  function connect() {
+    ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+    ws.onopen = () => { state.textContent = "● bağlı"; };
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === "system") add("— " + m.text + (m.host ? " (" + m.host + ")" : "") + " —", "sys");
+      else add(m.name + ": " + m.text);
+    };
+    ws.onclose = () => { state.textContent = "bağlantı koptu, yeniden deneniyor…"; setTimeout(connect, 2000); };
+  }
+  connect();
+  document.getElementById("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = document.getElementById("text");
+    localStorage.setItem("name", name.value);
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ name: name.value || "misafir", text: text.value }));
+    text.value = "";
+  });
+</script>
+</body>
+</html>

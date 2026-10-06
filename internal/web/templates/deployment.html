@@ -30,10 +30,17 @@
 <div id="log" class="log" data-src="/api/deployments/{{$d.ID}}/logs/stream" aria-live="polite"></div>
 
 {{if .Data.RuntimeLogs}}
-<div class="head" style="align-items:center;margin:28px 0 8px">
+<div class="head" id="runtime" style="align-items:center;margin:28px 0 8px">
   <h2 style="margin:0">Çalışma log'u</h2>
   <span id="rt-live" class="live"></span>
-  <div class="actions"><button id="rt-toggle" type="button">Canlı izle</button></div>
+  <div class="actions">
+    {{with .Data.Processes}}
+    <select id="rt-process" aria-label="Süreç" style="font:inherit;padding:6px 8px;border-radius:8px">
+      {{range .}}<option value="{{.}}">{{.}}</option>{{end}}
+    </select>
+    {{end}}
+    <button id="rt-toggle" type="button">Canlı izle</button>
+  </div>
 </div>
 <div id="rt-log" class="log" style="height:40vh"
   data-src="/api/apps/{{$d.AppName}}/deployments/{{$d.ID}}/runtime-logs?follow=1&tail=200"></div>
@@ -93,6 +100,14 @@
   const rtLog = document.getElementById("rt-log");
   const rtLive = document.getElementById("rt-live");
   let rt = null;
+  // Faz 20: the process whose pods are read (web, a worker, a cron's last run).
+  const rtProc = document.getElementById("rt-process");
+  const wanted = new URLSearchParams(location.search).get("process");
+  if (rtProc && wanted && [...rtProc.options].some((o) => o.value === wanted)) rtProc.value = wanted;
+  const rtSrc = () => rtLog.dataset.src + (rtProc ? "&process=" + encodeURIComponent(rtProc.value) : "");
+  if (rtProc) rtProc.addEventListener("change", () => {
+    if (rt) { rtBtn.click(); rtBtn.click(); } // restart the stream for the new process
+  });
   rtBtn.addEventListener("click", () => {
     if (rt) {
       rt.close(); rt = null;
@@ -100,7 +115,7 @@
       return;
     }
     rtLog.textContent = "";
-    rt = new EventSource(rtLog.dataset.src);
+    rt = new EventSource(rtSrc());
     rtBtn.textContent = "Durdur";
     rtLive.textContent = "● bağlı";
     rt.onmessage = (e) => append(rtLog, e.data);

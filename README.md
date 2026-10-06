@@ -23,7 +23,8 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 **Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · Next.js, Vite, Nuxt, SvelteKit,
 Astro, Remix gibi framework preset'leri ve proje ayarları (monorepo kök dizini, komutlar) · commit başına HTTPS URL ·
 branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · canlı build logu ·
-web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform apply` ile AWS'de kurulum.
+web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik temizlik ve çökme sonrası kurtarma ·
+`terraform apply` ile AWS'de kurulum.
 
 ## Belgeler
 
@@ -100,6 +101,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
 - [x] Arayüz (Faz 16–19 ekranları): proje sekmeleri (Genel / Deploy'lar / Analitik / Ayarlar): build ayarları, ortama özel
   değişkenler, deploy hook'ları, promote / redeploy / iptal düğmeleri, sunucuda çizilen trafik grafiği, deploy sağlığı ve
   canlı kaynak kullanımı ([ayrıntılar](#web-arayüzü-ve-canlı-loglar-faz-5))
+- [x] Faz 20: süreç tipleri: `paas.yaml` / `Procfile` ile web, worker ve cron; web'siz uygulamalar (bot, kuyruk işleyici),
+  yalnızca production neslinde çalışan worker / cron (rollback onları da taşır), kopya sayısı, "şimdi çalıştır", süreç logları,
+  uyanan deploy'a WebSocket ([ayrıntılar](#süreç-tipleri-faz-20))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -929,6 +933,45 @@ sunucuya gönderilmemesi, `ls`, SSE üzerinden `logs -f` (kopan bağlantıdan `a
 go test ./cmd/paas-cli/... ./internal/cli/...
 ```
 
+### Süreç tipleri (Faz 20)
+
+Vercel sunucusuzdur: uzun yaşayan süreç, arka plan işçisi, kalıcı WebSocket sunucusu yoktur ve cron yalnızca bir HTTP
+ucunu çağırır. paas gerçek konteynerler çalıştırdığı için aynı repo ve aynı imajdan **Discord botunu, kuyruk işleyicini,
+zamanlanmış işini ve WebSocket sunucunu da** deploy eder.
+
+```yaml
+# paas.yaml (repo kökünde; kök dizin ayarı varsa orada). paas.yml ya da paas.json da olur.
+processes:
+  web:    { command: "node server.js" }          # isteğe bağlı; yoksa algılanan başlatma komutu
+  worker: { command: "node worker.js", replicas: 2, previews: true }
+  bot:    { command: "python bot.py" }            # previews varsayılanı false
+crons:
+  - name: cleanup
+    schedule: "*/15 * * * *"                       # UTC; @hourly, @daily, @weekly, @monthly, @yearly da olur
+    command: "node scripts/cleanup.js"
+```
+
+- **Öncelik:** `paas.yaml` > `Procfile` (`web:` başlatma komutu, diğer satırlar 1 kopyalı worker, `release:` yok sayılır) > yalnızca web.
+  Web komutunda proje ayarlarındaki başlatma komutu `paas.yaml`'dan önce gelir. Komut bir metinse imajın kabuğuyla (`sh -c`)
+  çalışır, liste ise doğrudan; Go imajlarında kabuk olmadığı için metin boşluklardan bölünür (ikili `/app`'tedir).
+- **Web'siz uygulama:** `web: none` yaz. `web` hiç geçmiyorsa ve başlatma komutu algılanamıyorsa ama worker varsa uygulama
+  yine web'siz deploy edilir (build logu bunu söyler). Web'siz bir deploy'un URL'i, Service'i ve Ingress'i yoktur; worker'ları
+  ayağa kalkınca hazırdır ve rollback için alias'ları tutulur.
+- **Hangi nesil çalışır:** worker'lar ve cron'lar yalnızca production alias'ının gösterdiği deploy'da çalışır. Preview ortamındaki
+  bir branch preview'inde yalnızca `previews: true` olanlar çalışır; diğer bütün deploy'larda worker'lar 0 kopyadır ve cron'lar
+  askıdadır. Böylece iki değişmez deploy aynı kuyruğu tüketmez, aynı cron iki kez tetiklenmez; **rollback** worker ve cron'ları da
+  eski sürüme taşır. Yeni production deploy'unun worker'ları alias'tan önce başlatılır ve 10 saniye çökmeden ayakta kalmaları
+  beklenir; çöken worker deploy'u düşürür. Eski neslin worker'ları birkaç saniye (alias senkronuna kadar) yenilerle çakışabilir.
+- **Ölçekleme:** `paas ps scale <app> worker=3` (ya da arayüzde "Ölçekle") uygulama genelinde production için paas.yaml'ı geçersiz kılar
+  ve sonraki deploy'larda da geçerlidir; `worker=default` paas.yaml'a döner. Web süreci sıfıra ölçeklemeyle yönetilir; worker'lar asla uyutulmaz.
+- **Cron:** `paas cron run <app> cleanup` işi hemen başlatır. Aynı anda tek çalışma (`Forbid`), 5 dakika gecikme payı, en fazla 1 saat süre.
+- **Loglar:** `paas logs --runtime --process worker <app> <deploy>`; bir cron'un adı son çalışmasının logunu verir.
+- **Kota:** her süreç kopyası ve çalışan her cron işi namespace'in pod kotasından (`PAAS_APP_QUOTA_PODS`, varsayılan 20) yer;
+  kota aşımı deploy'u açık bir hatayla düşürür.
+- **Ortam:** her süreç aynı env Secret'ını ve platform değişkenlerini alır, ayrıca `PAAS_PROCESS=<ad>` (web'de `web`).
+
+Örnekler: [`examples/websocket-chat`](examples/websocket-chat) ve [`examples/worker-queue`](examples/worker-queue).
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -1040,7 +1083,10 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/deployments/{id}` | Tek deployment |
 | GET | `/api/deployments/{id}/logs?after=` | Log satırları |
 | GET | `/api/deployments/{id}/logs/stream` | Canlı log (SSE); tarayıcıda oturum çereziyle de çalışır |
-| GET | `/api/apps/{name}/deployments/{id}/runtime-logs?follow=1&tail=200` | Pod logları (yalnızca `kubernetes` deployer) |
+| GET | `/api/apps/{name}/deployments/{id}/runtime-logs?follow=1&tail=200&process=` | Pod logları (yalnızca `kubernetes` deployer); `process`: `web` (varsayılan), bir worker ya da cron (son çalışması) |
+| GET | `/api/apps/{name}/processes?deployment=` | Production'ın (ya da verilen deploy'un) süreçleri: web / worker'lar (komut, paas.yaml kopyası, `override`, istenen / hazır, durum) ve cron'lar (zamanlama, askıda mı, son çalışma) |
+| PUT | `/api/apps/{name}/processes/{proc}` | `{"replicas": 0-10}` ya da `{"replicas": null}` (paas.yaml'a dön) — production worker'ı için kopya sayısı; hemen uygulanır (member) |
+| POST | `/api/apps/{name}/crons/{cron}/run` | Production'daki cron'u şimdi çalıştırır (`202`, `{"job"}`); çalışan varsa `409` (member) |
 | GET | `/api/apps/{name}/domains` | Özel alan adları: durum, hata, oluşturulacak DNS kayıtları |
 | POST | `/api/apps/{name}/domains` | `{"hostname"}` — ekler ve hemen bir kez denetler (`201`) |
 | POST | `/api/apps/{name}/domains/{hostname}/verify` | DNS'i şimdi denetler |
@@ -1070,6 +1116,7 @@ internal/worker/      kuyruk tüketicisi, Builder/Deployer arayüzleri, heartbea
 internal/build/       clone, dil ve framework algılama, proje ayarları, Dockerfile üretimi, BuildKit/docker motorları
 internal/deploy/      Kubernetes: namespace, kota, Secret, Deployment, Service, Ingress, rollout, loglar
 internal/routing/     alias'ları veritabanından ingress katmanına senkronlar, uzlaştırma döngüsü
+internal/process/     süreç tipleri (Faz 20): paas.yaml / Procfile okuma, cron doğrulama, tek nesil kuralı
 internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin silinmesi
 internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
 internal/analytics/   istek metrikleri: Traefik sayaçlarından dakikalık farklar, saklama, p50/p95

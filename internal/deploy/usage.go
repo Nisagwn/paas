@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -112,7 +113,7 @@ func (k *Kubernetes) AppUsage(ctx context.Context, app string) ([]PodUsage, erro
 		if !ok || p.DeletionTimestamp != nil {
 			continue // not running long enough to be sampled, or terminating
 		}
-		id, _ := strconv.ParseInt(p.Labels[LabelDeploymentID], 10, 64)
+		id, _ := strconv.ParseInt(cmp.Or(p.Labels[LabelDeploymentID], p.Labels[LabelProcessOf]), 10, 64)
 		u := PodUsage{
 			Pod: p.Name, DeploymentID: id, CommitSHA: p.Labels[LabelCommit],
 			CPUMillicores: s.cpu, MemoryBytes: s.mem, Timestamp: s.ts, WindowSeconds: s.wind,

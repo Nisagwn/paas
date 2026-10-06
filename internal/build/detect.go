@@ -65,7 +65,7 @@ func DetectWith(dir string, o Options) (Plan, error) {
 	if o.Framework != "" {
 		return detectForced(dir, o)
 	}
-	_, hasWeb := procfileWeb(dir)
+	_, hasWeb := o.procfileWeb(dir)
 	switch {
 	case exists(dir, "Dockerfile"):
 		return Plan{Kind: KindDockerfile, Framework: "Dockerfile", Summary: "Dockerfile found in repository"}, nil
@@ -156,13 +156,22 @@ func procfileWeb(dir string) (string, bool) {
 	return "", false
 }
 
+// procfileWeb is the Procfile's web command, unless a paas.yaml defines
+// the processes and replaces the Procfile (Faz 20, processes.go).
+func (o Options) procfileWeb(dir string) (string, bool) {
+	if o.noProcfile {
+		return "", false
+	}
+	return procfileWeb(dir)
+}
+
 // startCommand is the start command setting, else the Procfile's web
 // process; how describes it for the summary.
 func startCommand(dir string, o Options) (cmd, how string) {
 	if o.StartCommand != "" {
 		return o.StartCommand, "start command: " + o.StartCommand
 	}
-	if web, ok := procfileWeb(dir); ok {
+	if web, ok := o.procfileWeb(dir); ok {
 		return web, "Procfile web: " + web
 	}
 	return "", ""

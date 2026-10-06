@@ -1,0 +1,8 @@
+{
+  "name": "websocket-chat",
+  "private": true,
+  "description": "A WebSocket chat server without dependencies: a long-lived connection a serverless function cannot hold",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

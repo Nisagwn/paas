@@ -13,6 +13,12 @@
 </div>
 {{end}}
 
+<h2 id="processes">Süreçler</h2>
+<p class="sub small">Web sunucusunun yanında arka plan süreçleri (kuyruk işleyici, bot, WebSocket sunucusu) ve zamanlanmış işler.</p>
+<div hx-get="/apps/{{$a.Name}}/processes" hx-trigger="load" hx-swap="outerHTML">
+  <div class="card pad muted small">Süreçler yükleniyor…</div>
+</div>
+
 <h2>Adresler</h2>
 <div class="card">
   {{with .Data.Aliases}}

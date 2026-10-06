@@ -64,6 +64,9 @@ type Server struct {
 	// time.Now.
 	Usage api.UsageSource
 	Now   func() time.Time
+	// Faz 20 (processes.go): status, scaling and cron runs of an app's
+	// processes; nil (dry-run deployer) shows the configuration only.
+	Processes api.ProcessCluster
 
 	pages map[string]*template.Template
 }
@@ -114,12 +117,13 @@ func (s *Server) Handler() http.Handler {
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
 		"deploys", "analytics", "settings"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
-			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html"))
+			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/"+p+".html"))
 	}
-	partials := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/partials.html"))
+	partials := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/partials.html", "templates/processes.html"))
 	s.pages["deployments"] = partials.Lookup("deployments")
 	s.pages["env"] = partials.Lookup("env")
 	s.pages["domains"] = partials.Lookup("domains")
+	s.pages["processes"] = partials.Lookup("processes")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -145,6 +149,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /apps/{name}/domains", s.authed(s.addDomain))
 	mux.Handle("POST /apps/{name}/domains/verify", s.authed(s.verifyDomain))
 	mux.Handle("POST /apps/{name}/domains/delete", s.authed(s.deleteDomain))
+	// Faz 20: processes (processes.go).
+	mux.Handle("GET /apps/{name}/processes", s.authed(s.processesPartial))
+	mux.Handle("POST /apps/{name}/processes/scale", s.authed(s.scaleProcess))
+	mux.Handle("POST /apps/{name}/crons/run", s.authed(s.runCron))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)
@@ -501,5 +509,6 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 			"D":           d,
 			"URL":         naming.URL(s.Scheme, d.Host(s.Domain)),
 			"RuntimeLogs": s.RuntimeLogs,
+			"Processes":   s.processNames(r.Context(), d), // Faz 20: runtime log selector
 		}, "")
 }

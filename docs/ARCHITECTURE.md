@@ -235,6 +235,45 @@ sequenceDiagram
     T-->>U: 200 (ilk yanıt birkaç saniye gecikmeli)
 ```
 
+### 5.2 Süreç tipleri (Faz 20)
+
+Bir deploy'un süreç kümesi build sırasında commit'in `paas.yaml`'ından (yoksa `Procfile`'ından) okunur
+(`internal/process`), `deployment_processes`'e yazılır ve imaj gibi değişmezdir. Hepsi aynı imaj ve aynı
+env Secret'ıyla çalışır:
+
+| Süreç | Kubernetes nesnesi | Sahibi | Not |
+|---|---|---|---|
+| web | `Deployment` + `Service` + `Ingress` `d-<sha7>` | — | yoksa (`web: none`) üçü de oluşmaz |
+| worker | `Deployment d-<sha7>-w-<ad>` | web Deployment'ı (web'sizde env Secret'ı) | port ve probe yok, `minReadySeconds: 10` |
+| cron | `CronJob d-<sha7>-c-<ad>` | aynı | `Forbid`, başlama 300 sn, çalışma ≤ 1 sa, geçmiş 3 |
+
+Süreç pod'ları `paas/deployment-id` yerine `paas/process-of=<id>` ve `paas/process=<ad>` taşır: web
+Service'i, rollout beklemesi, aktivatör ve sıfıra ölçekleme onları görmez.
+
+**Tek nesil kuralı.** Değişmez deploy'lar yan yana çalıştığı için hangi neslin worker / cron çalıştıracağına
+alias'lar karar verir (`process.PlanFor`):
+
+```mermaid
+flowchart LR
+    S[routing.Syncer.SyncApp] --> A[ApplyAliases]
+    A --> P[AppProcesses + override'lar]
+    P --> R{deploy'un rolü}
+    R -- production alias'ı --> F[tüm worker'lar, cron'lar açık]
+    R -- preview alias'ı ve preview ortamı --> V[yalnızca previews: true]
+    R -- kuyrukta / build / deploy --> L[dokunulmaz]
+    R -- diğer hepsi --> Z[worker'lar 0, cron'lar askıda]
+```
+
+`SyncApp` hazır olunca (worker), rollback / promote'ta (API), kopya sayısı değişince ve dakikada bir çağrılır;
+böylece rollback worker'ları da eski deploy'a taşır. Production dalının kendi preview alias'ı production
+ortamında çalıştığı için ikinci bir nesil başlatmaz. Deploy sırasında yeni production deploy'unun worker'ları
+istenen kopya sayısıyla başlatılır ve web rollout'undaki hata algılamasıyla beklenir; cron'lar askıda oluşur ve
+ancak alias geçince açılır, böylece bir zamanlama iki kez tetiklenmez. Eski neslin worker'ları, `MarkReady`'nin
+ardından gelen senkrona kadar birkaç saniye yenilerle birlikte çalışabilir.
+
+Web'siz bir deploy'un alias'ları kaydedilir ama `ApplyAliases`'a gönderilmez (olmayan bir Service'e `Ingress`
+açılmaz). Aktivatör `Upgrade` isteklerini tüneller; zaman aşımı yalnızca uyandırma ve bağlanmayı sınırlar.
+
 ## 6. Veri modeli
 
 ```mermaid
@@ -245,6 +284,8 @@ erDiagram
     apps ||--o{ app_domains : "production'ı izler"
     deployments ||--o{ aliases : "hedef"
     deployments ||--o{ deployment_logs : ""
+    deployments ||--o| deployment_processes : "Faz 20"
+    apps ||--o{ app_process_scale : "Faz 20"
     teams ||--o{ apps : "sahip"
     teams ||--o{ team_members : ""
     users ||--o{ team_members : ""
@@ -327,6 +368,16 @@ erDiagram
         text key
         text value
     }
+    deployment_processes {
+        bigint deployment_id PK
+        jsonb spec "process.Set"
+        bool has_web
+    }
+    app_process_scale {
+        bigint app_id FK
+        text process "worker adı"
+        int replicas "0-10"
+    }
     app_domains {
         bigint app_id FK
         text hostname UK "www.ornek.com"
@@ -356,6 +407,8 @@ Tüm host'lar tek etiketli ve `*.domain` altındadır; tek bir wildcard sertifik
 | Production alias | `<app>.<domain>` | `app-<app>/alias-<app>` |
 | Preview alias | `<branch>-<app>.<domain>` | `app-<app>/alias-<branch>-<app>` |
 | Kontrol düzlemi | `<domain>` | `paas/paas` |
+| Worker (Faz 20) | — | `app-<app>/d-<sha7>-w-<ad>` |
+| Cron (Faz 20) | — | `app-<app>/d-<sha7>-c-<ad>` (≤ 52 karakter, uzunsa özetle kısaltılır) |
 | Özel alan adı (Faz 12) | `www.ornek.com` | `app-<app>/domain-<host>-<hash>` (+ `-tls` Secret) |
 
 Özel alan adları `*.domain` dışında kalır. `internal/domains` doğrulayıcısı DNS'i (CNAME →

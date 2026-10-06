@@ -50,7 +50,15 @@ func (s *Syncer) SyncApp(ctx context.Context, appName string) error {
 	if err != nil {
 		return err
 	}
-	return s.Applier.ApplyAliases(ctx, app.Name, routes)
+	// Faz 20 (processes.go): no Ingress for deployments without web, and
+	// workers and crons follow the aliases.
+	if routes, err = s.webRoutes(ctx, app.ID, routes); err != nil {
+		return err
+	}
+	if err := s.Applier.ApplyAliases(ctx, app.Name, routes); err != nil {
+		return err
+	}
+	return s.applyProcesses(ctx, app)
 }
 
 func (s *Syncer) lock(app string) *sync.Mutex {

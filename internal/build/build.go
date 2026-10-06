@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/process"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/worker"
 )
@@ -86,18 +87,19 @@ func (b *Builder) ImageName(app, sha string) string {
 // Build clones the commit, detects the project under the root directory
 // setting and builds and pushes its image.
 func (b *Builder) Build(ctx context.Context, d store.Deployment, s store.BuildSettings, log worker.Logger) (worker.BuildResult, error) {
-	image, framework, err := b.build(ctx, d, s, log)
-	return worker.BuildResult{Image: image, Framework: framework}, err
+	image, framework, procs, err := b.build(ctx, d, s, log)
+	return worker.BuildResult{Image: image, Framework: framework, Processes: procs}, err
 }
 
-func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSettings, log worker.Logger) (image, framework string, err error) {
+func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSettings, log worker.Logger) (
+	image, framework string, procs *process.Set, err error) {
 	// Settings were validated when saved; check again, they end up in a Dockerfile.
 	if s, err = NormalizeSettings(s); err != nil {
-		return "", "", fmt.Errorf("build settings: %w", err)
+		return "", "", nil, fmt.Errorf("build settings: %w", err)
 	}
 	work, err := os.MkdirTemp(b.WorkDir, fmt.Sprintf("paas-%d-", d.ID))
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	defer os.RemoveAll(work)
 	src := filepath.Join(work, "src")
@@ -111,26 +113,27 @@ func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSe
 	start := time.Now()
 	token, err := b.gitToken(ctx, d.Repo)
 	if err != nil {
-		return "", "", fmt.Errorf("fetch source: repository token: %w", err)
+		return "", "", nil, fmt.Errorf("fetch source: repository token: %w", err)
 	}
 	if err := Checkout(ctx, repoURL, d.CommitSHA, token, src, out); err != nil {
 		out.Flush()
-		return "", "", fmt.Errorf("fetch source: %w", err)
+		return "", "", nil, fmt.Errorf("fetch source: %w", err)
 	}
 	log("    done in %s", since(start))
 
 	// 2. Detect, inside the root directory (Faz 16)
 	contextDir, err := rootDir(src, s.RootDirectory)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	if s.RootDirectory != "" {
 		log("==> root directory: %s", s.RootDirectory)
 	}
 	opts := OptionsFrom(s)
-	plan, err := DetectWith(contextDir, opts)
+	// Faz 20: paas.yaml or the Procfile of this commit (processes.go).
+	plan, set, err := detectWithProcesses(contextDir, opts, log)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	log("==> framework: %s", plan.Framework)
 	log("==> detected: %s", plan.Summary)
@@ -143,7 +146,7 @@ func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSe
 		// Kept outside the build context so it cannot clash with repo files.
 		dockerfile = filepath.Join(work, "paas.Dockerfile")
 		if err := os.WriteFile(dockerfile, []byte(plan.Dockerfile), 0o644); err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 		log("==> generated Dockerfile:")
 		for _, l := range strings.Split(strings.TrimRight(plan.Dockerfile, "\n"), "\n") {
@@ -176,7 +179,7 @@ func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSe
 	digest, err := b.Engine.Build(ctx, spec, out)
 	out.Flush()
 	if err != nil {
-		return "", plan.Framework, err
+		return "", plan.Framework, nil, err
 	}
 	log("==> pushed %s in %s", image, since(start))
 
@@ -184,7 +187,7 @@ func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSe
 	if digest != "" {
 		image += "@" + digest
 	}
-	return image, plan.Framework, nil
+	return image, plan.Framework, &set, nil
 }
 
 // rootDir resolves the root directory setting inside the checkout src. A

@@ -125,6 +125,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{name}/hooks", s.requireApp(member, s.listHooks))
 	api.HandleFunc("POST /api/apps/{name}/hooks", s.requireApp(member, s.createHook))
 	api.HandleFunc("DELETE /api/apps/{name}/hooks/{id}", s.requireApp(member, s.deleteHook))
+	// Faz 20: process types (processes.go).
+	api.HandleFunc("GET /api/apps/{name}/processes", s.requireApp(viewer, s.getProcesses))
+	api.HandleFunc("PUT /api/apps/{name}/processes/{proc}", s.requireApp(member, s.putProcess))
+	api.HandleFunc("POST /api/apps/{name}/crons/{cron}/run", s.requireApp(member, s.runCron))
 	// Checks member on the deployment's app (lookupDeploymentAs).
 	api.HandleFunc("POST /api/deployments/{id}/cancel", s.cancelDeployment)
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.

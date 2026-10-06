@@ -121,6 +121,10 @@ type Kubernetes struct {
 	// Certificates reads cert-manager Certificates of custom domains
 	// (optional; see DomainCertificate).
 	Certificates dynamic.Interface
+
+	// Processes provides process sets (Faz 20, processes.go). New takes it
+	// from env when env implements it; nil deploys the web process only.
+	Processes ProcessSource
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)
@@ -128,6 +132,7 @@ var _ worker.Deployer = (*Kubernetes)(nil)
 // New validates cfg and returns a deployer. env may be nil (no variables).
 func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, error) {
 	k := &Kubernetes{client: client, env: env, cfg: cfg}
+	k.Processes, _ = env.(ProcessSource)
 	for _, f := range []struct {
 		name, val string
 		dst       *resource.Quantity
@@ -222,7 +227,16 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 	}
 	log("    secret %s: %d variable(s) of the %s environment", secret.Name, len(env), d.Target)
 
-	dep, err := k.ensureDeployment(ctx, d, image, envHash(env))
+	// Faz 20: workers and crons (processes.go).
+	procs, err := k.processSet(ctx, d)
+	if err != nil {
+		return fmt.Errorf("process set: %w", err)
+	}
+	if !procs.HasWeb() {
+		return k.deployWithoutWeb(ctx, d, image, envHash(env), secret, procs, log)
+	}
+
+	dep, err := k.ensureDeployment(ctx, d, image, envHash(env), procs.WebExec)
 	if err != nil {
 		return fmt.Errorf("deployment %s/%s: %w", ns, name, err)
 	}
@@ -244,8 +258,14 @@ func (k *Kubernetes) Deploy(ctx context.Context, d store.Deployment, image strin
 		return fmt.Errorf("ingress %s/%s: %w", ns, name, err)
 	}
 	log("    ingress %s/%s → %s", ns, name, k.url(host))
+	if err := k.startProcesses(ctx, d, image, envHash(env), procs, ownerRef(dep), log); err != nil {
+		return err
+	}
 
-	return k.waitReady(ctx, ns, name, log)
+	if err := k.waitReady(ctx, ns, name, log); err != nil {
+		return err
+	}
+	return k.waitWorkers(ctx, d, procs, log)
 }
 
 // envVars are set by the platform and take precedence over envFrom.
@@ -255,6 +275,8 @@ func envVars(d store.Deployment) []corev1.EnvVar {
 		{Name: "PAAS_APP", Value: d.AppName},
 		{Name: "PAAS_COMMIT_SHA", Value: d.CommitSHA},
 		{Name: "PAAS_BRANCH", Value: d.Branch},
+		// Faz 20: which process of the deployment this is (web, a worker, a cron).
+		{Name: "PAAS_PROCESS", Value: "web"},
 	}
 }
 

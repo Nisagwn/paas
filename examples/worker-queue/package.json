@@ -1,0 +1,8 @@
+{
+  "name": "worker-queue",
+  "private": true,
+  "description": "web + worker + cron from one image (paas.yaml)",
+  "scripts": {
+    "start": "node web.js"
+  }
+}
