@@ -160,7 +160,7 @@ var messages = map[string]string{
 	"linking a GitHub App installation needs the member role on the team": "GitHub'ı bağlamak için ekipte üye rolü gerekir.",
 	"your GitHub account cannot access this installation":                 "GitHub hesabının bu bağlantıya erişimi yok.",
 	"this installation is already linked to another team":                 "Bu GitHub bağlantısı başka bir ekibe ait.",
-	// Faz 20: build settings, environments, deploy controls, hooks, analytics.
+	// Faz 16–19 screens: build settings, environments, deploy controls, hooks, analytics.
 	`node_version must look like "22", "20.18" or "lts"`:                           `Node sürümü "22", "20.18" ya da "lts" biçiminde olmalı.`,
 	`target must be "production", "preview" or "all"`:                              "Ortam Tümü, Production ya da Önizleme olmalı.",
 	`git_branch needs target "preview"`:                                            "Branch yalnızca Önizleme ortamı için seçilebilir.",
@@ -187,7 +187,7 @@ var patterns = []struct {
 	re *regexp.Regexp
 	tr string
 }{
-	// Faz 20: build.NormalizeSettings.
+	// Faz 16–19 screens: build.NormalizeSettings.
 	{regexp.MustCompile(`^(\w+) is longer than (\d+) characters$`), "%s en fazla %s karakter olabilir."},
 	{regexp.MustCompile(`^(\w+) must be relative \(no leading "/"\)$`), `%s göreli olmalı (başta "/" olmadan).`},
 	{regexp.MustCompile(`^(\w+) must use "/" as the separator$`), `%s içinde ayraç olarak "/" kullan.`},
@@ -196,7 +196,7 @@ var patterns = []struct {
 	{regexp.MustCompile(`^(\w+) must be a single line of printable characters$`), "%s tek satır olmalı ve yalnızca yazdırılabilir karakter içermeli."},
 	{regexp.MustCompile(`^(\w+) must not end with a backslash$`), `%s "\" ile bitemez.`},
 	{regexp.MustCompile(`^framework must be empty \(auto-detect\) or one of: (.+)$`), "Framework boş (otomatik algıla) ya da şunlardan biri olmalı: %s."},
-	// Faz 20: deploy controls (api.Promote, Redeploy, Cancel).
+	// Faz 16–19 screens: deploy controls (api.Promote, Redeploy, Cancel).
 	{regexp.MustCompile(`^only ready deployments can be promoted \(status (\w+)\)$`), "Yalnızca hazır deploy'lar production'a taşınabilir (durum: %s)."},
 	{regexp.MustCompile(`^deployment is still (\w+); cancel it or wait until it finishes$`), "Deploy hâlâ sürüyor (%s); iptal et ya da bitmesini bekle."},
 	{regexp.MustCompile(`^deployment already finished \((\w+)\)$`), "Deploy zaten bitti (%s)."},

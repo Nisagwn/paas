@@ -179,7 +179,7 @@ func run(log *slog.Logger) error {
 	var wg sync.WaitGroup
 	// Faz 19: request analytics and live resource usage (read per request).
 	apiSrv.Usage = startAnalytics(ctx, cfg, st, applier, log, &wg)
-	ui.Usage = apiSrv.Usage // Faz 20: the Analitik tab; read per request, set before serving
+	ui.Usage = apiSrv.Usage // Faz 16–19 screens: the Analitik tab; read per request, set before serving
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

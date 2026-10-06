@@ -25,7 +25,7 @@ func TestTranslate(t *testing.T) {
 	}
 }
 
-// Faz 20: errors of build settings, environments and deploy controls, and
+// Faz 16–19 screens: errors of build settings, environments and deploy controls, and
 // the number formats of the Analitik tab.
 func TestTranslateF20(t *testing.T) {
 	for in, want := range map[string]string{

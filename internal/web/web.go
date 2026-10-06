@@ -59,7 +59,7 @@ type Server struct {
 	GitHubAppSlug string
 	GitHubApp     api.RepoInspector
 
-	// Faz 20 (analytics.go). Usage reads live CPU/memory; nil (dry run)
+	// Faz 16–19 screens (analytics.go). Usage reads live CPU/memory; nil (dry run)
 	// shows "no usage data". Now is the analytics clock (tests); nil is
 	// time.Now.
 	Usage api.UsageSource
@@ -80,7 +80,7 @@ var funcs = template.FuncMap{
 	"status": statusLabel,
 	"role":   roleLabel,
 	"kind":   kindLabel,
-	// Faz 20.
+	// Faz 16–19 screens.
 	"target": targetLabel,
 	"origin": originLabel,
 	"health": healthLabel,
@@ -128,7 +128,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /{$}", s.authed(s.appsPage))
 	mux.Handle("POST /apps", s.authed(s.createApp))
 	mux.Handle("GET /apps/{name}", s.authed(s.appPage))
-	// Faz 20: the app's tabs (app.go, controls.go, analytics.go). The
+	// Faz 16–19 screens: the app's tabs (app.go, controls.go, analytics.go). The
 	// deployments tab is also the htmx fragment polled while one runs.
 	mux.Handle("GET /apps/{name}/deployments", s.authed(s.deploymentsPage))
 	mux.Handle("GET /apps/{name}/analytics", s.authed(s.analyticsPage))
@@ -300,7 +300,7 @@ func redirect(w http.ResponseWriter, r *http.Request, path string) {
 var flashes = map[string]string{
 	"created":  "Proje oluşturuldu. Deploy için repoya /webhooks/github adresine giden bir push webhook'u ekle.",
 	"rollback": "Canlı site artık seçtiğin sürümü gösteriyor.",
-	// Faz 20.
+	// Faz 16–19 screens.
 	"promoted":       "Production'a taşınıyor: aynı imajla yeni bir deploy kuyruğa alındı.",
 	"promoted-alias": "Canlı site artık seçtiğin deploy'u gösteriyor.",
 	"redeploy":       "Yeni deploy kuyruğa alındı.",

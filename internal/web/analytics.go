@@ -14,7 +14,7 @@ import (
 	"github.com/nisagwn/paas/internal/store"
 )
 
-// Faz 20: the Analitik tab. It renders the Faz 19 analytics (api.Analytics,
+// Faz 16–19 screens: the Analitik tab. It renders the Faz 19 analytics (api.Analytics,
 // api.Health, api.Usage) on the server: totals, an inline SVG chart of
 // requests and 5xx responses per step (no JavaScript), deployment health
 // and live CPU / memory.

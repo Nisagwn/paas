@@ -12,7 +12,7 @@ import (
 	"github.com/nisagwn/paas/internal/store"
 )
 
-// Faz 20: deploy controls (promote, redeploy, cancel), build settings and
+// Faz 16–19 screens: deploy controls (promote, redeploy, cancel), build settings and
 // deploy hooks in the UI. They call the same functions as the JSON API
 // (internal/api controls.go, settings.go), so both behave alike. Every form
 // is a member+ POST with the session's CSRF token (authed, loadApp).

@@ -95,7 +95,9 @@ web arayüzü · otomatik temizlik ve çökme sonrası kurtarma · `terraform ap
   ([ayrıntılar](#ortamlar-ve-deploy-kontrolleri-faz-17))
 - [x] Faz 18: `paas` komut satırı aracı (`vercel` CLI tarzı): kişisel token ile giriş, uygulamalar, deployment'lar,
   canlı build logu (`logs -f`), pod logları, rollback, ortam değişkenleri, alan adları, import ([kullanım](#cli-faz-18))
-- [x] Faz 20: arayüzde proje sekmeleri (Genel / Deploy'lar / Analitik / Ayarlar): build ayarları, ortama özel
+- [x] Faz 19: analitik: Traefik metriklerinden dakikalık istek / hata / gecikme (p50, p95) serileri, deploy sağlığı
+  (son 15 dakikanın 5xx oranı), metrics-server'dan canlı CPU / bellek kullanımı
+- [x] Arayüz (Faz 16–19 ekranları): proje sekmeleri (Genel / Deploy'lar / Analitik / Ayarlar): build ayarları, ortama özel
   değişkenler, deploy hook'ları, promote / redeploy / iptal düğmeleri, sunucuda çizilen trafik grafiği, deploy sağlığı ve
   canlı kaynak kullanımı ([ayrıntılar](#web-arayüzü-ve-canlı-loglar-faz-5))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
@@ -466,7 +468,7 @@ Arayüz `/` adresinde: GitHub ile giriş yapılır (geliştirme modunda API toke
 [Kullanıcılar ve ekipler](#kullanıcılar-ve-ekipler-faz-13)). Sayfalar:
 
 - **Uygulamalar:** liste, her birinin son deploy durumu, yeni uygulama formu
-- **Uygulama** (Faz 20'den beri dört sekme):
+- **Uygulama** (Faz 16–19 ekranlarından beri dört sekme):
   - **Genel** (`/apps/{name}`): adresler, production deploy'u, son deploy'lar
   - **Deploy'lar** (`/apps/{name}/deployments`): geçmiş; her deploy kendi adresini (nesil ekiyle, ör.
     `<sha7>-1-<app>`), framework'ünü, ortamını (Production / Önizleme) ve kaynağını (push, yeniden deploy,

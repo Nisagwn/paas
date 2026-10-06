@@ -14,7 +14,7 @@ import (
 	"github.com/nisagwn/paas/internal/store"
 )
 
-// The app page (Faz 20) has four server-rendered tabs:
+// The app page (the Faz 16–19 screens) has four server-rendered tabs:
 //
 //	/apps/{name}              Genel: addresses, production, recent deployments
 //	/apps/{name}/deployments  Deploy'lar: history and deploy controls

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// Number formats of the Analitik tab (Faz 20), Turkish style.
+// Number formats of the Analitik tab (the Faz 16–19 screens), Turkish style.
 
 // number formats n with thousands separators: 12.345.
 func number(n int64) string {

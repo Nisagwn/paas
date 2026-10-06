@@ -19,7 +19,7 @@ import (
 	"github.com/nisagwn/paas/internal/web"
 )
 
-// Faz 20: app tabs, deploy controls, build settings, environments, deploy
+// Faz 16–19 screens: app tabs, deploy controls, build settings, environments, deploy
 // hooks and analytics in the UI.
 
 type f20 struct {

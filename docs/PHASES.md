@@ -168,7 +168,7 @@ queued → building → deploying → ready
 - `GET /api/apps/{name}/health`: deploy başına son 15 dakikanın 5xx oranı; `GET /api/apps/{name}/usage`: metrics-server'dan canlı CPU / bellek
 - **Çıktı:** bir uygulamanın trafiği, hataları, gecikmesi ve kaynak kullanımı ek bir izleme yığını olmadan API'den okunuyor
 
-### Faz 20 — Arayüz: proje ayarları, ortamlar, deploy kontrolleri ve analitik ✅ (Postgres'e karşı test edildi)
+### Arayüz — Faz 16–19 ekranları: proje ayarları, ortamlar, deploy kontrolleri ve analitik ✅ (Postgres'e karşı test edildi)
 - Proje sayfası sunucuda çizilen sekmelere ayrıldı: Genel (`/apps/{name}`), Deploy'lar, Analitik, Ayarlar
 - Deploy listesi: deploy'un kendi adresi (`Deployment.Host`, nesil ekiyle; önceden commit'ten türetiliyordu), framework,
   ortam rozeti, kaynak (redeploy / promote / hook); member+ için "Production'a taşı", "Yeniden deploy et"
