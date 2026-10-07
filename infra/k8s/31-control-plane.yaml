@@ -105,6 +105,12 @@ spec:
             - name: PAAS_CONTROL_PLANE_NAMESPACE
               valueFrom:
                 fieldRef: { fieldPath: metadata.namespace }
+            # Managed databases (Faz 22): k3s's local-path volumes; preview
+            # copies of production databases above 5Gi start empty instead.
+            - name: PAAS_ADDON_STORAGE_CLASS
+              value: local-path
+            - name: PAAS_ADDON_COPY_MAX_SIZE
+              value: 5Gi
             - name: PAAS_DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: paas, key: database-url }

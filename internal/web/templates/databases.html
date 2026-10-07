@@ -1,0 +1,217 @@
+{{define "content"}}
+{{template "apphead" .}}
+{{$a := .Data.App}}{{$csrf := .CSRF}}{{$db := .Data.DB}}{{$write := .Data.CanWrite}}
+<p class="sub small" style="margin-top:20px">Projene tek tıkla PostgreSQL ya da Redis ekle. Bağlantı değişkenleri
+  (<span class="mono">DATABASE_URL</span>, <span class="mono">REDIS_URL</span>, …) deploy'lara kendiliğinden eklenir;
+  aynı adla kendi tanımladığın değişken kazanır. Her önizleme branch'i production veritabanının kendi kopyasıyla çalışır.</p>
+{{if not $write}}<p class="sub small">Veritabanlarını görüntülüyorsun; değiştirmek için ekipte üye rolü gerekir.</p>{{end}}
+
+{{range $db.Addons}}
+{{$ad := .}}
+<section class="card pad" id="db-{{.Name}}" style="margin-top:16px">
+  <div class="head" style="align-items:center">
+    <h2 style="margin:0">{{.Name}} <span class="tag">{{dbkind .Kind}}</span> <span class="tag">{{.Size.ID}} · {{.Size.Memory}} bellek · {{.Size.Storage}} disk</span></h2>
+  </div>
+  <div id="db-{{.Name}}-live" {{if $db.Busy}}hx-get="/apps/{{$a.Name}}/databases" hx-trigger="every 5s" hx-select="#db-{{.Name}}-live" hx-swap="outerHTML"{{end}}>
+    <p style="margin:10px 0">
+      <span class="badge {{dbclass .Status}}">{{dbstate .Status}}</span>
+      {{if .Rotating}}<span class="tag warn">Şifre yenileniyor</span>{{end}}
+      {{with .Message}}<span class="small" style="color:var(--err)">{{tr .}}</span>{{end}}
+    </p>
+    <div class="grid kv">
+      <div><div class="k">Sunucu</div><span class="mono">{{.Host}}:{{.Port}}</span></div>
+      {{if .User}}<div><div class="k">Kullanıcı / veritabanı</div><span class="mono">{{.User}} / {{.Database}}</span></div>{{end}}
+      <div><div class="k">Önizlemeler</div>{{previewmode .PreviewMode}}</div>
+      <div style="grid-column:1/-1"><div class="k">Deploy'lara eklenen değişkenler</div>
+        {{range .Variables}}<span class="tag mono">{{.}}</span> {{end}}</div>
+    </div>
+
+    {{with .Revealed}}
+    <div class="flash ok" role="status" style="margin-top:12px">Bağlantı bilgileri{{with .Branch}} ({{.}} branch'i){{end}} — yalnızca şimdi gösteriliyor ve bu görüntüleme kayda geçti:
+      <div class="secret mono">{{.URL}}</div>
+      {{if eq .Kind "postgres"}}<span class="small">Küme dışından bağlanmak için: <code>kubectl -n app-{{$a.Name}} port-forward svc/addon-{{$ad.Name}} 5432:5432</code>, sonra adresteki sunucu yerine <code>localhost</code>.</span>{{end}}
+    </div>
+    {{end}}
+
+    {{if eq .Kind "postgres"}}
+    <h3 style="margin:18px 0 6px;font-size:15px">Önizleme kopyaları</h3>
+    {{with .Branches}}
+    <table>
+      <thead><tr><th>Branch</th><th class="hide-sm">Veritabanı</th><th>Durum</th><th class="hide-sm">Anlık görüntü</th><th class="hide-sm">Boyut</th><th></th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr>
+          <td><span class="tag">{{.Branch}}</span>{{if eq .Mode "empty"}} <span class="muted small">boş</span>{{end}}</td>
+          <td class="hide-sm mono small">{{.Database}}</td>
+          <td><span class="badge {{dbclass .Status}}">{{dbstate .Status}}</span>
+            {{with .Error}}<div class="small" style="color:var(--err)">{{.}}</div>{{end}}
+            {{with .Warning}}<div class="small" style="color:var(--warn)">{{warningtr .}}</div>{{end}}</td>
+          <td class="hide-sm small">{{with .SnapshotAt}}<span title="{{time .}}">{{ago .}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
+          <td class="hide-sm small">{{humanbytes .SizeBytes}}</td>
+          <td style="text-align:right;white-space:nowrap">
+            {{if and $write (or (eq .Status "ready") (eq .Status "failed"))}}
+            <form class="inline" method="post" action="/apps/{{$a.Name}}/databases/{{$ad.Name}}/branches/reset" data-confirm="{{.Branch}} kopyası silinip production'dan yeniden alınsın mı? Önizlemenin yazdığı veriler kaybolur.">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="branch" value="{{.Branch}}">
+              <button class="small" type="submit">Kopyayı yenile</button>
+            </form>
+            <form class="inline" method="post" action="/apps/{{$a.Name}}/databases/{{$ad.Name}}/reveal">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="branch" value="{{.Branch}}">
+              <button class="small" type="submit">Bağlantıyı göster</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted small" style="margin:0">{{if eq .PreviewMode "shared"}}Önizlemeler production veritabanını kullanıyor.{{else}}Henüz kopya yok: bir branch'e push edildiğinde ilk deploy'u production'ın kopyasını alır.{{end}}</p>
+    {{end}}
+
+    <h3 style="margin:18px 0 6px;font-size:15px">Yedekler <span class="muted small">· her gün {{if gt .BackupKeep 0}}alınır, son {{.BackupKeep}} tanesi saklanır{{else}}alınmıyor{{end}}</span></h3>
+    {{with .Backups}}
+    <table>
+      <thead><tr><th>Yedek</th><th>Durum</th><th class="hide-sm">Boyut</th><th></th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr>
+          <td class="small">{{with .FinishedAt}}<span title="{{time .}}">{{ago .}}</span>{{else}}{{with .StartedAt}}{{ago .}}{{else}}{{ago .CreatedAt}}{{end}}{{end}}
+            <span class="muted">· {{if eq .Trigger "manual"}}elle{{else}}günlük{{end}}</span></td>
+          <td><span class="badge {{dbclass .Status}}">{{dbstate .Status}}</span>
+            {{with .Error}}<div class="small" style="color:var(--err)">{{.}}</div>{{end}}
+            {{with .RestoreStatus}}<div class="small">Geri yükleme: {{dbstate .}}</div>{{end}}
+            {{with .RestoreError}}<div class="small" style="color:var(--err)">{{.}}</div>{{end}}</td>
+          <td class="hide-sm small">{{humanbytes .SizeBytes}}</td>
+          <td style="text-align:right">
+            {{if and $write (eq .Status "succeeded")}}
+            <details><summary class="small">Geri yükle</summary>
+              <form method="post" action="/apps/{{$a.Name}}/databases/{{$ad.Name}}/backups/restore" style="margin-top:8px">
+                <input type="hidden" name="csrf" value="{{$csrf}}">
+                <input type="hidden" name="backup" value="{{.ID}}">
+                <label class="small" for="restore-{{.ID}}">Production veritabanı bu yedekle değiştirilir. Onaylamak için <span class="mono">{{$ad.Name}}</span> yaz:</label>
+                <input id="restore-{{.ID}}" name="confirm" autocomplete="off" required>
+                <button class="small danger" type="submit">Geri yükle</button>
+              </form>
+            </details>
+            {{end}}
+          </td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted small" style="margin:0">Henüz yedek yok.</p>
+    {{end}}
+    {{end}}
+  </div>
+
+  {{if and $write (ne .Status "deleting")}}
+  <div class="actions" style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+    <form class="inline" method="post" action="/apps/{{$a.Name}}/databases/{{.Name}}/reveal">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit">Bağlantı bilgilerini göster</button>
+    </form>
+    {{if eq .Kind "postgres"}}
+    <form class="inline" method="post" action="/apps/{{$a.Name}}/databases/{{.Name}}/backups">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button type="submit" {{if ne .Status "ready"}}disabled{{end}}>Şimdi yedekle</button>
+    </form>
+    {{end}}
+  </div>
+
+  <details class="section">
+    <summary>Ayarlar <span class="muted">· boyut, önizlemeler{{if eq .Kind "postgres"}}, anonimleştirme, yedekler{{end}}</span></summary>
+    <div class="body">
+    <form method="post" action="/apps/{{$a.Name}}/databases/{{.Name}}/settings">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="row">
+        <div><label for="plan-{{.Name}}">Boyut</label>
+          <select id="plan-{{.Name}}" name="plan">
+            {{range $db.Plans}}<option value="{{.ID}}"{{if eq .ID $ad.Plan}} selected{{end}}>{{.ID}} · {{.Memory}} bellek · {{.Storage}} disk</option>{{end}}
+          </select></div>
+        {{if eq .Kind "postgres"}}
+        <div><label for="pm-{{.Name}}">Önizlemeler</label>
+          <select id="pm-{{.Name}}" name="preview_mode">
+            <option value="copy"{{if eq .PreviewMode "copy"}} selected{{end}}>Production'ın kopyası</option>
+            <option value="empty"{{if eq .PreviewMode "empty"}} selected{{end}}>Boş veritabanı</option>
+            <option value="shared"{{if eq .PreviewMode "shared"}} selected{{end}}>Production'ı paylaş</option>
+          </select></div>
+        <div style="max-width:200px"><label for="keep-{{.Name}}">Saklanacak günlük yedek</label>
+          <input id="keep-{{.Name}}" name="backup_keep" type="number" min="0" max="30" value="{{.BackupKeep}}"></div>
+        {{end}}
+      </div>
+      {{if eq .Kind "postgres"}}
+      <div style="margin-top:12px"><label for="anon-{{.Name}}">Anonimleştirme kuralları <span class="muted">(satır başına bir kural: <span class="mono">tablo.sütun: strateji</span>; <span class="mono">*.sütun</span> tüm tablolar; stratejiler: {{$db.Strategies}})</span></label>
+        <textarea id="anon-{{.Name}}" name="anonymize" rows="4" class="mono" placeholder="users.email: email&#10;users.name: name&#10;*.phone: null" style="width:100%">{{lines .Anonymize}}</textarea></div>
+      <div style="margin-top:12px"><label for="sql-{{.Name}}">Ek anonimleştirme SQL'i <span class="muted">(isteğe bağlı; kurallardan sonra yalnızca kopyada, branch'in kendi rolüyle çalışır)</span></label>
+        <textarea id="sql-{{.Name}}" name="anonymize_sql" rows="3" class="mono" placeholder="UPDATE orders SET note = NULL;" style="width:100%">{{.AnonymizeSQL}}</textarea></div>
+      {{end}}
+      <div style="margin-top:12px"><button class="primary" type="submit">Kaydet</button></div>
+    </form>
+    <p class="muted small">Boyut değişince sunucu yeniden başlar; disk büyütülebilir ama daraltılamaz (local-path disk büyütmeyi desteklemez, uyarı gösterilir).
+      Kurallar ve SQL production'a asla dokunmaz; sonraki kopyalarda geçerli olur.</p>
+
+    <h3 style="margin:18px 0 6px;font-size:15px">Şifreyi yenile</h3>
+    <form method="post" action="/apps/{{$a.Name}}/databases/{{.Name}}/rotate" data-confirm="{{.Name}} için yeni şifre üretilsin mi?">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label class="small"><input type="checkbox" name="redeploy" value="1" checked> Ardından production'ı ve önizleme adreslerini yeniden deploy et</label>
+      <div style="margin-top:8px"><button type="submit" {{if or (ne .Status "ready") .Rotating}}disabled{{end}}>Şifreyi yenile</button></div>
+    </form>
+    <p class="muted small">Açık bağlantılar sürer; yeni bağlantılar yeni şifreyi ister. Yeniden deploy edilmeyen deploy'lar bağlanamaz.</p>
+
+    <h3 style="margin:18px 0 6px;font-size:15px;color:var(--err)">Sil</h3>
+    <form method="post" action="/apps/{{$a.Name}}/databases/{{.Name}}/delete">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label class="small" for="del-{{.Name}}">Veritabanı, verileri, önizleme kopyaları ve yedekleri kalıcı olarak silinir. Onaylamak için <span class="mono">{{.Name}}</span> yaz:</label>
+      <div class="row"><div><input id="del-{{.Name}}" name="confirm" autocomplete="off" required></div>
+        <div style="flex:0"><button class="danger" type="submit">Sil</button></div></div>
+    </form>
+    </div>
+  </details>
+  {{end}}
+</section>
+{{else}}
+<div class="card" style="margin-top:16px"><div class="empty">Henüz veritabanı yok.</div></div>
+{{end}}
+
+{{if $write}}
+{{$f := $db.Form}}
+<details class="card section" id="new-db" {{if or (not $db.Addons) $f.Open}}open{{end}} style="margin-top:16px">
+  <summary>Veritabanı ekle</summary>
+  <div class="body">
+  <form method="post" action="/apps/{{$a.Name}}/databases">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="db-kind">Tür</label>
+        <select id="db-kind" name="kind">
+          <option value="postgres"{{if eq $f.Kind "postgres"}} selected{{end}}>PostgreSQL 16</option>
+          <option value="redis"{{if eq $f.Kind "redis"}} selected{{end}}>Redis 7</option>
+        </select></div>
+      <div><label for="db-name">Ad <span class="muted">(boş: db / cache)</span></label><input id="db-name" name="name" value="{{$f.Name}}" maxlength="20" pattern="[a-z]([a-z0-9-]*[a-z0-9])?"></div>
+      <div><label for="db-plan">Boyut</label>
+        <select id="db-plan" name="plan">
+          {{range $db.Plans}}<option value="{{.ID}}"{{if eq .ID $f.Plan}} selected{{end}}>{{.ID}} · {{.Memory}} bellek · {{.Storage}} disk</option>{{end}}
+        </select></div>
+      <div><label for="db-preview">Önizlemeler <span class="muted">(PostgreSQL)</span></label>
+        <select id="db-preview" name="preview_mode">
+          <option value="copy">Production'ın kopyası</option>
+          <option value="empty"{{if eq $f.PreviewMode "empty"}} selected{{end}}>Boş veritabanı</option>
+          <option value="shared"{{if eq $f.PreviewMode "shared"}} selected{{end}}>Production'ı paylaş</option>
+        </select></div>
+      <div style="flex:0"><button class="primary" type="submit">Ekle</button></div>
+    </div>
+  </form>
+  <p class="muted small" style="margin-bottom:0">Varsayılan adla eklenen veritabanı <span class="mono">DATABASE_URL</span> / <span class="mono">REDIS_URL</span> verir;
+    başka bir ad (ör. <span class="mono">analytics</span>) ayrıca <span class="mono">ANALYTICS_DATABASE_URL</span> gibi önekli değişkenler verir.
+    Kopya modunda her önizleme branch'i production'ın <span class="mono">pg_dump</span> ile alınmış kopyasını, ayrı bir veritabanında ve ayrı bir kullanıcıyla alır; branch silinince kopya da silinir.</p>
+  </div>
+</details>
+{{end}}
+
+<script nonce="{{.Nonce}}">
+document.querySelectorAll("form[data-confirm]").forEach((f) =>
+  f.addEventListener("submit", (e) => { if (!confirm(f.dataset.confirm)) e.preventDefault(); }));
+</script>
+{{end}}

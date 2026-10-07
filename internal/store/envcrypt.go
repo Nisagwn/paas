@@ -72,8 +72,10 @@ func (s *Store) openEnv(appID int64, key string, sc envScope, stored string, key
 }
 
 // EnvKeyStats counts env rows per key id; "" counts plaintext rows.
+// Faz 22: sealed add-on credentials (addons.go) count too.
 func (s *Store) EnvKeyStats(ctx context.Context) (map[string]int, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT COALESCE(key_id, ''), count(*) FROM app_env GROUP BY 1`)
+	rows, err := s.db.QueryContext(ctx, `SELECT COALESCE(key_id, ''), count(*) FROM app_env GROUP BY 1
+		UNION ALL `+addonKeyStatsQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +87,7 @@ func (s *Store) EnvKeyStats(ctx context.Context) (map[string]int, error) {
 		if err := rows.Scan(&id, &n); err != nil {
 			return nil, err
 		}
-		out[id] = n
+		out[id] += n
 	}
 	return out, rows.Err()
 }
@@ -170,5 +172,10 @@ func (s *Store) ReencryptEnv(ctx context.Context) (int, error) {
 			return 0, err
 		}
 	}
-	return len(todo), tx.Commit()
+	// Faz 22: add-on and branch database credentials.
+	n, err := s.reencryptAddons(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	return len(todo) + n, tx.Commit()
 }

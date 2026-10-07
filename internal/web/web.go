@@ -115,7 +115,7 @@ func (s *Server) Handler() http.Handler {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
-		"deploys", "analytics", "settings"} {
+		"deploys", "analytics", "settings", "databases"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/rollout.html", "templates/"+p+".html"))
 	}
@@ -156,6 +156,16 @@ func (s *Server) Handler() http.Handler {
 	// Faz 21: rollout panel actions and settings (rollouts.go).
 	mux.Handle("POST /apps/{name}/rollout/{action}", s.authed(s.rolloutAction))
 	mux.Handle("POST /apps/{name}/rollout-settings", s.authed(s.rolloutSettings))
+	// Faz 22: the Veritabanları tab (databases.go).
+	mux.Handle("GET /apps/{name}/databases", s.authed(s.databasesPage))
+	mux.Handle("POST /apps/{name}/databases", s.authed(s.createDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/settings", s.authed(s.updateDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/reveal", s.authed(s.revealDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/rotate", s.authed(s.rotateDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/branches/reset", s.authed(s.resetDatabaseBranch))
+	mux.Handle("POST /apps/{name}/databases/{addon}/backups", s.authed(s.backupDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/backups/restore", s.authed(s.restoreDatabase))
+	mux.Handle("POST /apps/{name}/databases/{addon}/delete", s.authed(s.deleteDatabase))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)
@@ -332,6 +342,14 @@ var flashes = map[string]string{
 	// Faz 21.
 	"rollout":          "Yayın güncellendi.",
 	"rollout-settings": "Yayın ayarları kaydedildi. Bir sonraki production deploy'unda geçerli olur.",
+	// Faz 22.
+	"db-created": "Veritabanı hazırlanıyor. Hazır olunca bağlantı değişkenleri sonraki deploy'lara eklenir; mevcut deploy'lar için yeniden deploy et.",
+	"db-saved":   "Veritabanı ayarları kaydedildi. Önizleme ve anonimleştirme ayarları sonraki kopyalarda geçerli olur.",
+	"db-rotate":  "Yeni şifre bir dakika içinde uygulanır.",
+	"db-reset":   "Kopya production'dan yeniden alınıyor.",
+	"db-backup":  "Yedek alınıyor.",
+	"db-restore": "Geri yükleme başladı; production veritabanı seçtiğin yedekle değiştirilecek.",
+	"db-deleted": "Veritabanı siliniyor; verileri ve yedekleri de silinecek.",
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {

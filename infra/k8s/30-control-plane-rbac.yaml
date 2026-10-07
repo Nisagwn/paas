@@ -1,6 +1,7 @@
 # The control plane creates one namespace per app (app-<name>) and, inside
 # it, Deployments, Services, Secrets, ResourceQuotas, LimitRanges,
-# NetworkPolicies, Traefik IngressRoutes and (Faz 20) CronJobs and Jobs. Pods and pods/log are read to
+# NetworkPolicies, Traefik IngressRoutes, (Faz 20) CronJobs and Jobs and (Faz 22)
+# StatefulSets and PersistentVolumeClaims of managed databases. Pods and pods/log are read to
 # report rollout progress and crash logs. Namespaces are cluster-scoped and
 # the app namespaces do not exist beforehand, hence a ClusterRole rather than
 # per-namespace Roles.
@@ -40,6 +41,16 @@ rules:
   # status of the last run is read from its Jobs.
   - apiGroups: [batch]
     resources: [cronjobs, jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # Managed databases (Faz 22): each add-on is a StatefulSet with standalone
+  # PersistentVolumeClaims (data, backups); copies, drops, rotations,
+  # backups and restores are Jobs (above) whose results are read from their
+  # pods' termination messages (pods: get/list above). No pods/exec.
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
     verbs: [get, list, watch, create, update, patch, delete]
   # networkpolicies: per-app isolation; ingresses: deployment and alias routes (Faz 4).
   - apiGroups: [networking.k8s.io]

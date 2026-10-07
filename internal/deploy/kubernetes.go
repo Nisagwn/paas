@@ -93,6 +93,14 @@ type Config struct {
 	// Where Traefik's metrics are read. Defaults: kube-system,
 	// app.kubernetes.io/name=traefik, port 9100.
 	TraefikNamespace, TraefikSelector, TraefikMetricsPort string
+
+	// Faz 22 (addons.go). AddonStorageClass is the class of add-on volumes
+	// ("" = local-path, k3s; "default" = the cluster's default class).
+	// Images and the daily backup schedule (UTC) default to
+	// DefaultPostgresImage, DefaultRedisImage and DefaultBackupSchedule.
+	AddonStorageClass         string
+	PostgresImage, RedisImage string
+	BackupSchedule            string
 }
 
 // DefaultConfig is sized for a 4 GiB node shared by many deployments.
@@ -129,6 +137,10 @@ type Kubernetes struct {
 	// Traefik manages the canary overlay (Faz 21, canary.go); nil uses
 	// Certificates, the same generic dynamic client.
 	Traefik dynamic.Interface
+
+	// Addons sizes the namespace quota with the app's add-ons (Faz 22,
+	// addons.go). New takes it from env when env implements it.
+	Addons AddonSource
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)
@@ -137,6 +149,7 @@ var _ worker.Deployer = (*Kubernetes)(nil)
 func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, error) {
 	k := &Kubernetes{client: client, env: env, cfg: cfg}
 	k.Processes, _ = env.(ProcessSource)
+	k.Addons, _ = env.(AddonSource)
 	for _, f := range []struct {
 		name, val string
 		dst       *resource.Quantity
@@ -172,6 +185,10 @@ func New(client kubernetes.Interface, env EnvSource, cfg Config) (*Kubernetes, e
 	k.cfg.TraefikNamespace = cmp.Or(k.cfg.TraefikNamespace, "kube-system")
 	k.cfg.TraefikSelector = cmp.Or(k.cfg.TraefikSelector, "app.kubernetes.io/name=traefik")
 	k.cfg.TraefikMetricsPort = cmp.Or(k.cfg.TraefikMetricsPort, "9100")
+	k.cfg.AddonStorageClass = cmp.Or(k.cfg.AddonStorageClass, DefaultStorageClass)
+	k.cfg.PostgresImage = cmp.Or(k.cfg.PostgresImage, DefaultPostgresImage)
+	k.cfg.RedisImage = cmp.Or(k.cfg.RedisImage, DefaultRedisImage)
+	k.cfg.BackupSchedule = cmp.Or(k.cfg.BackupSchedule, DefaultBackupSchedule)
 	return k, nil
 }
 

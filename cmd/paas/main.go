@@ -182,6 +182,12 @@ func run(log *slog.Logger) error {
 	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
 
 	var wg sync.WaitGroup
+	// Faz 22: managed databases; deployments wait for their copies.
+	dbs, err := startAddons(ctx, st, applier, log, &wg)
+	if err != nil {
+		return err
+	}
+	w.Databases = dbs
 	// Faz 19: request analytics and live resource usage (read per request).
 	apiSrv.Usage = startAnalytics(ctx, cfg, st, applier, log, &wg)
 	ui.Usage = apiSrv.Usage // Faz 16–19 screens: the Analitik tab; read per request, set before serving
@@ -349,6 +355,10 @@ func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSour
 		if err != nil {
 			return nil, nil, err
 		}
+		addonCfg, err := config.LoadAddons()
+		if err != nil {
+			return nil, nil, err
+		}
 		d, err := deploy.New(client, st, deploy.Config{
 			Domain: cfg.Domain, IngressClass: cfg.IngressClass, TLS: cfg.IngressTLS,
 			CPURequest: cfg.AppCPURequest, CPULimit: cfg.AppCPULimit,
@@ -359,6 +369,9 @@ func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSour
 			ActivatorIP: cfg.Scale.ActivatorIP, ActivatorPort: cfg.Scale.ActivatorPort,
 			ActivatorNamespace: activatorNamespace(cfg.Scale),
 			TraefikNamespace:   cfg.Scale.TraefikNamespace, TraefikMetricsPort: cfg.Scale.TraefikMetricsPort,
+			// Faz 22: add-on volumes, images and backup schedule.
+			AddonStorageClass: addonCfg.StorageClass, PostgresImage: addonCfg.PostgresImage,
+			RedisImage: addonCfg.RedisImage, BackupSchedule: addonCfg.BackupSchedule,
 		})
 		if err != nil {
 			return nil, nil, err

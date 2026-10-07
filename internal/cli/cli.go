@@ -108,6 +108,26 @@ func commandList() []command {
 				"canary (the new production takes --steps of the traffic, one --step at a time).\n" +
 				"Without flags `settings` prints the current settings.",
 			run: cmdRollout},
+		// Faz 22 (addons.go).
+		{name: "addons", args: "ls|add|info|set|rm|rotate|branches|reset|backups|backup|restore <app> [addon] ...",
+			summary: "Manage managed databases (Postgres, Redis) and their preview copies and backups",
+			help: "  ls <app>                                    list add-ons\n" +
+				"  add <app> postgres|redis [--name n] [--plan hobby|standard|pro] [--preview-mode copy|empty|shared]\n" +
+				"  info <app> <addon> [--reveal [--branch b]] details; --reveal prints the password (logged)\n" +
+				"  set <app> <addon> [--plan p] [--preview-mode m] [--anonymize \"users.email: email\"]...\n" +
+				"      [--clear-anonymize] [--anonymize-sql-file f.sql|-] [--backup-keep N]\n" +
+				"  rm <app> <addon> --confirm <addon>        delete with data, copies and backups\n" +
+				"  rotate <app> <addon> [--no-redeploy]      new password; then redeploys what the aliases point at\n" +
+				"  branches <app> <addon>                    preview branch databases\n" +
+				"  reset <app> <addon> <branch>              copy production into the branch's database again\n" +
+				"  backups <app> <addon> | backup <app> <addon>\n" +
+				"  restore <app> <addon> <backup-id> --confirm <addon>",
+			run: cmdAddons},
+		{name: "db", args: "psql <app> [addon] [--branch b] [--port 15432]",
+			summary: "Print the kubectl port-forward and psql commands for an add-on database",
+			help: "The add-ons are reachable only inside the cluster. The command reveals the credentials (logged)\n" +
+				"and prints a port-forward for anyone with kubectl access, then the psql command for it.",
+			run: cmdDB},
 	}
 }
 

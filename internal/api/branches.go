@@ -51,7 +51,8 @@ func (s *Server) branchDeleted(w http.ResponseWriter, r *http.Request, repo, bra
 		s.Cleanup.Kick(app.Name)
 	}
 	s.Log.Info("branch cleanup", "app", app.Name, "branch", branch, "reason", reason,
-		"aliases_removed", bc.AliasesRemoved, "retired", bc.Retired, "cancelled", bc.Cancelled, "in_flight", bc.InFlight)
+		"aliases_removed", bc.AliasesRemoved, "retired", bc.Retired, "cancelled", bc.Cancelled, "in_flight", bc.InFlight,
+		"databases", bc.Databases)
 	writeJSON(w, http.StatusOK, struct {
 		Result string `json:"result"`
 		Branch string `json:"branch"`

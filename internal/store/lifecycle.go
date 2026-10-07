@@ -199,6 +199,9 @@ type BranchCleanup struct {
 	Cancelled int `json:"cancelled"`
 	// Deployments being built or deployed; they end as retired.
 	InFlight int `json:"in_flight"`
+	// Faz 22: branch databases of the app's add-ons marked for deletion;
+	// the add-on reconcile loop drops them.
+	Databases int `json:"databases"`
 }
 
 // DeleteBranch handles a deleted branch (or a closed pull request): its
@@ -254,6 +257,10 @@ func (s *Store) DeleteBranch(ctx context.Context, appID int64, branch, reason st
 		WHERE d.app_id = $1 AND d.branch = $2 AND d.status = 'ready' AND d.target = 'preview'
 		  AND NOT EXISTS (SELECT 1 FROM aliases al WHERE al.deployment_id = d.id)`,
 		appID, branch, reason); err != nil {
+		return bc, err
+	}
+	// Faz 22: the branch's database copies go with its previews.
+	if bc.Databases, err = markBranchDatabasesDeletingTx(ctx, tx, appID, branch); err != nil {
 		return bc, err
 	}
 	return bc, tx.Commit()

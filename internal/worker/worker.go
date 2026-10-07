@@ -59,6 +59,17 @@ type Stages struct {
 	Deployer
 }
 
+// Databases prepares the add-on databases a deployment connects to (Faz
+// 22, internal/addons): Request runs before the build and asks for the
+// branch's copy of the production database, so the copy runs while the
+// image builds; Wait runs before the deploy and returns once every
+// database the deployment's variables point at is ready (or fails with
+// the reason).
+type Databases interface {
+	Request(ctx context.Context, d store.Deployment, log Logger) error
+	Wait(ctx context.Context, d store.Deployment, log Logger) error
+}
+
 // Router pushes an app's aliases from the database to the ingress layer
 // (routing.Syncer). Nil when there is nothing to route (dry run).
 type Router interface {
@@ -114,6 +125,9 @@ type Worker struct {
 	// request when heartbeats are off (StaleAfter == 0); default 2s. With
 	// heartbeats on, every heartbeat checks.
 	CancelPoll time.Duration
+
+	// Databases is optional (nil: deployments do not wait for add-ons).
+	Databases Databases
 }
 
 // Run starts Concurrency polling loops and blocks until ctx is cancelled and
@@ -272,6 +286,13 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 	log := func(format string, args ...any) { w.logLine(ctx, d.ID, format, args...) }
 	log("==> deployment #%d: %s@%s (%s, %s environment)", d.ID, d.AppName, naming.ShortSHA(d.CommitSHA), d.Branch, d.Target)
 
+	// Faz 22: a preview's database copy starts now and runs during the build.
+	if w.Databases != nil {
+		if err := w.Databases.Request(ctx, d, log); err != nil {
+			return fmt.Errorf("databases: %w", err)
+		}
+	}
+
 	image := d.Image
 	if image != "" {
 		// Redeploy or promotion of a built commit, or a retry after a
@@ -302,6 +323,12 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 		}
 	}
 
+	// The deployment's variables point at its databases: they must exist.
+	if w.Databases != nil {
+		if err := w.Databases.Wait(ctx, d, log); err != nil {
+			return err
+		}
+	}
 	if err := w.Store.SetStatus(ctx, d.ID, store.StatusDeploying); err != nil {
 		return err
 	}

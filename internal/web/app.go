@@ -19,6 +19,8 @@ import (
 //	/apps/{name}              Genel: addresses, production, recent deployments
 //	/apps/{name}/deployments  Deploy'lar: history and deploy controls
 //	/apps/{name}/analytics    Analitik (analytics.go)
+//	/apps/{name}/databases    Veritabanları (Faz 22, databases.go): add-ons,
+//	                          preview copies, backups
 //	/apps/{name}/settings     Ayarlar: build settings, variables, deploy hooks,
 //	                          custom domains, sleep mode
 //
@@ -29,6 +31,7 @@ const (
 	tabOverview  = "app"
 	tabDeploys   = "deploys"
 	tabAnalytics = "analytics"
+	tabDatabases = "databases"
 	tabSettings  = "settings"
 )
 
@@ -36,6 +39,7 @@ var tabTitles = map[string]string{
 	tabOverview:  "Genel",
 	tabDeploys:   "Deploy'lar",
 	tabAnalytics: "Analitik",
+	tabDatabases: "Veritabanları",
 	tabSettings:  "Ayarlar",
 }
 
@@ -101,6 +105,9 @@ type appDetail struct {
 
 	// Faz 21: canary / guarded rollouts (rollouts.go).
 	Rollout *rolloutPanel
+
+	// Faz 22: Veritabanları (databases.go); loaded on that tab only.
+	DB *databasesData
 }
 
 // loadApp loads the {name} app and checks the caller's team role: viewer
@@ -243,6 +250,12 @@ func (s *Server) renderTabOf(w http.ResponseWriter, r *http.Request, app store.A
 	v.Tab = tab
 	if tab == tabAnalytics {
 		if v.A, err = s.analytics(r, app); err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+	}
+	if tab == tabDatabases {
+		if v.DB, err = s.databasesData(r.Context(), app); err != nil {
 			s.internalError(w, r, err)
 			return
 		}

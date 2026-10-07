@@ -9,6 +9,8 @@
 package naming
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strconv"
 	"strings"
@@ -105,4 +107,41 @@ func URL(scheme, host string) string {
 		scheme = "https"
 	}
 	return scheme + "://" + host
+}
+
+// ---- Faz 22: add-ons ----
+
+// AddonObject is the Kubernetes name of an add-on's objects (StatefulSet,
+// Service, Secret) in the app's namespace.
+func AddonObject(addon string) string {
+	return "addon-" + addon
+}
+
+// maxIdent is PostgreSQL's identifier limit (NAMEDATALEN - 1).
+const maxIdent = 63
+
+// BranchDatabase is the database (and owner role) of a preview branch's
+// copy: "preview_" + the branch slug with "_" separators. A branch whose
+// name changed on the way (other characters, upper case) or had to be cut
+// gets a hash of the full name appended, so feature/x and feature-x never
+// share a database. The result is a valid unquoted identifier.
+func BranchDatabase(branch string) string {
+	const prefix = "preview_"
+	slug := strings.ReplaceAll(Slug(branch), "-", "_")
+	exact := slug == branch
+	if slug == "" {
+		slug, exact = "branch", false
+	}
+	if len(prefix)+len(slug) > maxIdent {
+		exact = false
+	}
+	if exact {
+		return prefix + slug
+	}
+	sum := sha256.Sum256([]byte(branch))
+	suffix := "_" + hex.EncodeToString(sum[:])[:8]
+	if room := maxIdent - len(prefix) - len(suffix); len(slug) > room {
+		slug = strings.TrimRight(slug[:room], "_")
+	}
+	return prefix + slug + suffix
 }

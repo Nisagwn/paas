@@ -15,7 +15,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/util/retry"
@@ -93,14 +92,15 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 		return err
 	}
 
+	// Faz 22: the add-ons' pods, memory and volumes come on top of the
+	// deployments' share (addons.go), so a database never eats it.
+	hard, err := k.quotaHard(ctx, app)
+	if err != nil {
+		return fmt.Errorf("resource quota: %w", err)
+	}
 	quota := &corev1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns, Labels: lbl},
-		Spec: corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{
-			corev1.ResourcePods:           *resource.NewQuantity(int64(k.cfg.QuotaPods), resource.DecimalSI),
-			corev1.ResourceRequestsCPU:    k.q.quotaCPU,
-			corev1.ResourceLimitsMemory:   k.q.quotaMem,
-			corev1.ResourceRequestsMemory: k.q.quotaMem,
-		}},
+		Spec:       corev1.ResourceQuotaSpec{Hard: hard},
 	}
 	if _, err := apply(ctx, k.client.CoreV1().ResourceQuotas(ns), policyName, quota,
 		func(have *corev1.ResourceQuota) bool {
@@ -135,11 +135,15 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 	}
 
 	// Deny ingress except from kube-system, where Traefik runs: apps cannot
-	// reach each other, only through their public URLs.
+	// reach each other, only through their public URLs. Add-on servers
+	// (Faz 22) are left out here: paas-addons below admits only pods of
+	// the namespace, on the add-on ports.
 	policy := &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns, Labels: lbl},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{},
+			PodSelector: metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: LabelAddon, Operator: metav1.LabelSelectorOpDoesNotExist},
+			}},
 			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{{
 				From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{
@@ -155,7 +159,42 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 			PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "paas"}},
 		})
 	}
-	if _, err := apply(ctx, k.client.NetworkingV1().NetworkPolicies(ns), policyName, policy,
+	if err := k.applyPolicy(ctx, policy); err != nil {
+		return err
+	}
+	return k.applyPolicy(ctx, addonPolicy(ns, lbl))
+}
+
+// addonPolicyName is the NetworkPolicy of the add-on servers (Faz 22).
+const addonPolicyName = "paas-addons"
+
+// addonPolicy admits traffic to add-on servers only from pods of the same
+// namespace (the app's deployments and the add-on Jobs) and only on the
+// Postgres and Redis ports; nothing outside the namespace, Traefik and the
+// control plane included, reaches them.
+func addonPolicy(ns string, lbl map[string]string) *networkingv1.NetworkPolicy {
+	tcp := corev1.ProtocolTCP
+	return &networkingv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: addonPolicyName, Namespace: ns, Labels: lbl},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{
+				{Key: LabelAddon, Operator: metav1.LabelSelectorOpExists},
+			}},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{
+				// A pod selector without a namespace selector: this namespace only.
+				From: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}},
+				Ports: []networkingv1.NetworkPolicyPort{
+					{Protocol: &tcp, Port: ptr(intstr.FromInt32(store.PostgresPort))},
+					{Protocol: &tcp, Port: ptr(intstr.FromInt32(store.RedisPort))},
+				},
+			}},
+		},
+	}
+}
+
+func (k *Kubernetes) applyPolicy(ctx context.Context, policy *networkingv1.NetworkPolicy) error {
+	if _, err := apply(ctx, k.client.NetworkingV1().NetworkPolicies(policy.Namespace), policy.Name, policy,
 		func(have *networkingv1.NetworkPolicy) bool {
 			if equality.Semantic.DeepEqual(have.Spec, policy.Spec) {
 				return false
@@ -163,7 +202,7 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 			have.Spec = policy.Spec
 			return true
 		}); err != nil {
-		return fmt.Errorf("network policy: %w", err)
+		return fmt.Errorf("network policy %s: %w", policy.Name, err)
 	}
 	return nil
 }

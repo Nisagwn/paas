@@ -23,7 +23,8 @@ git push ──► GitHub webhook ──► API ──► Postgres kuyruğu ─�
 **Öne çıkanlar:** Dockerfile'sız build (Node, Go, Python, Ruby, Java, statik) · Next.js, Vite, Nuxt, SvelteKit,
 Astro, Remix gibi framework preset'leri ve proje ayarları (monorepo kök dizini, komutlar) · commit başına HTTPS URL ·
 branch preview'leri ve PR yorumları · birkaç milisaniyelik rollback · metriklere bakarak kendini
-tamamlayan ya da geri alan kademeli yayın (canary) · canlı build logu ·
+tamamlayan ya da geri alan kademeli yayın (canary) · tek tıkla PostgreSQL / Redis ve her preview branch'ine
+production veritabanının (istenirse anonimleştirilmiş) kendi kopyası · canlı build logu ·
 web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik temizlik ve çökme sonrası kurtarma ·
 `terraform apply` ile AWS'de kurulum.
 
@@ -34,7 +35,7 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Bağlam ve konteyner diyagramları, deploy ve rollback akışları, durum makinesi, veri modeli |
 | [docs/REPORT.md](docs/REPORT.md) | Teknik rapor: problem, tasarım kararları, güvenlik, test, ölçümler, sınırlar |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Kuyruk ölçeklenmesi, build süreleri, imaj boyutları, rollback gecikmesi |
-| [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | 20 arıza senaryosu, beklenen davranış ve testleri |
+| [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | 25 arıza senaryosu, beklenen davranış ve testleri |
 | [docs/DEMO.md](docs/DEMO.md) | Canlı demo ve video senaryosu |
 | [docs/PHASES.md](docs/PHASES.md) | Faz planı |
 | [infra/README.md](infra/README.md) | AWS kurulumu (Terraform, k3s) |
@@ -108,6 +109,10 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
 - [x] Faz 21: kademeli yayın (canary) ve otomatik geri alma: yeni production deploy'u önce trafiğin bir payını alır
   (Traefik ağırlıklı servisi), 5xx / p95 production ile karşılaştırılır, adım adım ilerler ya da kendiliğinden geri
   çekilir; "izlemeli geçiş" modu anında geçip bozulursa geri alır ([ayrıntılar](#kademeli-yayın-faz-21))
+- [x] Faz 22: yönetilen veritabanları: projeye tek tıkla PostgreSQL / Redis (StatefulSet + PVC, root olmayan, ağ politikasıyla
+  yalnızca kendi namespace'inden erişilir), `DATABASE_URL` / `REDIS_URL` deploy'lara kendiliğinden eklenir; her preview branch'i
+  production veritabanının `pg_dump | pg_restore` ile alınmış, istenirse anonimleştirilmiş kendi kopyasıyla çalışır, branch silinince
+  kopya da silinir; günlük yedek, geri yükleme, şifre yenileme ([ayrıntılar](#veritabanları-faz-22))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -451,6 +456,111 @@ paas rollout promote blog
 Denetleyici her kontrol düzlemi kopyasında çalışır; yayınlar `FOR UPDATE SKIP LOCKED` ile alınır,
 her geçiş (durum, adım) üzerinde compare-and-set'tir: aynı anda gelen kullanıcı işlemi ya da yeni
 deploy kazanır, eski karar düşer. Küme RBAC'ına `traefik.io/traefikservices` eklendi.
+
+### Veritabanları (Faz 22)
+
+Vercel veritabanını kendisi barındırmaz, kullanıcıyı pazar yerindeki ortaklara yollar. paas zaten
+Kubernetes'te çalıştığı için bir projeye tek tıkla PostgreSQL ya da Redis eklenir, bağlantı değişkenleri
+deploy'lara kendiliğinden girer ve — asıl özellik — **her preview branch'i production veritabanının kendi
+kopyasıyla** çalışır: bir pull request gerçekçi veriyle, production'a dokunmadan denenir.
+
+| | PostgreSQL 16 | Redis 7 |
+|---|---|---|
+| Kubernetes | `StatefulSet addon-<ad>` + `Service` + PVC `addon-<ad>-data` (+ `-backups`) | `StatefulSet addon-<ad>` + `Service` + PVC |
+| Güvenlik | UID 70, salt okunur kök, yetenekler kapalı; deploy'lar `app` rolüyle bağlanır, süper kullanıcı yalnızca platformun işlerinde | UID 999, `requirepass`, AOF, `noeviction` |
+| Değişkenler | `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE` | `REDIS_URL` |
+| Önizlemeler | `copy` (varsayılan), `empty`, `shared` | paylaşılır |
+| Yedek | günlük `pg_dump -Fc` (son 7), elle yedek, geri yükleme | — |
+
+Boyutlar: `hobby` (256Mi bellek, 1Gi disk), `standard` (512Mi, 5Gi), `pro` (1Gi, 20Gi); plan büyütülünce sunucu
+yeniden başlar, disk genişletilir (local-path genişletemez: uyarı gösterilir), disk asla daraltılmaz. Uygulama
+başına en fazla 5 eklenti. Namespace kotası eklentilerle büyür (deploy'ların payı yenmez) ve
+`NetworkPolicy paas-addons` eklentilere yalnızca aynı namespace'teki pod'ların, yalnızca 5432 / 6379'dan
+erişmesine izin verir.
+
+**Değişkenler.** Hazır eklentiler değişkenlerini `DeploymentEnv` ile verir; **aynı adla tanımladığın kendi
+değişkenin kazanır** (ör. dışarıdaki bir veritabanına `DATABASE_URL` vermek için). Varsayılan adlı eklenti
+(`db`, `cache`; yoksa türünün en eskisi) düz adları, başka adlı her eklenti ayrıca önekli adları verir
+(`analytics` → `ANALYTICS_DATABASE_URL`, `ANALYTICS_PGHOST`, …). Eklenti eklendikten sonra çalışan deploy'lar
+değişkenleri yeniden deploy edilince alır.
+
+**Preview kopyası.** `copy` modunda bir branch'in ilk preview deploy'u build'den önce kopyayı ister, kopya build
+sürerken çalışır, deploy onu bekler:
+
+```
+==> veritabanı kopyası: db → preview_feature_x_1a2b3c4d (production'dan kopyalanıyor, anonimleştirilecek)
+...build...
+==> veritabanı kopyası: db → preview_feature_x_1a2b3c4d kopyalanıyor…
+==> veritabanı kopyası: db hazır (8.6 MiB, anlık görüntü 2026-10-07 05:27:04 UTC, 2 anonimleştirme kuralı)
+```
+
+Kopya aynı Postgres sunucusunda `preview_<branch>` adlı (uzun / değişen adlarda özet ekli) ayrı bir veritabanı
+ve ona sahip ayrı bir roldür; `pg_dump -Fc` production'dan okur, `pg_restore --role=…` kopyaya yazar
+(`CREATE DATABASE … TEMPLATE` kullanılmaz: production'daki bağlantıları kesmek gerekirdi). Preview production'a,
+production preview'e bağlanamaz. Production `PAAS_ADDON_COPY_MAX_SIZE`'ı (5Gi) aşıyorsa ya da kopya diski
+%80'in üstüne dolduracaksa boş veritabanı açılır ve deploy loguna uyarı düşer. Kopya başarısızsa deploy
+nedeniyle `failed` olur; sonraki push tekrar dener. Branch silinince / PR kapanınca, preview'leri TTL ile
+emekliye ayrılınca kopya `DROP DATABASE … WITH (FORCE)` ile silinir. "Kopyayı yenile" production'dan yeniden alır
+(önizlemenin yazdığı veriler gider). Modu `shared`'a çevirmek mevcut kopyaları siler; `copy` ↔ `empty` değişikliği
+sonraki kopyalarda geçerli olur. `shared` modda önizlemeler production'a production'ın kimliğiyle bağlanır:
+yalnızca önizleme kodunun production verisine yazmasında sakınca yoksa seç.
+
+**Anonimleştirme** yalnızca kopyada çalışır. Kurallar yalnızca tanımlayıcıdır ve SQL'e sabit ifadelerle derlenir:
+
+```
+users.email: email       # user_<md5>@example.invalid (eşit değerler eşit kalır, benzersizlik korunur)
+users.name: name         # User 1A2B3C
+billing.cards.number: hash
+*.phone: null            # phone sütunu olan her tablo
+```
+
+Stratejiler: `email`, `name`, `phone`, `hash`, `redact`, `empty`, `null` (NULL her zaman NULL kalır). Kurallar
+süper kullanıcıyla, uygulamanın tetikleyicileri kapalıyken tek transaction'da çalışır. Daha fazlası için üyeler
+**ek SQL ifadeleri** yazabilir (`anonymize_sql`): bunlar kurallardan sonra, kopyanın kendi rolüyle (production'a
+erişemeyen, süper kullanıcı olmayan) ve psql ters bölü komutları olmadan çalışır.
+
+```bash
+# PostgreSQL ekle; hazır olunca deploy'lar DATABASE_URL alır
+curl -X POST -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/addons \
+  -d '{"kind":"postgres","plan":"hobby","preview_mode":"copy"}'
+curl -X PATCH -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/addons/db \
+  -d '{"anonymize":["users.email: email","*.phone: null"],"backup_keep":7}'
+# Şifreyi görmek (üye; her görüntüleme sunucu loguna yazılır)
+curl -X POST -H "Authorization: Bearer $PAAS_API_TOKEN" localhost:8080/api/apps/blog/addons/db/credentials/reveal
+
+paas addons add blog postgres --preview-mode copy
+paas addons set blog db --anonymize "users.email: email" --anonymize "*.phone: null"
+paas addons branches blog db
+paas addons reset blog db feature/x
+paas addons backup blog db && paas addons backups blog db
+paas addons restore blog db 12 --confirm db
+paas addons rotate blog db            # yeni şifre; ardından production ve preview adresleri yeniden deploy edilir
+paas addons rm blog db --confirm db   # veriler, kopyalar ve yedeklerle birlikte
+paas db psql blog                     # kubectl port-forward + psql komutunu yazar
+```
+
+`paas db psql` bir tünel açmaz: eklentiler yalnızca küme içinden erişilebilir; komut, küme erişimi olan biri
+için `kubectl -n app-blog port-forward svc/addon-db 15432:5432` ve şifreli `psql` komutunu yazar.
+
+**Yedekler** (`PAAS_ADDON_BACKUP_SCHEDULE`, varsayılan her gün 03:00 UTC) eklentinin yedek diskine yazılır;
+eklentinin kendi diskiyle aynı düğümdedir, düğüm kaybına karşı korumaz (S3 uyumlu hedef sonraki aşamada).
+Geri yükleme, eklentinin adını yazarak onaylanan bir iştir ve tek transaction'dır (`pg_restore --clean
+--single-transaction`): hata olursa production değişmez. **Şifre yenileme** Postgres'te `ALTER ROLE` işiyle,
+Redis'te pod'un yeniden başlamasıyla uygulanır; açık bağlantılar sürer, yeni bağlantılar yeni şifreyi ister
+(varsayılan olarak alias'ların gösterdiği deploy'lar hemen yeniden deploy edilir).
+
+| Değişken | Açıklama |
+|---|---|
+| `PAAS_ADDON_STORAGE_CLASS` | eklenti disklerinin sınıfı (varsayılan `local-path`; `default` kümenin varsayılanı) |
+| `PAAS_ADDON_POSTGRES_IMAGE` / `PAAS_ADDON_REDIS_IMAGE` | imajlar (`postgres:16-alpine`, `redis:7-alpine`) |
+| `PAAS_ADDON_BACKUP_SCHEDULE` | günlük yedek zamanı, cron, UTC (`0 3 * * *`) |
+| `PAAS_ADDON_COPY_MAX_SIZE` | bunun üstündeki production kopyalanmaz, boş veritabanı açılır (`5Gi`) |
+| `PAAS_ADDON_COPY_TIMEOUT` | bir kopya işinin süresi (`10m`) |
+| `PAAS_ADDON_INTERVAL` | uzlaştırma döngüsü aralığı (`10s`) |
+
+Küme RBAC'ına `statefulsets` ve `persistentvolumeclaims` eklendi; `pods/exec` kullanılmaz (işlerin sonucu pod'un
+sonlandırma mesajından okunur). `PAAS_DEPLOYER=dryrun` ile eklentiler küme olmadan hazır sayılır, kopyalar ve
+yedekler veri olmadan başarılı olur (yerel geliştirme).
 
 ### Build nasıl çalışır
 
@@ -973,6 +1083,8 @@ token yalnızca kaydedildiği URL'ye gönderilir; `--url` ile başka bir sunucu 
 | `paas domains ls\|add\|verify\|rm <app> [host]` | Özel alan adları; `add` oluşturulacak DNS kayıtlarını gösterir | `/api/apps/{name}/domains…` |
 | `paas import <owner/repo> [--name n] [--team t] [--branch b]` | GitHub App kurulumundaki repoyu import eder, ilk deploy'u kuyruğa koyar | `POST /api/apps/import` |
 | `paas open <app> [--print]` | Production URL'sini yazdırır ve tarayıcıda açar | `GET /api/apps/{name}` |
+| `paas addons ls\|add\|info\|set\|rm\|rotate\|branches\|reset\|backups\|backup\|restore <app> …` | Veritabanları (Faz 22); `info --reveal` şifreyi gösterir (loglanır), `rm` / `restore` `--confirm <ad>` ister | `/api/apps/{name}/addons…` |
+| `paas db psql <app> [addon] [--branch b]` | `kubectl port-forward` ve `psql` komutlarını yazar (tünel açmaz) | `POST …/addons/{addon}/credentials/reveal` |
 
 Örnek akış:
 
@@ -1156,6 +1268,18 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | PUT | `/api/apps/{name}/rollout-settings` | Gönderilen alanları birleştirir; geçersiz değer `400` (member) |
 | GET | `/api/apps/{name}/rollout` | `{"settings","active","recent"}` — etkin yayın iki tarafın metrikleri ve sıradaki kararla (viewer) |
 | POST | `/api/apps/{name}/rollout/{promote\|abort\|pause\|resume\|rollback}` | Etkin yayına elle işlem; yayın yoksa `404`, duruma uymuyorsa `409` (member) |
+| GET | `/api/apps/{name}/addons` | Veritabanları: tür, boyut, durum, önizleme modu, kurallar, sunucu, verdikleri değişken adları — şifresiz (viewer) |
+| POST | `/api/apps/{name}/addons` | `{"kind":"postgres\|redis","name"?,"plan"?,"preview_mode"?}` (`201`, `provisioning`); aynı ad `409`, en fazla 5 (member) |
+| GET | `/api/apps/{name}/addons/{addon}` | Tek eklenti (viewer) |
+| PATCH | `/api/apps/{name}/addons/{addon}` | `{"plan"?,"preview_mode"?,"anonymize"?:[…],"anonymize_sql"?,"backup_keep"?}`; geçersiz kural / küçülen disk `400` (member) |
+| DELETE | `/api/apps/{name}/addons/{addon}?confirm=<addon>` | Eklentiyi diskleri, kopyaları ve yedekleriyle siler (`202`); onaysız `400` (member) |
+| POST | `/api/apps/{name}/addons/{addon}/credentials/reveal` | `{"branch"?}` — bağlantı bilgileri ve şifre; her görüntüleme loglanır (member) |
+| POST | `/api/apps/{name}/addons/{addon}/rotate` | `{"redeploy"?: true}` — yeni şifre; uygulanınca alias'ların gösterdiği deploy'lar yeniden deploy edilir (`202`; member) |
+| GET | `/api/apps/{name}/addons/{addon}/branches` | Preview kopyaları: branch, veritabanı, mod, durum, anlık görüntü, boyut, hata / uyarı (viewer) |
+| POST | `/api/apps/{name}/addons/{addon}/branches/{branch}/reset` | Kopyayı production'dan yenile (`feature%2Fx`; `202`, sürerken `409`; member) |
+| GET | `/api/apps/{name}/addons/{addon}/backups` | Yedekler ve geri yükleme durumları (viewer) |
+| POST | `/api/apps/{name}/addons/{addon}/backups` | Şimdi yedekle (`202`; member) |
+| POST | `/api/apps/{name}/addons/{addon}/backups/{id}/restore` | `{"confirm":"<addon>"}` — yedeği production'a geri yükler (`202`; member) |
 | GET | `/api/apps/{name}/settings` | Build ayarları + `detected_framework` + kabul edilen `frameworks` listesi (viewer) |
 | PUT | `/api/apps/{name}/settings` | `{"root_directory"?,"framework"?,"install_command"?,"build_command"?,"start_command"?,"output_directory"?,"node_version"?}` — gönderilenleri birleştirir, `""` sıfırlar; geçersiz değer `400` (member) |
 | GET | `/api/deployments/{id}` | Tek deployment |
@@ -1199,6 +1323,7 @@ internal/cleanup/     saklama politikası, emekliye ayırma, küme nesnelerinin 
 internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uyandırma + istek iletimi)
 internal/analytics/   istek metrikleri: Traefik sayaçlarından dakikalık farklar, saklama, p50/p95
 internal/rollout/     kademeli yayın denetleyicisi: karar fonksiyonu, adımlar, otomatik geri alma
+internal/addons/      yönetilen veritabanları (Faz 22): uzlaştırma döngüsü, preview kopyaları, anonimleştirme, yedekler
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar

@@ -325,6 +325,77 @@ Metrikler: ağırlıklı servisin çocukları `<ns>-d-<sha7>-http@kubernetescrd`
 arka ucu `<ns>-d-<sha7>-http@kubernetes` adıyla sayılır; analitik ikisini de aynı deploy'a yazar.
 Karar penceresi adımın başladığı dakikadan sonraki tam dakikalardır.
 
+### 5.4 Yönetilen veritabanları ve preview kopyaları (Faz 22)
+
+Bir eklenti (`addons` satırı) uygulamanın namespace'inde çalışan bir Postgres ya da Redis sunucusudur.
+Doğruluk kaynağı Postgres'teki satırdır; `internal/addons.Controller` her 10 sn'de vadesi gelen eklentileri
+`FOR UPDATE SKIP LOCKED` ile kiralar ve kümeyi satıra uydurur (`deploy.ApplyAddon`: Secret, init ConfigMap,
+PVC'ler, Service, StatefulSet, yedek CronJob'ı, kota ve NetworkPolicy). Uzun süren her şey deterministik adlı
+bir Job'dır (`addon-<ad>-copy-<satır>-<nesil>`, `-drop-…`, `-rotate-<sürüm>`, `-backup-…`, `-restore-<yedek>`):
+bir adım çökmeden ya da başka bir kopyadan sonra tekrarlanırsa ikinci bir iş başlatmaz, ilk işi bulur.
+İşler sonucunu pod'un sonlandırma mesajına yazar (başarıda JSON, hatada son log satırları).
+
+| Nesne | Ad | Not |
+|---|---|---|
+| StatefulSet + Service | `addon-<ad>` | 1 kopya, UID 70 / 999, salt okunur kök, `ALL` yetenekleri kapalı |
+| PVC | `addon-<ad>-data`, `addon-<ad>-backups` | bağımsız PVC: plan büyüyünce genişletilir, silmede açıkça silinir |
+| Secret | `addon-<ad>` (`admin-password`, `password`, rotasyonda `next-password`), `addon-<ad>-branches` | branch rollerinin şifreleri |
+| CronJob | `addon-<ad>-backup` | günlük `pg_dump -Fc`, son N dosya |
+| NetworkPolicy | `paas-addons` | yalnızca aynı namespace'ten, yalnızca 5432 / 6379 |
+
+Postgres içinde: `postgres` süper kullanıcısı (yalnızca işler), `app` rolü ve `app` veritabanı (production
+deploy'ları), her preview branch'i için aynı adlı rol ve veritabanı `preview_<slug>[_<hash>]`. Veritabanlarının
+`CONNECT` yetkisi `PUBLIC`'ten alınır: bir preview production'a, production bir preview'e bağlanamaz.
+
+**Kopya akışı.** Kopya, deploy'un build'iyle aynı anda çalışır; deploy, değişkenleri kopyayı gösterdiği için
+`Deploy`'dan önce onu bekler.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant DB as Postgres (kontrol düzlemi)
+    participant C as addons.Controller
+    participant K as Kubernetes
+    participant PG as addon-db (uygulama namespace'i)
+    W->>DB: EnsureAddonBranch(db, feature/x) → addon_branches pending (rol şifresi mühürlü)
+    W->>C: Kick(app)
+    W->>W: build (BuildKit)
+    C->>DB: ClaimAppAddons (SKIP LOCKED)
+    C->>K: ApplyAddon (branches Secret'ına rol şifresi)
+    C->>DB: StartAddonBranch (pending → copying, CAS)
+    C->>K: Job addon-db-copy-<id>-<nesil>
+    K->>PG: boyut kontrolü; DROP DATABASE … WITH (FORCE); CREATE ROLE / DATABASE
+    K->>PG: pg_dump -Fc app | pg_restore --role=preview_… (production'a yalnızca okuma)
+    K->>PG: anonimleştirme kuralları (süper kullanıcı, tetikleyiciler kapalı) + üye SQL'i (branch rolü)
+    K-->>C: sonlandırma mesajı {"mode","snapshot","size","warning"}
+    C->>DB: FinishAddonBranch (copying → ready, nesil CAS) ; Job silinir
+    W->>DB: Wait: branch ready → "==> veritabanı kopyası: db hazır (…)"
+    W->>K: Deploy (DeploymentEnv: DATABASE_URL = preview_… rolü ve veritabanı)
+```
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: preview'in ilk deploy'u (EnsureAddonBranch)
+    pending --> copying: Job oluşturuldu
+    copying --> ready: Job başarılı (gerekirse boş veritabanına düşüş + uyarı)
+    copying --> failed: Job başarısız / süre doldu
+    failed --> pending: yeni push (nesil + 1)
+    ready --> pending: "Kopyayı yenile" (nesil + 1)
+    pending --> deleting: branch silindi / PR kapandı
+    copying --> deleting: branch silindi (önce kopya işi durdurulur)
+    ready --> deleting: branch silindi, canlı preview deploy'u kalmadı (TTL)
+    failed --> deleting: canlı preview deploy'u kalmadı
+    deleting --> [*]: DROP DATABASE + DROP ROLE işi başarılı
+```
+
+Eklentinin kendisi: `provisioning → ready` (pod hazır), 10 dk'da hazır olmazsa `failed` (hazır olunca düzelir);
+`ready` bir eklentinin pod'u çökse de `ready` kalır (deploy'lar değişkenlerini kaybetmez), sorun mesajda
+görünür. Silme: `deleting` → nesneler ve diskler silinir, pod ve PVC kalmayınca satır gider, kota küçülür.
+
+Değişkenler `DeploymentEnv`'de kullanıcı değişkenlerinin altına eklenir (aynı ad kullanıcınınkiyle kalır).
+Her türün "birincil" eklentisi (varsayılan adlı, yoksa en eskisi) düz adları (`DATABASE_URL`, …, `REDIS_URL`),
+varsayılan adlı olmayan her eklenti önekli adları (`ANALYTICS_DATABASE_URL`) verir.
+
 ## 6. Veri modeli
 
 ```mermaid
@@ -346,6 +417,38 @@ erDiagram
     apps ||--o| rollout_settings : "Faz 21"
     apps ||--o{ rollouts : "en fazla bir etkin"
     deployments ||--o{ rollouts : "önceki / yeni"
+    apps ||--o{ addons : "Faz 22, en fazla 5"
+    addons ||--o{ addon_branches : "preview branch başına"
+    addons ||--o{ addon_backups : "günlük + elle"
+
+    addons {
+        bigint id PK
+        bigint app_id FK
+        text kind "postgres|redis"
+        text name "UK (app_id, name)"
+        text plan "hobby|standard|pro"
+        text status "provisioning|ready|failed|deleting"
+        text preview_mode "copy|empty|shared"
+        jsonb anonymize "tablo.sütun: strateji"
+        text secrets "mühürlü JSON"
+        timestamptz reconciled_at "kiralama"
+    }
+    addon_branches {
+        bigint id PK
+        bigint addon_id FK
+        text branch "UK (addon_id, branch)"
+        text database "preview_slug_hash"
+        text status "pending|copying|ready|failed|deleting"
+        int generation "her yeniden kopyada +1"
+        text password "mühürlü"
+    }
+    addon_backups {
+        bigint id PK
+        bigint addon_id FK
+        text job "UK; dosya: job.dump"
+        text status "pending|running|succeeded|failed|expired"
+        text restore_status "eklenti başına tek etkin"
+    }
 
     apps {
         bigint id PK
@@ -464,6 +567,8 @@ Tüm host'lar tek etiketli ve `*.domain` altındadır; tek bir wildcard sertifik
 | Worker (Faz 20) | — | `app-<app>/d-<sha7>-w-<ad>` |
 | Cron (Faz 20) | — | `app-<app>/d-<sha7>-c-<ad>` (≤ 52 karakter, uzunsa özetle kısaltılır) |
 | Özel alan adı (Faz 12) | `www.ornek.com` | `app-<app>/domain-<host>-<hash>` (+ `-tls` Secret) |
+| Eklenti (Faz 22) | `addon-<ad>.app-<app>.svc` (yalnızca küme içi) | `app-<app>/addon-<ad>` (+ `-data`, `-backups`, `-branches`, `-init`, `-backup`) |
+| Preview veritabanı (Faz 22) | — | Postgres içinde `preview_<slug>[_<8 hex>]` (rol ve veritabanı, ≤ 63 karakter) |
 
 Özel alan adları `*.domain` dışında kalır. `internal/domains` doğrulayıcısı DNS'i (CNAME →
 `<app>.<domain>` ya da TXT `_paas-challenge.<host>`) denetler ve `routed` alanını yönetir;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -167,13 +168,31 @@ func (s *Store) ResolveEnv(ctx context.Context, appID int64, target, branch stri
 	return env, nil
 }
 
-// DeploymentEnv is ResolveEnv for d's environment and branch.
+// DeploymentEnv is ResolveEnv for d's environment and branch, plus the
+// connection variables of the app's ready add-ons (Faz 22, AddonEnv). A
+// variable the user set wins over an add-on's of the same name. The
+// values feed the deployment's env hash, so a redeploy after a password
+// rotation rolls the pods.
 func (s *Store) DeploymentEnv(ctx context.Context, d Deployment) (map[string]string, error) {
 	target := d.Target
 	if target == "" {
 		target = EnvPreview
+		d.Target = target
 	}
-	return s.ResolveEnv(ctx, d.AppID, target, d.Branch)
+	env, err := s.ResolveEnv(ctx, d.AppID, target, d.Branch)
+	if err != nil {
+		return nil, err
+	}
+	addonEnv, err := s.AddonEnv(ctx, d)
+	if err != nil {
+		return nil, fmt.Errorf("add-on variables: %w", err)
+	}
+	for k, v := range addonEnv {
+		if _, user := env[k]; !user {
+			env[k] = v
+		}
+	}
+	return env, nil
 }
 
 // AppEnv returns every variable name of the app with one value each, all

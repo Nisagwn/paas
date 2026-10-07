@@ -134,6 +134,19 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("PUT /api/apps/{name}/rollout-settings", s.requireApp(member, s.putRolloutSettings))
 	api.HandleFunc("GET /api/apps/{name}/rollout", s.requireApp(viewer, s.getRollout))
 	api.HandleFunc("POST /api/apps/{name}/rollout/{action}", s.requireApp(member, s.rolloutAction))
+	// Faz 22: managed databases (addons.go). Revealing credentials is member.
+	api.HandleFunc("GET /api/apps/{name}/addons", s.requireApp(viewer, s.listAddons))
+	api.HandleFunc("POST /api/apps/{name}/addons", s.requireApp(member, s.createAddon))
+	api.HandleFunc("GET /api/apps/{name}/addons/{addon}", s.requireApp(viewer, s.getAddon))
+	api.HandleFunc("PATCH /api/apps/{name}/addons/{addon}", s.requireApp(member, s.updateAddon))
+	api.HandleFunc("DELETE /api/apps/{name}/addons/{addon}", s.requireApp(member, s.deleteAddon))
+	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/credentials/reveal", s.requireApp(member, s.revealAddon))
+	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/rotate", s.requireApp(member, s.rotateAddon))
+	api.HandleFunc("GET /api/apps/{name}/addons/{addon}/branches", s.requireApp(viewer, s.listAddonBranches))
+	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/branches/{branch}/reset", s.requireApp(member, s.resetAddonBranch))
+	api.HandleFunc("GET /api/apps/{name}/addons/{addon}/backups", s.requireApp(viewer, s.listAddonBackups))
+	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/backups", s.requireApp(member, s.createAddonBackup))
+	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/backups/{id}/restore", s.requireApp(member, s.restoreAddonBackup))
 	// Checks member on the deployment's app (lookupDeploymentAs).
 	api.HandleFunc("POST /api/deployments/{id}/cancel", s.cancelDeployment)
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
