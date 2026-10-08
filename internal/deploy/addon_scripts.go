@@ -34,6 +34,13 @@ const scriptPrelude = `set -eu
 set -o pipefail
 export PGPASSWORD="$ADMIN_PASSWORD" PGUSER=postgres PGCONNECT_TIMEOUT=10
 q() { psql -X -v ON_ERROR_STOP=1 -q "$@"; }
+# A new pod's IP reaches the NetworkPolicy allow sets a few seconds after it
+# starts (kube-router on k3s rejects until then), so wait for the server.
+for i in $(seq 1 30); do
+  pg_isready -q -d postgres && break
+  [ "$i" = 30 ] && { echo "server $PGHOST unreachable for 60s" >&2; exit 1; }
+  sleep 2
+done
 `
 
 // copyScript (re)creates the branch database and its owner role and, in

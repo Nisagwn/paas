@@ -33,7 +33,9 @@ EOF
 [ "$(uname -o 2>/dev/null)" = Msys ] && cfg=$(cygpath -w "$cfg")
 
 k3d registry list | grep -q "k3d-$registry" || k3d registry create "$registry" --port "0.0.0.0:$port"
-k3d cluster create "$cluster" --agents 0 \
+# A fixed API port: k3d's random one can later fall into a range Windows
+# (Hyper-V) reserves after a reboot, and the load balancer then cannot start.
+k3d cluster create "$cluster" --agents 0 --api-port 127.0.0.1:6550 \
   --registry-use "k3d-$registry:$port" --registry-config "$cfg" \
   -p "80:80@loadbalancer" --wait
 
