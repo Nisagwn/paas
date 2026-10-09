@@ -29,6 +29,7 @@ import (
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/protect"
 	"github.com/nisagwn/paas/internal/store"
 )
@@ -75,6 +76,10 @@ type Server struct {
 	// Faz 25 (comments.go): mirrors comment threads to pull requests; nil
 	// keeps them in paas only.
 	Comments api.CommentSync
+
+	// Faz 26 (notifications.go): the team's Bildirimler page and
+	// production change events; nil stores channels but sends nothing.
+	Notifications *notify.Service
 
 	pages map[string]*template.Template
 }
@@ -188,6 +193,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /teams/{slug}", s.authed(s.teamPage))
 	mux.Handle("POST /teams/{slug}/members", s.authed(s.setMember))
 	mux.Handle("POST /teams/{slug}/members/remove", s.authed(s.removeMember))
+	s.notificationRoutes(mux) // Faz 26: /teams/{slug}/notifications
 	mux.Handle("GET /tokens", s.authed(s.tokensPage))
 	mux.Handle("POST /tokens", s.authed(s.createToken))
 	mux.Handle("POST /tokens/revoke", s.authed(s.revokeToken))

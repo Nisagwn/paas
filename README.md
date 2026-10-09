@@ -113,6 +113,9 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
   yalnızca kendi namespace'inden erişilir), `DATABASE_URL` / `REDIS_URL` deploy'lara kendiliğinden eklenir; her preview branch'i
   production veritabanının `pg_dump | pg_restore` ile alınmış, istenirse anonimleştirilmiş kendi kopyasıyla çalışır, branch silinince
   kopya da silinir; günlük yedek, geri yükleme, şifre yenileme ([ayrıntılar](#veritabanları-faz-22))
+- [x] Faz 26: bildirimler: ekip başına e-posta (SMTP + STARTTLS), Slack, Discord ve imzalı webhook kanalları; deploy, production
+  değişikliği, otomatik geri alma, veritabanı ve alan adı olayları outbox üzerinden tekrar denemeli, hız sınırlı gönderilir,
+  kullanıcı başına e-posta tercihleri ([ayrıntılar](#bildirimler-faz-26))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -1161,6 +1164,104 @@ son 20 yanıt ve inceleme sayfasına bağlantı (`PAAS_PUBLIC_URL/deployments/<i
 Kimlik doğrulama Faz 15'teki kurulum token'larıyla yapılır. İstek GitHub'ı beklemez; hatalar loglanır ve yorumu
 yazana yansımaz. Kullanıcı metni HTML'siz alıntılanır (sahte işaret yazılamaz); yalnızca geçerli anmalar
 GitHub'da `@` olarak kalır, diğer `@kelime`ler ve yazar adları bildirim göndermez.
+
+### Bildirimler (Faz 26)
+
+Her ekip, projelerinde olan biteni kendi kanallarına alır. Ekip sayfasındaki **Bildirimler** düğmesi
+(`/teams/<ekip>/notifications`) kanalları, son gönderimlerini, **Test gönder** düğmesini ve kendi e-posta
+tercihlerini gösterir. viewer okur; member kanal ekler, değiştirir, siler ve test mesajı gönderir.
+
+**Kanal türleri**
+
+| Tür | Nereye | Biçim |
+|---|---|---|
+| `email` | Elle yazılan adresler (en fazla 20) ve / veya e-posta adresini tercihlerine kaydetmiş ekip üyeleri | Türkçe düz metin (UTF-8, quoted-printable), `Message-ID` teslimat anahtarından türer |
+| `slack` | Slack incoming webhook URL'si | Blok mesajı, durum rengine boyanmış kenar çubuğu, "Deploy'u aç" düğmesi |
+| `discord` | Discord webhook URL'si | Renkli embed, alanlar; `@everyone` gibi anmalar kapalı |
+| `webhook` | Herhangi bir HTTPS adresi | İmzalı JSON (`X-Paas-Signature`) |
+
+Kanal tüm projeleri ya da seçilen projeleri izler ve olayların bir alt kümesine abone olur. Webhook URL'leri ve imza
+anahtarları env anahtarlığıyla (Faz 10, AES-256-GCM, kanal kimliğine bağlı) şifreli saklanır, `paas-envkey` rotasyonu
+onları da yeniden şifreler; API ve arayüz URL'nin yalnızca `https://host/…` kısmını gösterir. Webhook kanalının imza
+anahtarı (`whsec_…`) yalnızca oluşturulurken (ya da "İmza anahtarını yenile" ile) bir kez gösterilir.
+
+**Olaylar**
+
+| Olay | Ne zaman | Varsayılan |
+|---|---|---|
+| `deployment.ready` | Deploy hazır | kapalı (yoğun ekiplerde çok sık) |
+| `deployment.failed` | Deploy başarısız (hatanın ilk satırıyla) | açık |
+| `deployment.canceled` | Deploy iptal edildi (Faz 17) | açık |
+| `production.changed` | Rollback, promote, canary'nin tamamlanması, elle sonuçlandırılan yayın | açık |
+| `rollout.rolled_back` | Kademeli yayın metrikler bozulduğu için kendiliğinden geri alındı ya da durdu (Faz 21) | açık |
+| `addon.failed` | Veritabanı hazırlanamadı, branch kopyası / yedek / geri yükleme başarısız (Faz 22) | açık |
+| `domain.failed` | Yönlendirilen alan adının DNS'i bozuldu ya da yeni alan adı bir gün sonra hâlâ doğrulanmadı (Faz 12) | açık |
+| `domain.certificate_expiring` | Sertifikanın bitmesine 14 günden az kaldı ve cert-manager yenileyemedi | açık |
+| `limit.reached` | Bir limite ulaşıldı (`notify.Limit` + `Emitter.Emit`; plan ve limitler bunu kullanacak) | açık |
+
+Üreticiler yalnızca `notify.Emitter` arayüzünü görür (`Emit(ctx, Event)`); `cmd/paas` tek bir `notify.Service`'i
+worker'a, rollout denetleyicisine, eklenti denetleyicisine, alan adı doğrulayıcısına, API'ye ve arayüze verir.
+Deploy olayları worker'ın mevcut bildirim yolundan gelir: `notify.Chain` olay üreticisini GitHub bildiricisinin yanına
+zincirler, worker'daki çağrı noktaları değişmez.
+
+**Teslimat.** `Emit` olayı `(ekip, tür, anahtar)` başına bir kez saklar ve eşleşen her kanal için outbox'a bir satır
+yazar (aynı olayı iki kopya ya da yeniden denenen bir adım üretse de tek mesaj gider). Arka plandaki gönderici satırları
+`FOR UPDATE SKIP LOCKED` ile kiralar, Postgres `LISTEN/NOTIFY` ile hemen uyanır, başarısız denemeleri üstel bekleme
+(30 sn, 1 dk, 2 dk … en fazla 1 sa; 429'da `Retry-After`) ile tekrarlar ve `PAAS_NOTIFY_MAX_ATTEMPTS` denemeden sonra
+vazgeçer. 4xx yanıtlar ve 5xx SMTP yanıtları kalıcı hatadır. Kiralaması dolan (gönderirken çöken) satır yeniden alınır:
+teslimat en az bir kez yapılır, alıcılar `X-Paas-Delivery` / `Idempotency-Key` ile tekrarı ayıklar. Kanal başına dakikada
+`PAAS_NOTIFY_RATE_LIMIT` mesaj gönderilir, fazlası sırasını bekler. Webhook istekleri yönlendirme izlemez ve DNS
+çözümlemesinden sonra özel / yerel adreslere (küme içi, bulut metadata servisi) bağlanmaz. Gönderim günlüğü 30 gün tutulur.
+
+**E-posta tercihleri.** Her kullanıcı adresini, e-postayı tümden kapatmayı ve almak istemediği olayları seçer; tercihler
+adres bir kanalda elle yazılmış olsa da uygulanır. Test mesajları tercihlere bakmaz. SMTP bağlantısı STARTTLS olmadan
+e-posta göndermez (465 için `PAAS_SMTP_SECURITY=tls`).
+
+**Webhook imzası.** Gövde `WebhookBody` JSON'udur (`id`, `type`, `created_at`, `team`, `app`, `deployment_id`, `severity`,
+`title`, `text`, `url`, `fields`, `data`). Alıcı şunu doğrular:
+
+```
+X-Paas-Timestamp: 1791561600
+X-Paas-Signature: sha256=hex(HMAC-SHA256(whsec_…, "<X-Paas-Timestamp>.<gövde>"))
+X-Paas-Event: deployment.failed
+X-Paas-Delivery: <teslimat anahtarı>
+```
+
+Karşılaştırma sabit sürede yapılmalı, eski zaman damgaları reddedilmeli (`notify.VerifySignature` örnek uygulamadır).
+
+**Ayarlar**
+
+| Değişken | Varsayılan | Anlamı |
+|---|---|---|
+| `PAAS_SMTP_HOST`, `PAAS_SMTP_PORT` | — , 587 | SMTP sunucusu; boşsa e-posta kanalı açılamaz |
+| `PAAS_SMTP_USER`, `PAAS_SMTP_PASSWORD` | — | AUTH PLAIN (yalnızca TLS üstünde) |
+| `PAAS_SMTP_FROM` | — | Gönderen adresi (`PAAS_SMTP_HOST` ile zorunlu) |
+| `PAAS_SMTP_SECURITY` | `starttls` | `starttls`, `tls` (465) ya da `none` (yalnızca AUTH'suz geliştirme sunucusu) |
+| `PAAS_PUBLIC_URL` | — | Mesajlardaki deploy ve ayar bağlantılarının kökü |
+| `PAAS_NOTIFY_INTERVAL` | `5s` | `LISTEN` dışında outbox'a bakma aralığı |
+| `PAAS_NOTIFY_MAX_ATTEMPTS` | `8` | Teslimat başına deneme (1–20) |
+| `PAAS_NOTIFY_RATE_LIMIT` | `30` | Kanal başına dakikada mesaj (0 sınırsız) |
+| `PAAS_NOTIFY_ALLOW_PRIVATE` | `false` | `true`: `http://` ve özel adreslere izin (yalnızca geliştirme) |
+
+**API**
+
+```bash
+# Kanallar (viewer okur, member değiştirir)
+curl -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications
+curl -X POST -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications \
+  -d '{"name":"#deploys","kind":"slack","url":"https://hooks.slack.com/services/…","events":["deployment.failed","production.changed"],"apps":["blog"]}'
+curl -X POST -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications \
+  -d '{"name":"ci","kind":"webhook","url":"https://ci.example.com/paas"}'
+# {"id":2,…,"signing_secret":"whsec_…"}   (bir kez gösterilir)
+curl -X PUT  … /api/teams/web/notifications/2 -d '{"enabled":false}'          # boş url saklananı korur
+curl -X PUT  … /api/teams/web/notifications/2 -d '{"rotate_secret":true}'
+curl -X POST … /api/teams/web/notifications/2/test                             # 200 gönderildi, 502 hata, 202 kuyrukta
+curl         … /api/teams/web/notifications/2/deliveries?limit=50
+curl -X DELETE … /api/teams/web/notifications/2
+# Olay türleri ve kendi e-posta tercihlerin
+curl … /api/notifications/events
+curl -X PUT … /api/me/notifications -d '{"email":"ben@example.com","email_enabled":true,"muted_events":["deployment.ready"]}'
+```
 
 ### CLI (Faz 18)
 

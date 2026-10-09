@@ -1,0 +1,147 @@
+{{define "content"}}
+{{$t := .Data.Team}}{{$csrf := .CSRF}}{{$edit := .Data.CanEdit}}{{$events := .Data.Events}}{{$apps := .Data.Apps}}
+<div class="head"><div>
+  <p class="sub" style="margin:0"><a href="/teams">Ekipler</a> / <a href="/teams/{{$t.Slug}}">{{$t.Name}}</a> /</p>
+  <h1>Bildirimler</h1>
+  <p class="sub">Deploy'lar, production değişiklikleri, otomatik geri almalar, veritabanı ve alan adı sorunları için e-posta, Slack, Discord ya da webhook bildirimleri.</p>
+</div></div>
+
+{{if .Data.Secret}}
+<div class="card pad" role="status" style="margin-bottom:16px">
+  <strong>"{{.Data.Created}}" kanalının imza anahtarı</strong>
+  <p class="muted small" style="margin:4px 0">Bu anahtar yalnızca şimdi gösterilir. Webhook alıcın her isteğin <code>X-Paas-Signature</code> başlığını
+  <code>sha256=HMAC-SHA256(anahtar, X-Paas-Timestamp + "." + gövde)</code> ile doğrulamalı.</p>
+  <div class="secret mono">{{.Data.Secret}}</div>
+</div>
+{{end}}
+
+<h2>Kanallar</h2>
+{{with .Data.Channels}}
+{{range .}}{{$c := .}}
+<details class="card section" id="channel-{{.ID}}">
+  <summary>
+    {{.Name}} <span class="tag">{{notifykind .Kind}}</span>
+    {{if not .Enabled}}<span class="tag warn">Kapalı</span>{{end}}
+    <span class="muted">{{if .URLHint}}{{.URLHint}}{{else if .Recipients}}{{len .Recipients}} adres{{end}}{{if .TeamMembers}} · ekip üyeleri{{end}}
+    · {{len .Events}} olay{{if .Apps}} · {{range $i, $a := .Apps}}{{if $i}}, {{end}}{{$a}}{{end}}{{else}} · tüm projeler{{end}}</span>
+  </summary>
+  <div class="body">
+    {{if $edit}}
+    <form method="post" action="/teams/{{$t.Slug}}/notifications/{{.ID}}">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="row">
+        <div><label for="name-{{.ID}}">Ad</label><input id="name-{{.ID}}" name="name" value="{{.Name}}" required maxlength="100"></div>
+        {{if .Secret}}
+        <div style="flex:2"><label for="url-{{.ID}}">Yeni URL (boş bırakırsan değişmez)</label>
+          <input id="url-{{.ID}}" class="mono" name="url" type="url" placeholder="{{.URLHint}}" autocomplete="off"></div>
+        {{else}}
+        <input type="hidden" name="is_email" value="1">
+        <div style="flex:2"><label for="rcpt-{{.ID}}">Adresler (virgülle ayır)</label>
+          <input id="rcpt-{{.ID}}" name="recipients" value="{{range $i, $r := .Recipients}}{{if $i}}, {{end}}{{$r}}{{end}}"></div>
+        {{end}}
+      </div>
+      {{if not .Secret}}<p><label class="check"><input type="checkbox" name="team_members" value="1" {{if .TeamMembers}}checked{{end}}> E-posta adresini tercihlerine kaydetmiş ekip üyelerine de gönder</label></p>{{end}}
+      <h3 class="group" style="margin-top:12px">Olaylar</h3>
+      <p>{{range $events}}<label class="check"><input type="checkbox" name="events" value="{{.Type}}" {{if index $c.Subscribed .Type}}checked{{end}}> {{.Label}}</label> {{end}}</p>
+      {{if $apps}}
+      <h3 class="group">Projeler <span class="muted small">(hiçbiri seçilmezse tümü)</span></h3>
+      <p>{{range $apps}}<label class="check"><input type="checkbox" name="apps" value="{{.}}" {{if index $c.InApps .}}checked{{end}}> {{.}}</label> {{end}}</p>
+      {{end}}
+      <p>
+        <label class="check"><input type="checkbox" name="enabled" value="1" {{if .Enabled}}checked{{end}}> Açık</label>
+        {{if eq .Kind "webhook"}}<label class="check"><input type="checkbox" name="rotate_secret" value="1"> İmza anahtarını yenile</label>{{end}}
+      </p>
+      <button class="primary" type="submit">Kaydet</button>
+    </form>
+    <div class="row" style="margin-top:12px">
+      <form class="inline" method="post" action="/teams/{{$t.Slug}}/notifications/{{.ID}}/test">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit">Test gönder</button>
+      </form>
+      <form class="inline" method="post" action="/teams/{{$t.Slug}}/notifications/{{.ID}}/delete">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button class="danger" type="submit">Kanalı sil</button>
+      </form>
+    </div>
+    {{else}}
+    <p class="muted small">Olaylar: {{range $i, $e := .Events}}{{if $i}}, {{end}}{{eventlabel $e}}{{end}}</p>
+    {{end}}
+
+    <h3 class="group" style="margin-top:16px">Son gönderimler</h3>
+    {{with .Deliveries}}
+    <table>
+      <thead><tr><th>Olay</th><th>Durum</th><th class="hide-sm">Deneme</th><th>Zaman</th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr>
+          <td><span class="small muted">{{eventlabel .EventType}}</span><br>{{.Title}}</td>
+          <td><span class="badge s-{{if eq .Status "sent"}}ready{{else if eq .Status "failed"}}failed{{else if eq .Status "sending"}}building{{else}}queued{{end}}">{{status .Status}}</span>
+            {{with .ResponseCode}}<span class="muted small mono">{{.}}</span>{{end}}
+            {{with .LastError}}<div class="small muted">{{.}}</div>{{end}}</td>
+          <td class="hide-sm">{{.Attempts}}</td>
+          <td class="small muted" title="{{time .CreatedAt}}">{{ago .CreatedAt}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<div class="empty">Henüz gönderim yok.</div>{{end}}
+  </div>
+</details>
+{{end}}
+{{else}}
+<div class="card"><div class="empty">Henüz bildirim kanalı yok.</div></div>
+{{end}}
+
+{{if $edit}}
+{{$f := .Data.Form}}
+<details class="card section" id="new-channel" style="margin-top:20px" {{if or $f.Open (not .Data.Channels)}}open{{end}}>
+  <summary>Kanal ekle</summary>
+  <div class="body">
+  <form method="post" action="/teams/{{$t.Slug}}/notifications">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="new-name">Ad</label><input id="new-name" name="name" value="{{$f.Name}}" placeholder="#deploys" required maxlength="100"></div>
+      <div style="max-width:180px"><label for="new-kind">Tür</label>
+        <select id="new-kind" name="kind" style="width:100%">{{range .Data.Kinds}}<option value="{{.}}" {{if eq . $f.Kind}}selected{{end}}>{{notifykind .}}</option>{{end}}</select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex:2"><label for="new-url">Webhook URL'si (Slack, Discord, webhook)</label>
+        <input id="new-url" class="mono" name="url" type="url" value="{{$f.URL}}" placeholder="https://hooks.slack.com/services/…" autocomplete="off"></div>
+      <div style="flex:2"><label for="new-rcpt">E-posta adresleri (e-posta; virgülle ayır)</label>
+        <input id="new-rcpt" name="recipients" value="{{$f.Recipients}}" placeholder="ops@ornek.com"></div>
+    </div>
+    <p><label class="check"><input type="checkbox" name="team_members" value="1" {{if $f.TeamMembers}}checked{{end}}> E-posta: adresini tercihlerine kaydetmiş ekip üyelerine de gönder</label></p>
+    {{if not .Data.SMTP}}<p class="muted small">E-posta kanalları için sunucuda SMTP ayarlı olmalı (<code>PAAS_SMTP_HOST</code>, <code>PAAS_SMTP_FROM</code>).</p>{{end}}
+    <h3 class="group" style="margin-top:12px">Olaylar</h3>
+    <p>{{range $events}}<label class="check"><input type="checkbox" name="events" value="{{.Type}}" {{if index $f.Events .Type}}checked{{end}}> {{.Label}}</label> {{end}}</p>
+    {{if $apps}}
+    <h3 class="group">Projeler <span class="muted small">(hiçbiri seçilmezse tümü)</span></h3>
+    <p>{{range $apps}}<label class="check"><input type="checkbox" name="apps" value="{{.}}" {{if index $f.Apps .}}checked{{end}}> {{.}}</label> {{end}}</p>
+    {{end}}
+    <p class="muted small">URL'ler şifreli saklanır ve bir daha gösterilmez. Webhook kanallarına imza anahtarı bir kez gösterilir.</p>
+    <button class="primary" type="submit">Kanal ekle</button>
+  </form>
+  </div>
+</details>
+{{end}}
+
+<h2 id="prefs">E-posta tercihlerim</h2>
+<div class="card pad">
+{{if .Data.HasUser}}
+  {{$p := .Data.Prefs}}{{$muted := .Data.Muted}}
+  <form method="post" action="/teams/{{$t.Slug}}/notifications/preferences">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="pref-email">E-posta adresim</label><input id="pref-email" name="email" type="email" value="{{$p.Email}}" placeholder="ben@ornek.com"></div>
+    </div>
+    <p><label class="check"><input type="checkbox" name="email_enabled" value="1" {{if $p.EmailEnabled}}checked{{end}}> Bana e-posta bildirimi gönderilsin</label></p>
+    <h3 class="group">Almak istediğim olaylar</h3>
+    <p>{{range $events}}<label class="check"><input type="checkbox" name="events" value="{{.Type}}" {{if not (index $muted .Type)}}checked{{end}}> {{.Label}}</label> {{end}}</p>
+    <p class="muted small" style="margin-top:0">Tercihler tüm ekiplerinde geçerlidir; adresin bir kanalda elle yazılmış olsa da uygulanır.</p>
+    <button type="submit">Kaydet</button>
+  </form>
+{{else}}
+  <p class="muted" style="margin:0">E-posta tercihleri bir kullanıcıya aittir; GitHub ile giriş yap.</p>
+{{end}}
+</div>
+{{end}}

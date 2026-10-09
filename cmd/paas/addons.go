@@ -8,6 +8,7 @@ import (
 	"github.com/nisagwn/paas/internal/addons"
 	"github.com/nisagwn/paas/internal/config"
 	"github.com/nisagwn/paas/internal/deploy"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
 )
@@ -16,7 +17,9 @@ import (
 // worker waits for databases through it. It runs on every replica; add-ons
 // are claimed with FOR UPDATE SKIP LOCKED. Without the Kubernetes deployer
 // it runs in dry-run mode (add-ons become ready without a server).
-func startAddons(ctx context.Context, st *store.Store, applier routing.Applier, log *slog.Logger, wg *sync.WaitGroup) (*addons.Controller, error) {
+// Failures are reported through em (Faz 26).
+func startAddons(ctx context.Context, st *store.Store, applier routing.Applier, log *slog.Logger, wg *sync.WaitGroup,
+	em notify.Emitter) (*addons.Controller, error) {
 	cfg, err := config.LoadAddons()
 	if err != nil {
 		return nil, err
@@ -27,6 +30,7 @@ func startAddons(ctx context.Context, st *store.Store, applier routing.Applier, 
 	}
 	c := addons.New(st, cluster, log)
 	c.Interval, c.CopyTimeout, c.CopyMaxBytes = cfg.Interval, cfg.CopyTimeout, cfg.CopyMaxBytes
+	c.Notify = em
 	log.Info("add-on reconcile loop", "interval", cfg.Interval, "cluster", cluster != nil,
 		"copy_max_bytes", cfg.CopyMaxBytes, "storage_class", cfg.StorageClass)
 	wg.Add(1)
