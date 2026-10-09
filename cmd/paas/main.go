@@ -235,8 +235,12 @@ func run(log *slog.Logger) error {
 
 	// Faz 11: scale idle deployments to zero; the activator wakes them.
 	errCh := make(chan error, 2)
-	activatorSrv, err := startScaler(ctx, cfg, st, applier, log, &wg, errCh)
+	activatorSrv, scaler, err := startScaler(ctx, cfg, st, applier, log, &wg, errCh)
 	if err != nil {
+		return err
+	}
+	// Faz 27: browser terminal (terminal.go); set before serving.
+	if ui.Terminal, err = newTerminal(cfg, st, applier, scaler, log); err != nil {
 		return err
 	}
 	go func() {

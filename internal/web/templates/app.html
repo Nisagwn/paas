@@ -49,4 +49,36 @@
   <div class="actions"><a class="small" href="/apps/{{$a.Name}}/deployments">Tümü ve deploy kontrolleri →</a></div>
 </div>
 {{template "recent" .}}
+
+{{if and .Data.CanWrite (or .Data.Terminal .Data.TerminalSessions)}}
+<h2 id="terminal-sessions">Terminal oturumları</h2>
+<div class="card">
+{{with .Data.TerminalSessions}}
+  <table>
+    <thead><tr><th>Kim</th><th>Deploy</th><th class="hide-sm">Pod</th><th>Başladı</th><th>Bitti</th><th>Sonuç</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td>{{if eq .Actor "admin"}}admin{{else}}@{{.Actor}}{{end}}</td>
+        <td>{{with .DeploymentID}}<a class="mono" href="/deployments/{{.}}">{{end}}{{if .CommitSHA}}{{short .CommitSHA}}{{else}}silindi{{end}}{{if .DeploymentID}}</a>{{end}}</td>
+        <td class="hide-sm small"><span class="tag">{{.Process}}</span> <span class="mono">{{.Pod}}</span></td>
+        <td class="small" title="{{time .StartedAt}}">{{ago .StartedAt}}</td>
+        <td class="small">{{with .EndedAt}}<span title="{{time .}}">{{ago .}}</span>{{else}}<span class="tag">açık</span>{{end}}</td>
+        <td class="small">{{if .ExitCode}}çıkış kodu {{.ExitCode}}
+          {{else if eq .EndReason "idle"}}işlem yapılmadı, kapatıldı
+          {{else if eq .EndReason "max_duration"}}azami süre doldu
+          {{else if eq .EndReason "client_closed"}}tarayıcı kapattı
+          {{else if eq .EndReason "no_shell"}}imajda kabuk yok
+          {{else if eq .EndReason "shutdown"}}sunucu yeniden başladı
+          {{else if eq .EndReason "error"}}bağlantı hatası
+          {{else}}<span class="muted">—</span>{{end}}</td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+{{else}}
+  <div class="empty">Henüz terminal oturumu açılmadı. Çalışan bir deploy'un yanındaki "Terminal" düğmesiyle pod'da kabuk açabilirsin; her oturum burada listelenir.</div>
+{{end}}
+</div>
+{{end}}
 {{end}}

@@ -9,6 +9,7 @@
   </div>
   <div class="actions">
     {{if eq $d.Status "ready"}}<a class="btn" href="/deployments/{{$d.ID}}/review">İncele</a>{{end}}
+    {{if .Data.Terminal}}<a class="btn" href="/apps/{{$d.AppName}}/deployments/{{$d.ID}}/terminal">Terminal</a>{{end}}
     <a id="visit" class="btn primary" href="{{.Data.URL}}" target="_blank" rel="noopener" {{if ne $d.Status "ready"}}hidden{{end}}>Siteyi aç ↗</a>
   </div>
 </div>

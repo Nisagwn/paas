@@ -31,6 +31,7 @@ import (
 	"github.com/nisagwn/paas/internal/naming"
 	"github.com/nisagwn/paas/internal/protect"
 	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/terminal"
 )
 
 //go:embed templates/*.html
@@ -75,6 +76,9 @@ type Server struct {
 	// Faz 25 (comments.go): mirrors comment threads to pull requests; nil
 	// keeps them in paas only.
 	Comments api.CommentSync
+	// Faz 27 (terminal.go): browser terminal; nil (PAAS_TERMINAL=false or
+	// the dry-run deployer) removes its routes and buttons.
+	Terminal *terminal.Service
 
 	pages map[string]*template.Template
 }
@@ -180,6 +184,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 25: review page and preview comments (comments.go).
 	s.commentRoutes(mux)
+	s.terminalRoutes(mux) // Faz 27 (terminal.go)
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)
 	mux.HandleFunc("GET /auth/github/callback", s.githubCallback)
@@ -547,5 +552,6 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 			"URL":         naming.URL(s.Scheme, d.Host(s.Domain)),
 			"RuntimeLogs": s.RuntimeLogs,
 			"Processes":   s.processNames(r.Context(), d), // Faz 20: runtime log selector
+			"Terminal":    s.terminalAllowed(r, app, d),   // Faz 27
 		}, "")
 }

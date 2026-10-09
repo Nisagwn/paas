@@ -313,6 +313,13 @@ func (s *Scaler) wake(w deploy.Workload) error {
 	return nil
 }
 
+// KeepAwake records activity on a deployment now, so the idle check does
+// not put it to sleep (Faz 27: an open browser terminal counts as use).
+func (s *Scaler) KeepAwake(w deploy.Workload) {
+	s.init()
+	s.touch(w.Key())
+}
+
 // errNoRoute is answered with 404 by the activator.
 var errNoRoute = errors.New("no deployment serves this host")
 

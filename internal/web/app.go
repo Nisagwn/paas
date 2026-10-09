@@ -105,6 +105,11 @@ type appDetail struct {
 	// Analitik (analytics.go).
 	A *analyticsData
 
+	// Faz 27 (terminal.go): Terminal shows the buttons (member+, enabled);
+	// TerminalSessions is the audit log, listed to members.
+	Terminal         bool
+	TerminalSessions []store.AuditEntry
+
 	// Faz 21: canary / guarded rollouts (rollouts.go).
 	Rollout *rolloutPanel
 
@@ -234,6 +239,9 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 	}
 	if v.CanWrite {
 		if v.Hooks, err = s.Store.ListDeployHooks(ctx, app.ID); err != nil {
+			return v, err
+		}
+		if err := s.terminalDetail(ctx, &v); err != nil { // Faz 27
 			return v, err
 		}
 	}
