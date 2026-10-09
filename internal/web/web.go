@@ -270,12 +270,28 @@ type page struct {
 	Data        any
 	// Me is the signed-in caller (Faz 13).
 	Me auth.Principal
+	// Nav is the top-bar section the page belongs to, for the active link.
+	Nav string
+}
+
+// navSection maps a request path to its top-bar section.
+func navSection(path string) string {
+	switch {
+	case strings.HasPrefix(path, "/teams"):
+		return "teams"
+	case strings.HasPrefix(path, "/tokens"):
+		return "tokens"
+	case strings.HasPrefix(path, "/import"):
+		return "import"
+	default:
+		return "projects"
+	}
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
 	p := page{
 		Title: tr(title), CSRF: s.Sessions.CSRFToken(r), Domain: s.Domain, Data: data, Error: tr(errMsg),
-		Flash: flashes[r.URL.Query().Get("ok")],
+		Flash: flashes[r.URL.Query().Get("ok")], Nav: navSection(r.URL.Path),
 	}
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
 	p.Me, p.LoggedIn = auth.From(r.Context())

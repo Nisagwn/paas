@@ -3,7 +3,7 @@
 
 {{define "apphead"}}
 {{$a := .Data.App}}{{$tab := .Data.Tab}}
-<p class="sub" style="margin:0 0 4px"><a href="/">Projeler</a> /</p>
+<p class="sub small" style="margin:0 0 8px"><a href="/">Projeler</a> / {{$a.Name}}</p>
 <div class="card pad" style="margin-bottom:8px">
   <div class="head" style="align-items:center">
     <div style="min-width:0">
@@ -47,7 +47,7 @@
 {{with .Framework}}<span class="tag">{{.}}</span>{{end}}
 {{if and .Origin (ne .Origin "git")}}<span class="tag" title="Kaynak deploy{{with .SourceDeploymentID}} #{{.}}{{end}}">{{origin .Origin}}</span>{{end}}
 <div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
-{{if eq .Status "ready"}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>{{end}}
+{{if eq .Status "ready"}}<a class="small url-short" href="{{.URL}}" target="_blank" rel="noopener" title="{{.URL}}">{{.URL}}</a>{{end}}
 {{if .Error}}<div class="small" style="color:var(--err)">{{tr .Error}}</div>{{end}}
 {{end}}
 
@@ -61,8 +61,8 @@
       <tr>
         <td>{{template "depbadges" .}}</td>
         <td>{{template "depcommit" .}}</td>
-        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
-        <td class="hide-sm muted small" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
+        <td class="hide-sm"><span class="tag trunc" title="{{.Branch}}" style="max-width:160px;vertical-align:middle">{{.Branch}}</span></td>
+        <td class="hide-sm muted small nowrap" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
       </tr>
     {{end}}
     </tbody>
@@ -85,8 +85,8 @@
       <tr>
         <td>{{template "depbadges" .}}</td>
         <td>{{template "depcommit" .}}</td>
-        <td class="hide-sm"><span class="tag">{{.Branch}}</span></td>
-        <td class="hide-sm muted small" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
+        <td class="hide-sm"><span class="tag trunc" title="{{.Branch}}" style="max-width:160px;vertical-align:middle">{{.Branch}}</span></td>
+        <td class="hide-sm muted small nowrap" title="{{time .CreatedAt}}">{{ago .CreatedAt}}{{with duration .Deployment}} · {{.}}{{end}}</td>
         <td class="controls">
           {{if .CanPromote}}
           <form class="inline" method="post" action="/apps/{{$app}}/promote"
@@ -107,13 +107,16 @@
           </form>
           {{end}}
           {{if .CanRedeploy}}
-          <form class="inline" method="post" action="/apps/{{$app}}/redeploy"
-            hx-post="/apps/{{$app}}/redeploy" hx-target="main" hx-select="main" hx-swap="outerHTML">
-            <input type="hidden" name="csrf" value="{{$csrf}}">
-            <input type="hidden" name="deployment_id" value="{{.ID}}">
-            <label class="check small" title="İşaretlersen imaj yeniden kullanılmaz, commit baştan build edilir"><input type="checkbox" name="no_cache" value="1"> Önbelleği kullanma</label>
-            <button class="small" type="submit">Yeniden deploy et</button>
-          </form>
+          <details class="more">
+            <summary aria-label="Diğer işlemler">Diğer</summary>
+            <form method="post" action="/apps/{{$app}}/redeploy"
+              hx-post="/apps/{{$app}}/redeploy" hx-target="main" hx-select="main" hx-swap="outerHTML">
+              <input type="hidden" name="csrf" value="{{$csrf}}">
+              <input type="hidden" name="deployment_id" value="{{.ID}}">
+              <button class="small" type="submit">Yeniden deploy et</button>
+              <label class="check small" title="İşaretlersen imaj yeniden kullanılmaz, commit baştan build edilir"><input type="checkbox" name="no_cache" value="1"> Önbelleği kullanma</label>
+            </form>
+          </details>
           {{end}}
           {{if .CanCancel}}
           <form class="inline" method="post" action="/apps/{{$app}}/cancel"
