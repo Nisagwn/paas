@@ -113,6 +113,9 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
   yalnızca kendi namespace'inden erişilir), `DATABASE_URL` / `REDIS_URL` deploy'lara kendiliğinden eklenir; her preview branch'i
   production veritabanının `pg_dump | pg_restore` ile alınmış, istenirse anonimleştirilmiş kendi kopyasıyla çalışır, branch silinince
   kopya da silinir; günlük yedek, geri yükleme, şifre yenileme ([ayrıntılar](#veritabanları-faz-22))
+- [x] Faz 27: tarayıcıdan terminal: çalışan deploy'un pod'unda xterm.js ile kabuk (WebSocket, standart kütüphaneyle RFC 6455;
+  client-go `remotecommand` ile TTY'li exec), süreç / pod seçimi, kabuksuz imajlar için açık mesaj, 10 dk boşta / 60 dk azami süre,
+  kullanıcı başına oturum sınırı, her oturum denetim kaydında ([ayrıntılar](#tarayıcıdan-terminal-faz-27))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -1284,6 +1287,51 @@ crons:
 
 Örnekler: [`examples/websocket-chat`](examples/websocket-chat) ve [`examples/worker-queue`](examples/worker-queue).
 
+### Tarayıcıdan terminal (Faz 27)
+
+Çalışan bir deploy'un pod'unda, tarayıcıdan gerçek bir kabuk: `kubectl exec -it` kurulumu, kubeconfig ya da küme erişimi
+gerekmez. Deploy listesinde ve deploy sayfasında hazır deploy'ların yanında **Terminal** düğmesi (yalnızca member ve owner) →
+`/apps/{app}/deployments/{id}/terminal`.
+
+- **Nasıl çalışır:** sayfa [xterm.js](https://xtermjs.org)'i unpkg'den sabit sürüm ve SRI bütünlük özetiyle yükler
+  (`@xterm/xterm@5.5.0`, `@xterm/addon-fit@0.10.0`); CSP yalnızca bu sayfada `style-src`'ye unpkg'i ve `connect-src`'ye
+  aynı hostun `ws://` / `wss://` adresini ekler. Tarayıcı aynı adrese WebSocket açar (`Upgrade: websocket`); sunucu tarafı
+  standart kütüphaneyle yazılmış RFC 6455 uygulamasıdır (`internal/wsock`: el sıkışma, parçalı ve maskeli çerçeveler,
+  ping / pong, kapanış kodları). Kontrol düzlemi pod'a client-go'nun `remotecommand`'ı ile TTY'li `exec` açar (önce WebSocket,
+  desteklemeyen API sunucularında SPDY), tuş vuruşlarını ve pencere boyutunu iletir. Kabuk `/bin/sh`'dir; imajda `bash` varsa o açılır.
+- **Süreç / pod seçimi:** varsayılan, web sürecinin en yeni hazır pod'udur. Birden çok pod varsa (birden çok kopya, Faz 20
+  worker'ları, çalışan bir cron) sayfadaki seçiciden biri açılır; yalnızca o deploy'un pod'ları seçilebilir. Web'siz bir
+  uygulamada ilk worker açılır.
+- **Kabuksuz imajlar:** paas'ın Go imajları gibi distroless / scratch imajlarda `/bin/sh` yoktur; oturum sessizce düşmez,
+  "Bu imajda kabuk yok" mesajı gösterilir (kapanış kodu 4004).
+- **Güvenlik:**
+  - Yalnızca tarayıcı oturumu (bearer token'la açılmaz), ekipte member+ rolü (viewer 403, başka ekip 404).
+  - WebSocket'in `Origin`'i bu host olmalı (yoksa 403: siteler arası WebSocket ele geçirmeye karşı); CSRF token'ı ilk mesajda
+    (`{"type":"auth","csrf":"…"}`, URL'de ve loglarda görünmez) ya da `?csrf=` ile gelir. Token doğrulanmadan pod'a tek bayt gitmez.
+  - **10 dakika** işlem yapılmazsa (tuş ya da pencere boyutu) ve her durumda **60 dakika** sonra oturum kapanır; kullanıcı başına
+    aynı anda en fazla **3** oturum.
+  - Emekliye ayrılmış, henüz hazır olmayan ve uyuyan deploy'larda terminal açılmaz (WebSocket 409). Uyuyan deploy'un sayfası
+    "Uyandır ve terminali aç" düğmesini gösterir (Faz 11 ölçekleyicisiyle uyandırır; açık bir oturum deploy'u uyanık tutar);
+    sıfıra ölçekleme kapalıysa siteyi açınca uyanacağını söyler.
+  - Her oturum denetim kaydına yazılır (`audit_log`, migration 020): kim, uygulama, deploy, süreç, pod, başlangıç, bitiş, çıkış kodu
+    ve kapanma nedeni (`exit`, `idle`, `max_duration`, `client_closed`, `no_shell`, `error`, `shutdown`). **Tuş vuruşları ve çıktı
+    kaydedilmez.** Kayıtlar projenin Genel sekmesinde "Terminal oturumları" altında üyelere listelenir.
+  - Kümede `pods/exec` (`get`, `create`) yetkisi gerekir (`infra/k8s/30-control-plane-rbac.yaml`).
+- **Ayarlar:**
+
+| Değişken | Anlamı |
+|---|---|
+| `PAAS_TERMINAL` | `false` terminali tamamen kapatır: rotalar 404, düğmeler görünmez (varsayılan açık; Kubernetes deployer'ı gerekir) |
+| `PAAS_TERMINAL_IDLE_TIMEOUT` | girdi olmadan kapanma süresi (varsayılan `10m`) |
+| `PAAS_TERMINAL_MAX_DURATION` | azami oturum süresi (varsayılan `60m`) |
+| `PAAS_TERMINAL_MAX_SESSIONS` | kullanıcı başına eşzamanlı oturum (varsayılan `3`) |
+
+- **Protokol** (tarayıcı ↔ kontrol düzlemi, tek WebSocket): ikili çerçeveler tuş vuruşları / terminal çıktısı; metin çerçeveleri
+  JSON: tarayıcıdan `auth`, `resize` (`cols`, `rows`); sunucudan `ready` (pod, süreç, süre sınırları), `exit` (`code`),
+  `closed` ve `error` (Türkçe `message`). Kapanış kodları: 1000 kabuk çıktı, 4000 işlem yok, 4001 azami süre, 4003 doğrulama,
+  4004 kabuk yok, 4009 çalışan pod yok, 4029 oturum sınırı, 1001 sunucu kapanıyor.
+- **Bağlantı koparsa** sayfadaki "Yeniden bağlan" yeni bir oturum açar (eski kabuk kapanmıştır; kayıt ayrı satırdır).
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -1469,6 +1517,8 @@ internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar
 internal/web/         web arayüzü (html/template + htmx)
+internal/wsock/       standart kütüphaneyle WebSocket (RFC 6455): el sıkışma, çerçeveler, ping / pong, kapanış
+internal/terminal/    tarayıcı terminali (Faz 27): oturum, süre sınırları, oturum sınırı, denetim kaydı
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/secret/      env değerleri için AES-256-GCM, anahtar halkası ve rotasyon
 internal/testdb/      testler için temiz veritabanı

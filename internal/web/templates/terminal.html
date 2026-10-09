@@ -1,0 +1,147 @@
+{{define "head"}}
+<link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5.5.0/css/xterm.css" integrity="sha384-8Xk9wy/gzEDUKrXtrmCFa2bBuK3BpjpDuL/p0SeKQX19Khl/M+lHOgD/CyYf7efP" crossorigin="anonymous">
+<style>
+.term-wrap { background: #0d0d0d; border-radius: var(--radius); padding: 8px; height: 65vh; min-height: 280px; }
+.term-wrap .xterm { height: 100%; }
+.term-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0 8px; }
+.term-bar .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.term-bar form.pick { display: flex; gap: 8px; align-items: center; }
+.term-note { margin-top: 8px; }
+</style>
+{{end}}
+
+{{define "content"}}
+{{$v := .Data}}{{$d := $v.D}}
+<p class="sub" style="margin:0"><a href="/">Projeler</a> / <a href="/apps/{{$v.App.Name}}">{{$v.App.Name}}</a> /
+  <a href="/deployments/{{$d.ID}}" class="mono">{{short $d.CommitSHA}}</a> /</p>
+<div class="head" style="align-items:center">
+  <h1>Terminal <span class="badge s-{{$d.Status}}">{{status $d.Status}}</span>
+    {{if eq $v.State "sleeping"}}<span class="tag">Uykuda</span>{{end}}</h1>
+</div>
+<p class="sub small">Deploy #{{$d.ID}} · branch <span class="tag">{{$d.Branch}}</span> ·
+  {{$v.IdleMin}} dakika işlem yapılmazsa ya da {{$v.MaxMin}} dakika dolunca oturum kapanır · aynı anda en fazla {{$v.MaxUser}} oturum.
+  Her oturum (kim, hangi pod, ne zaman, çıkış kodu) proje sayfasında kaydedilir; yazdıkların kaydedilmez.</p>
+
+{{if eq $v.State "retired"}}
+<div class="card pad empty" role="status">Bu deploy emekliye ayrıldı; kümede çalışan bir kopyası yok. Terminal yalnızca çalışan deploy'larda açılır.</div>
+{{else if eq $v.State "not_ready"}}
+<div class="card pad empty" role="status">Terminal yalnızca hazır (çalışan) deploy'larda açılır. Bu deploy'un durumu: {{status $d.Status}}.</div>
+{{else if eq $v.State "sleeping"}}
+<div class="card pad" role="status">
+  <p style="margin-top:0">Bu deploy uykuda (sıfıra ölçeklendi); çalışan bir pod'u yok.</p>
+  {{if $v.CanWake}}
+  <form method="post" action="/apps/{{$v.App.Name}}/deployments/{{$d.ID}}/wake">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <button class="primary" type="submit">Uyandır ve terminali aç</button>
+    <span class="muted small">Pod hazır olunca bu sayfa yeniden açılır (birkaç saniye).</span>
+  </form>
+  {{else}}
+  <p class="muted" style="margin-bottom:0">Siteyi açınca deploy uyanır; ardından bu sayfayı yenile.</p>
+  {{end}}
+</div>
+{{else if $v.PodError}}
+<div class="card pad empty" role="status">{{$v.PodError}}</div>
+{{else}}
+<div class="term-bar">
+  <span id="term-status" class="live">bağlanıyor…</span>
+  <div class="actions">
+    {{if gt (len $v.Pods) 1}}
+    <form class="pick" method="get" action="{{$v.Path}}">
+      <label for="pod" style="margin:0">Pod</label>
+      <select id="pod" name="pod">
+        {{range $v.Pods}}{{if .Ready}}<option value="{{.Name}}"{{if eq .Name $v.Selected.Name}} selected{{end}}>{{.Process}} · {{.Name}}</option>{{end}}{{end}}
+      </select>
+      <button class="small" type="submit">Aç</button>
+    </form>
+    {{end}}
+    <button id="term-reconnect" class="small" type="button" hidden>Yeniden bağlan</button>
+  </div>
+</div>
+<div id="term" class="term-wrap" data-path="{{$v.Path}}" data-csrf="{{.CSRF}}" data-pod="{{$v.Selected.Name}}"
+  aria-label="Terminal: {{$v.Selected.Process}} süreci, {{$v.Selected.Name}} pod'u"></div>
+<p class="muted small term-note">Süreç <span class="tag">{{$v.Selected.Process}}</span> · pod <span class="mono">{{$v.Selected.Name}}</span>.
+  Kapsayıcının içindesin: dosya değişiklikleri pod yeniden başlayınca kaybolur.</p>
+
+<script src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js" integrity="sha384-M169f14mRZOXm3hD/v2Ti0ThIT/RnAQagXA9nlE15yHAtrW19gdePJh/HaTzUOe/" crossorigin="anonymous" nonce="{{.Nonce}}"></script>
+<script src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js" integrity="sha384-iF+jqbuti4XlB64clWgFWYEscb+UnSRv3VgVikGYZu+otNFnSHr7y7NcKfBnGizn" crossorigin="anonymous" nonce="{{.Nonce}}"></script>
+<script nonce="{{.Nonce}}">
+(() => {
+  const box = document.getElementById("term");
+  const statusEl = document.getElementById("term-status");
+  const again = document.getElementById("term-reconnect");
+  if (typeof Terminal === "undefined") {
+    statusEl.textContent = "xterm.js yüklenemedi (ağ ya da içerik engelleyici?)";
+    return;
+  }
+  const term = new Terminal({
+    cursorBlink: true, scrollback: 5000, fontSize: 13,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    theme: { background: "#0d0d0d", foreground: "#e6e6e6" },
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(box);
+  fit.fit();
+
+  const enc = new TextEncoder();
+  const closeTexts = {
+    4000: "İşlem yapılmadığı için oturum kapatıldı.",
+    4001: "Azami oturum süresi doldu.",
+    4003: "Oturum doğrulanamadı; sayfayı yenileyip tekrar dene.",
+    4004: "Bu imajda kabuk yok.",
+    4009: "Çalışan bir pod bulunamadı.",
+    4029: "Açık oturum sınırına ulaştın.",
+    1001: "Sunucu yeniden başlatılıyor.",
+    1006: "Bağlantı koptu.",
+  };
+  let ws = null, told = false;
+  const note = (text) => term.write("\r\n\x1b[33m" + text + "\x1b[0m\r\n");
+  const sendSize = () => {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  };
+
+  function connect() {
+    again.hidden = true;
+    told = false;
+    term.reset();
+    statusEl.textContent = "bağlanıyor…";
+    const u = new URL(box.dataset.path, location.href);
+    u.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    if (box.dataset.pod) u.searchParams.set("pod", box.dataset.pod);
+    u.searchParams.set("cols", term.cols);
+    u.searchParams.set("rows", term.rows);
+    ws = new WebSocket(u);
+    ws.binaryType = "arraybuffer";
+    // The CSRF token goes in the first message, not the URL (logs).
+    ws.onopen = () => ws.send(JSON.stringify({ type: "auth", csrf: box.dataset.csrf }));
+    ws.onmessage = (e) => {
+      if (typeof e.data !== "string") { term.write(new Uint8Array(e.data)); return; }
+      const m = JSON.parse(e.data);
+      if (m.type === "ready") {
+        statusEl.textContent = "● bağlı · " + m.process + " · " + m.pod;
+        sendSize();
+        term.focus();
+      } else if (m.type === "exit") {
+        told = true;
+        note("Kabuk kapandı (çıkış kodu " + m.code + ").");
+      } else if (m.message) {
+        told = true;
+        note(m.message);
+      }
+    };
+    ws.onclose = (e) => {
+      statusEl.textContent = "bağlantı kapalı";
+      if (!told && closeTexts[e.code]) note(closeTexts[e.code]);
+      again.hidden = false;
+      ws = null;
+    };
+  }
+  term.onData((d) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d)); });
+  term.onResize(sendSize);
+  window.addEventListener("resize", () => fit.fit());
+  again.addEventListener("click", connect);
+  connect();
+})();
+</script>
+{{end}}
+{{end}}

@@ -77,7 +77,7 @@
 {{define "deployments"}}
 <div id="deployments" class="card"
   {{if .Data.Active}}hx-get="/apps/{{.Data.App.Name}}/deployments" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
-{{$csrf := .CSRF}}{{$app := .Data.App.Name}}
+{{$csrf := .CSRF}}{{$app := .Data.App.Name}}{{$term := .Data.Terminal}}
 {{with .Data.Deployments}}
   <table>
     <thead><tr><th>Durum</th><th>Commit</th><th class="hide-sm">Branch</th><th class="hide-sm">Zaman</th><th></th></tr></thead>
@@ -125,6 +125,7 @@
             <button class="small danger" type="submit">İptal et</button>
           </form>
           {{end}}
+          {{if and $term (eq .Status "ready")}}<a class="btn small" href="/apps/{{$app}}/deployments/{{.ID}}/terminal" title="Çalışan pod'da kabuk aç (Faz 27)">Terminal</a>{{end}}
         </td>
       </tr>
     {{end}}

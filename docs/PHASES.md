@@ -257,5 +257,24 @@ queued → building → deploying → ready
 - Deploy listesi ve proje sayfasında hazır deploy'lar için "İncele" bağlantısı ve açık yorum rozeti
 - **Çıktı:** bir PR'ın preview'i ekipçe sayfa üzerinde yorumlanıyor ve yorumlar PR'da görünüyor
 
+### Faz 27 — Tarayıcıdan terminal (migration 020) ✅ (birim, veritabanı ve sahte exec testleri; k3d'de gerçek pod'larda `internal/wsock` → oturum → `remotecommand` zinciri doğrulandı: web ve worker pod'unda kabuk, pencere boyutu 123×45, çıkış kodu 3; kabuksuz bir pod'da "Bu imajda kabuk yok" / 4004. Web katmanı (oturum, rol, Origin, CSRF) httptest ile; tarayıcıyla uçtan uca deneme yapılmadı)
+- `GET /apps/{name}/deployments/{id}/terminal`: sayfa (xterm.js 5.5.0 + fit eklentisi, unpkg'den sabit sürüm ve SRI; sayfaya özel CSP:
+  `style-src` unpkg, `connect-src` aynı hostun `ws://` / `wss://` adresi) ya da `Upgrade: websocket` ile oturum.
+  `POST …/wake` uyuyan deploy'u Faz 11 ölçekleyicisiyle uyandırır
+- `internal/wsock`: bağımlılıksız RFC 6455 (sunucu el sıkışması ve test / kontrol için istemci, metin / ikili mesajlar, parçalı mesajların
+  birleştirilmesi, araya giren ping'e pong, maskeleme zorunluluğu, kapanış kodlarının doğrulanması, UTF-8 ve boyut sınırı → 1002 / 1007 / 1009)
+- Kubernetes: client-go `remotecommand` (WebSocket exec protokolü, olmazsa SPDY), TTY, pencere boyutu kuyruğu; web pod'ları ve Faz 20
+  süreç pod'ları (`paas/process-of`) listelenir, varsayılan web sürecinin en yeni hazır pod'u. `/bin/sh` yoksa "Bu imajda kabuk yok".
+  RBAC'e `pods/exec` (`get`, `create`) eklendi
+- Güvenlik: yalnızca tarayıcı oturumu, member+ (viewer 403, başka ekip 404), `Origin` zorunlu ve aynı host, CSRF ilk mesajda ya da `?csrf=`;
+  10 dk boşta / 60 dk azami süre, kullanıcı başına 3 eşzamanlı oturum, emekli / hazır olmayan / uyuyan deploy'da 409;
+  `PAAS_TERMINAL=false` her şeyi kapatır
+- Denetim kaydı `audit_log`: kim, uygulama, deploy, süreç, pod, başlangıç / bitiş, çıkış kodu, kapanma nedeni; tuş vuruşları kaydedilmez.
+  Projenin Genel sekmesinde üyelere "Terminal oturumları"
+- Bağımlılık: yeni doğrudan modül yok; `remotecommand` client-go'nun kendi dolaylı bağımlılıklarını getirdi
+  (`github.com/gorilla/websocket`, `github.com/moby/spdystream`, `github.com/mxk/go-flowrate`; tarayıcı tarafında kullanılmıyor)
+- **Çıktı:** bir uygulamayı canlıda incelemek (ortam, dosyalar, ağ, tek seferlik komut) için küme erişimi gerekmiyor; kimin ne zaman
+  hangi pod'a girdiği kayıt altında
+
 ## Sonraki aşamalar
 Faturalandırma, çok düğümlü küme (eklenti diskleri için ağ depolaması ya da S3 uyumlu yedek hedefi), Postgres için okuma kopyaları.

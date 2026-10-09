@@ -114,6 +114,8 @@ type Config struct {
 	GitHubApp GitHubApp
 	// Faz 19: request analytics (analytics.go).
 	Analytics Analytics
+	// Faz 27: browser terminal (terminal.go).
+	Terminal Terminal
 }
 
 // OAuthEnabled reports whether GitHub login is configured.
@@ -275,6 +277,9 @@ func Load() (Config, error) {
 		return c, err
 	}
 	if err := c.loadGitHubApp(); err != nil {
+		return c, err
+	}
+	if err := c.loadTerminal(); err != nil {
 		return c, err
 	}
 
