@@ -29,6 +29,7 @@ import (
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/protect"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -67,6 +68,9 @@ type Server struct {
 	// Faz 20 (processes.go): status, scaling and cron runs of an app's
 	// processes; nil (dry-run deployer) shows the configuration only.
 	Processes api.ProcessCluster
+	// Faz 24 (protection.go): deployment protection's login page and the
+	// Koruma section; nil hides the login page.
+	Protect *protect.Guard
 
 	pages map[string]*template.Template
 }
@@ -124,6 +128,7 @@ func (s *Server) Handler() http.Handler {
 	s.pages["env"] = partials.Lookup("env")
 	s.pages["domains"] = partials.Lookup("domains")
 	s.pages["processes"] = partials.Lookup("processes")
+	s.protectionTemplates() // Faz 24
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -166,6 +171,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /apps/{name}/databases/{addon}/backups", s.authed(s.backupDatabase))
 	mux.Handle("POST /apps/{name}/databases/{addon}/backups/restore", s.authed(s.restoreDatabase))
 	mux.Handle("POST /apps/{name}/databases/{addon}/delete", s.authed(s.deleteDatabase))
+	// Faz 24: deployment protection (protection.go).
+	s.protectionRoutes(mux)
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)

@@ -74,6 +74,10 @@ type Server struct {
 	// (tests); nil is time.Now.
 	Usage UsageSource
 	Now   func() time.Time
+
+	// Faz 24: Traefik's ForwardAuth endpoint of protected apps
+	// (protect.Guard); nil leaves /_auth/verify unanswered.
+	Protection http.Handler
 }
 
 func (s *Server) Handler() http.Handler {
@@ -147,6 +151,13 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/apps/{name}/addons/{addon}/backups", s.requireApp(viewer, s.listAddonBackups))
 	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/backups", s.requireApp(member, s.createAddonBackup))
 	api.HandleFunc("POST /api/apps/{name}/addons/{addon}/backups/{id}/restore", s.requireApp(member, s.restoreAddonBackup))
+	// Faz 24: deployment protection (protection.go).
+	api.HandleFunc("GET /api/apps/{name}/protection", s.requireApp(viewer, s.getProtection))
+	api.HandleFunc("PUT /api/apps/{name}/protection", s.requireApp(member, s.putProtection))
+	api.HandleFunc("POST /api/apps/{name}/protection/share-links", s.requireApp(member, s.createShareLink))
+	api.HandleFunc("DELETE /api/apps/{name}/protection/share-links/{id}", s.requireApp(member, s.deleteShareLink))
+	api.HandleFunc("POST /api/apps/{name}/protection/bypass", s.requireApp(member, s.createBypass))
+	api.HandleFunc("DELETE /api/apps/{name}/protection/bypass", s.requireApp(member, s.deleteBypass))
 	// Checks member on the deployment's app (lookupDeploymentAs).
 	api.HandleFunc("POST /api/deployments/{id}/cancel", s.cancelDeployment)
 	// Not wrapped: it answers 501 without a deployer first; lookupApp checks viewer.
@@ -166,6 +177,10 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/tokens", s.createToken)
 	api.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
 	mux.Handle("/api/", s.authenticate(api))
+	if s.Protection != nil {
+		// Faz 24: asked by Traefik for every request to a protected host.
+		mux.Handle("/_auth/verify", s.Protection)
+	}
 	if s.UI != nil {
 		mux.Handle("/", s.UI)
 	}

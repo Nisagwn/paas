@@ -234,5 +234,13 @@ queued → building → deploying → ready
 - RBAC: `statefulsets`, `persistentvolumeclaims` (Job'lar Faz 20'den beri vardı); `pods/exec` gerekmedi
 - **Çıktı:** tek tıkla veritabanı; her pull request production verisinin (istenirse anonimleştirilmiş) kendi kopyasıyla, production'a dokunmadan test ediliyor — Vercel'in pazar yerine bıraktığı iş platformun içinde
 
+### Faz 24 — Deploy koruması (migration 017) ✅ (birim, veritabanı ve sahte dinamik istemci testleri; ForwardAuth akışı k3d / Traefik üzerinde TLS'siz canlı denendi)
+- Proje başına ayar (`app_protection`): mod `off` | `team` (ekibin giriş yapmış üyeleri) | `password` (ortak şifre, PBKDF2-HMAC-SHA256, standart kütüphane; ekip üyeleri şifresiz girer); kapsam `previews` (deploy adresleri + önizleme alias'ları) | `all` (canlı adres, özel alan adları ve canary `IngressRoute`'ları dahil)
+- Uygulama Traefik'te: korunan namespace'te `Middleware paas-protect` (forwardAuth → `PAAS_FORWARD_AUTH_URL?app=<app>`, dinamik istemciyle), kapsamdaki Ingress'lerde `router.middlewares` açıklaması. Açıklama `applyIngress` içinde hesaplanır (uzlaştırma onu hiç silmez); `routing.Syncer` ayardan sonra deploy Ingress'lerini günceller, kapanınca `Middleware`'i siler. CRD yoksa koruma açıkken rota güncellemesi hata verir (açık kalmaz)
+- `/_auth/verify`: uygulamanın kendi adresinde imzalı çerez (`PAAS_SESSION_KEY`'den türeyen anahtar; proje, adres, koruma sürümü ve erişim türüne bağlı; `HttpOnly`, `SameSite=Lax`, HTTPS'te `Secure`); yoksa `/_protect/login`. Giriş sonrası 2 dakikalık tek kullanımlık token (`protection_nonces`) uygulama adresindeki `/_paas/auth` yoluna döner ve çerezi kurar; `next` yalnızca projenin kendi adresleri olabilir. Şifre denemeleri istemci başına sınırlı
+- Paylaşım bağlantıları (`?paas_share=`, süreli ya da süresiz, iptal edilebilir) ve otomasyon anahtarı (`x-paas-protection-bypass`); ikisinin de yalnızca SHA-256'sı saklanır
+- API `GET/PUT /api/apps/{name}/protection`, `POST/DELETE …/protection/share-links`, `POST/DELETE …/protection/bypass`; arayüzde Ayarlar → Koruma bölümü ve Türkçe giriş / şifre sayfası
+- **Çıktı:** önizlemeler ve istenirse canlı site yalnızca ekibe, şifreyi bilenlere ya da paylaşım bağlantısı verilenlere açık; CI anahtarla korumayı aşıyor
+
 ## Sonraki aşamalar
 Faturalandırma, çok düğümlü küme (eklenti diskleri için ağ depolaması ya da S3 uyumlu yedek hedefi), Postgres için okuma kopyaları.

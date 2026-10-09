@@ -182,6 +182,18 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"DELETE", "/api/apps/blog/addons/gone?confirm=gone", nil,
 			want{"anonymous": 401, "carol": 403, "bob": 202, "alice": 202, "dave": 404, "admin": 202},
 			func() { f.addon("gone") }},
+		// Faz 24 deployment protection: reading is viewer; settings, share
+		// links and the bypass secret are member.
+		{"GET", "/api/apps/blog/protection", nil, read, nil},
+		{"PUT", "/api/apps/blog/protection", func(string) any { return map[string]string{"mode": "team"} }, write, nil},
+		{"POST", "/api/apps/blog/protection/share-links", func(w string) any { return map[string]string{"name": "s-" + w} },
+			want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201}, nil},
+		{"DELETE", "/api/apps/blog/protection/share-links/999999", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 404, "alice": 404, "dave": 404, "admin": 404}, nil},
+		{"POST", "/api/apps/blog/protection/bypass", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201}, nil},
+		{"DELETE", "/api/apps/blog/protection/bypass", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 204, "alice": 204, "dave": 404, "admin": 204}, nil},
 		// Faz 19 analytics, deployment health and resource usage: viewer.
 		{"GET", "/api/apps/blog/analytics?range=1h", nil, read, nil},
 		{"GET", "/api/apps/blog/health", nil, read, nil},

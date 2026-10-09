@@ -101,6 +101,10 @@ type Config struct {
 	AddonStorageClass         string
 	PostgresImage, RedisImage string
 	BackupSchedule            string
+
+	// Faz 24 (protection.go): the control plane's ForwardAuth endpoint as
+	// Traefik reaches it; empty means DefaultForwardAuthURL.
+	ForwardAuthURL string
 }
 
 // DefaultConfig is sized for a 4 GiB node shared by many deployments.
@@ -141,6 +145,10 @@ type Kubernetes struct {
 	// Addons sizes the namespace quota with the app's add-ons (Faz 22,
 	// addons.go). New takes it from env when env implements it.
 	Addons AddonSource
+
+	// Protection reads the apps' deployment protection (Faz 24,
+	// protection.go); nil uses env when it implements ProtectionSource.
+	Protection ProtectionSource
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)

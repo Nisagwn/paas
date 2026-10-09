@@ -562,6 +562,68 @@ Küme RBAC'ına `statefulsets` ve `persistentvolumeclaims` eklendi; `pods/exec` 
 sonlandırma mesajından okunur). `PAAS_DEPLOYER=dryrun` ile eklentiler küme olmadan hazır sayılır, kopyalar ve
 yedekler veri olmadan başarılı olur (yerel geliştirme).
 
+### Deploy koruması (Faz 24)
+
+Vercel'in "Deployment Protection"ı: bir projenin deploy ve önizleme adresleri (istenirse canlı adres ve
+alan adları da) yalnızca izin verilen kişilere açılır. Ayar proje başınadır (Ayarlar → Koruma ya da
+`PUT /api/apps/{name}/protection`):
+
+| Mod | Kim açabilir? |
+|---|---|
+| `off` | Herkes (varsayılan) |
+| `team` | Projenin ekibindeki, platforma giriş yapmış herkes (izleyici dahil) |
+| `password` | Ortak şifreyi bilen herkes; ekip üyeleri şifresiz girer |
+
+| Kapsam | Korunan adresler |
+|---|---|
+| `previews` (varsayılan) | `<sha7>-<app>.<domain>` deploy adresleri ve `<branch>-<app>.<domain>` önizlemeleri; canlı adres ve özel alan adları açık kalır |
+| `all` | Yukarıdakiler + `<app>.<domain>`, özel alan adları ve kademeli yayının `IngressRoute`'ları |
+
+**Nasıl uygulanır.** Koruma Traefik'te, istek uygulamaya ulaşmadan önce çalışır. Korunan projenin
+namespace'inde tek bir `Middleware` (`traefik.io/v1alpha1`, dinamik istemciyle) oluşur:
+
+```
+Middleware paas-protect   forwardAuth.address = $PAAS_FORWARD_AUTH_URL?app=<app>
+Ingress (kapsamdakiler)   traefik.ingress.kubernetes.io/router.middlewares: app-<app>-paas-protect@kubernetescrd
+```
+
+Açıklama (annotation) `applyIngress` içinde hesaplanır; deploy'un Ingress'i ilk yazıldığı anda korumalıdır
+ve periyodik uzlaştırma onu bir an bile silmez. Ayar değişince `routing.Syncer` var olan deploy
+Ingress'lerini günceller (`ApplyProtection`); koruma kapanınca önce referanslar, sonra `Middleware` silinir.
+Traefik CRD'leri yoksa koruma açıkken rota güncellemesi hata verir; adres korumasız kalmaz.
+
+Traefik her isteği `/_auth/verify`'a sorar (kontrol düzlemi, `internal/protect`). İstek şunlardan biriyle geçer:
+
+1. **Erişim çerezi** `_paas_protect`: uygulamanın kendi adresinde (Domain'siz), `HttpOnly`, `SameSite=Lax`,
+   HTTPS'te `Secure`; 12 saat. İçeriği `PAAS_SESSION_KEY`'den türeyen anahtarla imzalı: proje, adres (başka
+   adreste geçersiz), koruma sürümü (mod ya da şifre değişince herkesin oturumu kapanır) ve erişim türü (ekip
+   üyeliği her istekte doğrulanır, ekipten çıkan kişinin erişimi biter; paylaşım bağlantısı iptal edilince
+   erişimi biter).
+2. **Paylaşım bağlantısı**: `?paas_share=<token>` ile açılan adres çerezi kurar ve token'sız adrese yönlendirir.
+   Token'ın yalnızca SHA-256'sı saklanır, isteğe bağlı süre (1 gün – 1 yıl ya da süresiz), istendiğinde iptal.
+3. **Otomasyon anahtarı**: `x-paas-protection-bypass: <anahtar>` başlığı (ör. CI'daki uçtan uca testler).
+   Yalnızca SHA-256'sı saklanır; yenilenince eskisi hemen geçersiz olur.
+
+Hiçbiri yoksa GET istekleri `PAAS_PUBLIC_URL/_protect/login?app=<app>&next=<adres>` sayfasına gider (diğer
+yöntemler `401`). Ekip modunda platform oturumu kullanılır (yoksa önce GitHub girişi); şifre modunda Türkçe
+şifre formu çıkar. Başarılı girişte 2 dakikalık, **tek kullanımlık** imzalı bir token uygulamanın adresine
+`/_paas/auth?token=…` ile gönderilir; verify ucu bu yolu kendisi karşılar (ayrı Ingress kuralı gerekmez),
+çerezi kurar ve asıl sayfaya döner. `next` yalnızca projenin kendi adreslerinden biri olabilir (alias, alan
+adı ya da veritabanındaki bir deploy); başka adrese yönlendirme yoktur. Şifreler PBKDF2-HMAC-SHA256 ile
+(standart kütüphane, 600.000 tur, rastgele tuz) saklanır; aynı istemciden 15 dakikada 10 yanlış şifreden sonra
+deneme durur.
+
+| Değişken | Varsayılan | Anlamı |
+|---|---|---|
+| `PAAS_FORWARD_AUTH_URL` | `http://paas.paas.svc.cluster.local/_auth/verify` | Traefik'in kontrol düzlemine ulaştığı adres. Kontrol düzlemi k3d'nin dışında, makinede çalışıyorsa: `http://<host.docker.internal IP'si>:<port>/_auth/verify` |
+| `PAAS_PUBLIC_URL` | `https://<domain>` | Giriş sayfasının adresi |
+| `PAAS_SESSION_KEY` | — | Çerez ve token imzalarının anahtarı (yoksa API token'ından türetilir) |
+
+TLS'siz k3d'de (`PAAS_INGRESS_TLS=false`) çerez `Secure` olmadan kurulur ve yönlendirmeler `http://` kalır;
+TLS'te `X-Forwarded-Proto: https` ile `Secure` olur. Notlar: korunan projeler `/_paas/auth` yolunu kendileri
+sunamaz; ayar, üyelik ve paylaşım bağlantısı okumaları 5 saniye önbelleklenir, bir değişiklik en geç bu sürede
+geçerli olur.
+
 ### Build nasıl çalışır
 
 1. `git fetch --depth=1 <repo> <sha>` — branch değil SHA çekilir, kuyrukta beklerken gelen push build'i değiştiremez.
@@ -1280,6 +1342,14 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/apps/{name}/addons/{addon}/backups` | Yedekler ve geri yükleme durumları (viewer) |
 | POST | `/api/apps/{name}/addons/{addon}/backups` | Şimdi yedekle (`202`; member) |
 | POST | `/api/apps/{name}/addons/{addon}/backups/{id}/restore` | `{"confirm":"<addon>"}` — yedeği production'a geri yükler (`202`; member) |
+| GET | `/api/apps/{name}/protection` | Deploy koruması: `mode`, `scope`, `password_set`, `bypass` (önek), `share_links` — gizli değerler olmadan (viewer) |
+| PUT | `/api/apps/{name}/protection` | `{"mode"?:"off\|team\|password","scope"?:"previews\|all","password"?}` — boş alan değişmez; şifre 8-256 karakter; yönlendirmeyi hemen günceller (member) |
+| POST | `/api/apps/{name}/protection/share-links` | `{"name"?,"expires_in_hours"?,"url"?}` — `token` ve `url` (`?paas_share=…`) yalnızca bu yanıtta (`201`; member) |
+| DELETE | `/api/apps/{name}/protection/share-links/{id}` | Paylaşım bağlantısını iptal eder (`204`; member) |
+| POST | `/api/apps/{name}/protection/bypass` | Yeni otomasyon anahtarı; `secret` yalnızca bu yanıtta, eskisi geçersiz (`201`; member) |
+| DELETE | `/api/apps/{name}/protection/bypass` | Otomasyon anahtarını siler (`204`; member) |
+| GET | `/_auth/verify?app=` | Traefik ForwardAuth ucu (kimlik doğrulamasız; `X-Forwarded-*` başlıklarına bakar) |
+| GET/POST | `/_protect/login?app=&next=` | Korunan adreslerin giriş sayfası (ekip oturumu ya da şifre) |
 | GET | `/api/apps/{name}/settings` | Build ayarları + `detected_framework` + kabul edilen `frameworks` listesi (viewer) |
 | PUT | `/api/apps/{name}/settings` | `{"root_directory"?,"framework"?,"install_command"?,"build_command"?,"start_command"?,"output_directory"?,"node_version"?}` — gönderilenleri birleştirir, `""` sıfırlar; geçersiz değer `400` (member) |
 | GET | `/api/deployments/{id}` | Tek deployment |

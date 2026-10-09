@@ -103,6 +103,9 @@ func (k *Kubernetes) ApplyRollout(ctx context.Context, app string, split *store.
 		for _, r := range split.Routes {
 			want := k.rolloutRoute(ns, app, split, r)
 			keep[want.GetName()] = true
+			if err := k.protectRoute(ctx, app, r.Kind, want); err != nil { // Faz 24
+				return fmt.Errorf("ingressroute %s/%s: %w", ns, want.GetName(), err)
+			}
 			if err := applyObject(ctx, routes, want); err != nil {
 				return fmt.Errorf("ingressroute %s/%s: %w", ns, want.GetName(), err)
 			}
