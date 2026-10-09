@@ -64,7 +64,8 @@ func (s *Syncer) SyncApp(ctx context.Context, appName string) error {
 	}
 	// Both run even if the other fails: a failed process sync must not
 	// leave a canary split stale, and the reverse.
-	return errors.Join(s.applyProcesses(ctx, app), s.applyRollout(ctx, app))
+	// Faz 24 (protection.go): runs last, after the canary overlay.
+	return errors.Join(s.applyProcesses(ctx, app), s.applyRollout(ctx, app), s.applyProtection(ctx, app))
 }
 
 // RolloutApplier splits an app's production hostnames between two

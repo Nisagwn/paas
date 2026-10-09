@@ -1,0 +1,20 @@
+{{/* Faz 24: login page of a password protected deployment
+     (web/protection.go). The form posts to this host; on success the
+     browser continues to the app host with a one-time token. */}}
+
+{{define "content"}}
+<div class="card pad" style="max-width:420px;margin:48px auto">
+  <h1 style="text-align:center">Korumalı deploy</h1>
+  <p class="sub" style="text-align:center"><span class="mono">{{.Data.Host}}</span> şifreyle korunuyor.</p>
+  <form method="post" action="/_protect/login">
+    <input type="hidden" name="app" value="{{.Data.App}}">
+    <input type="hidden" name="next" value="{{.Data.Next}}">
+    <label for="prot-pw">Şifre</label>
+    <input id="prot-pw" name="password" type="password" autocomplete="current-password" required autofocus>
+    <p><button class="primary" type="submit" style="width:100%">Devam et</button></p>
+  </form>
+  {{if not .Data.SignedIn}}
+  <p class="muted small" style="margin-bottom:0;text-align:center">Projenin ekibindeysen <a href="{{.Data.SignIn}}">giriş yaparak</a> şifresiz açabilirsin.</p>
+  {{end}}
+</div>
+{{end}}

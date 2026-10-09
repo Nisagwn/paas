@@ -81,6 +81,10 @@ func certSecretName(ingress string) string {
 }
 
 func (k *Kubernetes) applyIngress(ctx context.Context, want *networkingv1.Ingress) (*networkingv1.Ingress, error) {
+	// Faz 24: the protection middleware is part of the desired state.
+	if err := k.protectIngress(ctx, want); err != nil {
+		return nil, err
+	}
 	return apply(ctx, k.client.NetworkingV1().Ingresses(want.Namespace), want.Name, want,
 		func(have *networkingv1.Ingress) bool {
 			if equality.Semantic.DeepEqual(have.Spec, want.Spec) &&

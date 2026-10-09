@@ -126,6 +126,8 @@ func run(log *slog.Logger) error {
 		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
 	}
+	// Faz 24: deployment protection (login page here, verify in the API).
+	ui.Protect = newProtection(cfg, st, sessions, authn, log)
 	// Faz 20: process status, scaling and cron runs (the API finds the same
 	// deployer through RuntimeLogs).
 	if pc, ok := applier.(api.ProcessCluster); ok {
@@ -148,6 +150,7 @@ func run(log *slog.Logger) error {
 		Sessions: sessions, Events: hub, RuntimeLogs: runtimeLogs, UI: ui.Handler(), Domains: verifier,
 		Auth: authn, GitHubApp: inspector,
 	}
+	apiSrv.Protection = ui.Protect
 	handler := apiSrv.Handler()
 	if ghApp != nil {
 		// The App's installation events share /webhooks/github with push
@@ -363,6 +366,10 @@ func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSour
 		if err != nil {
 			return nil, nil, err
 		}
+		protectCfg, err := config.LoadProtection() // Faz 24
+		if err != nil {
+			return nil, nil, err
+		}
 		d, err := deploy.New(client, st, deploy.Config{
 			Domain: cfg.Domain, IngressClass: cfg.IngressClass, TLS: cfg.IngressTLS,
 			CPURequest: cfg.AppCPURequest, CPULimit: cfg.AppCPULimit,
@@ -376,6 +383,8 @@ func newPipeline(cfg config.Config, st *store.Store, repoTokens github.TokenSour
 			// Faz 22: add-on volumes, images and backup schedule.
 			AddonStorageClass: addonCfg.StorageClass, PostgresImage: addonCfg.PostgresImage,
 			RedisImage: addonCfg.RedisImage, BackupSchedule: addonCfg.BackupSchedule,
+			// Faz 24: the ForwardAuth endpoint of protected apps.
+			ForwardAuthURL: protectCfg.ForwardAuthURL,
 		})
 		if err != nil {
 			return nil, nil, err

@@ -1,0 +1,108 @@
+{{/* Faz 24: the Koruma section of the Ayarlar tab. .Data is the app
+     detail; .Data.Protection the panel (web/protection.go). */}}
+
+{{define "protection"}}
+{{$a := .Data.App}}{{$csrf := .CSRF}}{{$p := .Data.Protection}}{{$w := .Data.CanWrite}}
+<details class="card section" id="protection" {{if or $p.Enabled $p.NewShareURL $p.NewBypass}}open{{end}}>
+  <summary>Koruma <span class="muted">· {{protectMode $p.Mode}}{{if $p.Enabled}}, {{protectScope $p.Scope}}{{end}}</span></summary>
+  <div class="body">
+  <p class="muted small" style="margin-top:0">Korunan adresler, açılmadan önce giriş ister. Deploy adresleri ve önizleme adresleri her zaman kapsamdadır; canlı adres ve alan adları yalnızca “Tüm adresler” seçiliyken korunur.</p>
+  <form method="post" action="/apps/{{$a.Name}}/protection">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <fieldset {{if not $w}}disabled{{end}}>
+    <div class="row">
+      <div><label for="prot-mode">Kim açabilir?</label>
+        <select id="prot-mode" name="mode" style="width:100%">
+          <option value="off"{{if eq $p.Mode "off"}} selected{{end}}>Herkes (koruma kapalı)</option>
+          <option value="team"{{if eq $p.Mode "team"}} selected{{end}}>Yalnızca ekip üyeleri (giriş yapmış)</option>
+          <option value="password"{{if eq $p.Mode "password"}} selected{{end}}>Şifreyi bilen herkes</option>
+        </select></div>
+      <div><label for="prot-scope">Kapsam</label>
+        <select id="prot-scope" name="scope" style="width:100%">
+          <option value="previews"{{if eq $p.Scope "previews"}} selected{{end}}>Yalnızca önizlemeler (deploy ve önizleme adresleri)</option>
+          <option value="all"{{if eq $p.Scope "all"}} selected{{end}}>Tüm adresler (canlı adres ve alan adları dahil)</option>
+        </select></div>
+      <div><label for="prot-password">Şifre {{if $p.PasswordSet}}<span class="muted">· ayarlı; boş bırakırsan değişmez</span>{{end}}</label>
+        <input id="prot-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="256"
+          placeholder="{{if $p.PasswordSet}}••••••••{{else}}en az 8 karakter{{end}}"></div>
+    </div>
+    {{if $w}}<div style="margin-top:12px"><button class="primary" type="submit">Kaydet</button></div>{{end}}
+    </fieldset>
+  </form>
+  <p class="muted small">Ekip üyeleri şifre korumasında da şifresiz girer. Modu ya da şifreyi değiştirmek tüm ziyaretçilerin oturumunu kapatır.</p>
+
+  <h3 style="margin:20px 0 8px;font-size:15px">Paylaşım bağlantıları</h3>
+  {{with $p.NewShareURL}}
+  <div class="flash ok" role="status">Paylaşım bağlantısı oluşturuldu. Bu bağlantı yalnızca şimdi gösterilir; bir yere kaydet:
+    <div class="secret mono">{{.}}</div>
+    <span class="small">Bağlantıyı açan herkes, hesap ya da şifre olmadan bu projenin korumalı adreslerini görür.</span></div>
+  {{end}}
+  {{if $p.Links}}
+  <table style="margin-bottom:12px">
+    <thead><tr><th>Ad</th><th class="hide-sm">Token</th><th>Süre</th><th class="hide-sm">Son kullanım</th><th></th></tr></thead>
+    <tbody>
+    {{range $p.Links}}
+      <tr>
+        <td>{{with .Name}}{{.}}{{else}}<span class="muted">adsız</span>{{end}}{{with .CreatedBy}} <span class="muted small">· @{{.}}</span>{{end}}</td>
+        <td class="hide-sm mono small">{{.Prefix}}…</td>
+        <td class="small">{{if .Expired}}<span class="badge s-failed">Süresi doldu</span>{{else if .ExpiresAt}}{{time .ExpiresAt}}{{else}}süresiz{{end}}</td>
+        <td class="hide-sm muted small">{{with .LastUsedAt}}{{ago .}}{{else}}hiç{{end}}</td>
+        <td style="text-align:right">
+          {{if $w}}
+          <form class="inline" method="post" action="/apps/{{$a.Name}}/protection/share/delete" data-confirm="Bağlantı iptal edilsin mi? Bağlantıyla girenlerin erişimi de biter.">
+            <input type="hidden" name="csrf" value="{{$csrf}}">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button class="small danger" type="submit">İptal et</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted" style="margin-top:0">Henüz paylaşım bağlantısı yok.</p>
+  {{end}}
+  {{if $w}}
+  <form method="post" action="/apps/{{$a.Name}}/protection/share">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <div class="row">
+      <div><label for="share-name">Ad</label><input id="share-name" name="name" maxlength="100" placeholder="müşteri incelemesi"></div>
+      <div><label for="share-url">Adres</label><input id="share-url" name="url" value="{{$p.ShareDefault}}"></div>
+      <div style="max-width:180px"><label for="share-exp">Süre</label>
+        <select id="share-exp" name="expires_in_hours" style="width:100%">
+          <option value="24">1 gün</option>
+          <option value="168" selected>7 gün</option>
+          <option value="720">30 gün</option>
+          <option value="0">Süresiz</option>
+        </select></div>
+      <div style="flex:0"><button type="submit">Oluştur</button></div>
+    </div>
+  </form>
+  {{end}}
+
+  <h3 style="margin:20px 0 8px;font-size:15px">Otomasyon anahtarı</h3>
+  {{if $w}}
+    {{with $p.NewBypass}}
+    <div class="flash ok" role="status">Yeni anahtar oluşturuldu; eskisi artık çalışmaz. Bu anahtar yalnızca şimdi gösterilir:
+      <div class="secret mono">{{.}}</div>
+      <span class="small">Örnek: <code>curl -H "{{$p.Header}}: {{.}}" &lt;adres&gt;</code></span></div>
+    {{end}}
+    <p class="muted small" style="margin-top:0">CI'daki uçtan uca testler gibi otomasyonlar, <code>{{$p.Header}}</code> başlığında bu anahtarla korumaya takılmadan istek atar.
+      {{if $p.BypassSet}}Ayarlı anahtar: <span class="mono">{{$p.BypassPrefix}}…</span>{{with $p.BypassCreatedAt}}, {{ago .}} oluşturuldu{{end}}.{{else}}Henüz anahtar yok.{{end}}</p>
+    <form class="inline" method="post" action="/apps/{{$a.Name}}/protection/bypass"{{if $p.BypassSet}} data-confirm="Yeni anahtar oluşturulsun mu? Eskisi hemen geçersiz olur."{{end}}>
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button class="small" type="submit">{{if $p.BypassSet}}Yenile{{else}}Anahtar oluştur{{end}}</button>
+    </form>
+    {{if $p.BypassSet}}
+    <form class="inline" method="post" action="/apps/{{$a.Name}}/protection/bypass/delete" data-confirm="Anahtar silinsin mi? Onu kullanan otomasyonlar korumaya takılır.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button class="small danger" type="submit">Sil</button>
+    </form>
+    {{end}}
+  {{else}}
+    <p class="muted" style="margin:0">Otomasyon anahtarı gizlidir; yönetmek için ekipte üye rolü gerekir.</p>
+  {{end}}
+  </div>
+</details>
+{{end}}

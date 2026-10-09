@@ -110,6 +110,9 @@ type appDetail struct {
 
 	// Faz 22: Veritabanları (databases.go); loaded on that tab only.
 	DB *databasesData
+
+	// Faz 24: the Koruma section of Ayarlar (protection.go).
+	Protection *protectionPanel
 }
 
 // loadApp loads the {name} app and checks the caller's team role: viewer
@@ -263,6 +266,12 @@ func (s *Server) renderTabOf(w http.ResponseWriter, r *http.Request, app store.A
 	}
 	if tab == tabDatabases {
 		if v.DB, err = s.databasesData(r.Context(), app); err != nil {
+			s.internalError(w, r, err)
+			return
+		}
+	}
+	if tab == tabSettings {
+		if v.Protection, err = s.protectionPanel(r.Context(), app, v); err != nil {
 			s.internalError(w, r, err)
 			return
 		}
