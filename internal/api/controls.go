@@ -76,6 +76,13 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Faz 23: promoting a preview queues a new deployment.
+	if src.Target != store.EnvProduction {
+		if err := s.Plans.CheckDeploy(r.Context(), app.TeamID); err != nil {
+			s.internalError(w, err) // writes a limit refusal as such
+			return
+		}
+	}
 	res, err := Promote(r.Context(), s.Store, src, principal(r).Login)
 	var conflict *ConflictError
 	switch {
@@ -226,6 +233,10 @@ func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	src, ok := s.appDeployment(w, r, app, id)
 	if !ok {
+		return
+	}
+	if err := s.Plans.CheckDeploy(r.Context(), app.TeamID); err != nil { // Faz 23
+		s.internalError(w, err) // writes a limit refusal as such
 		return
 	}
 	reuse := req.UseCache == nil || *req.UseCache
@@ -409,6 +420,10 @@ func (s *Server) triggerHook(w http.ResponseWriter, r *http.Request) {
 	app, err := s.Store.GetAppByID(r.Context(), hook.AppID)
 	if err != nil {
 		s.internalError(w, err)
+		return
+	}
+	if err := s.Plans.CheckDeploy(r.Context(), app.TeamID); err != nil { // Faz 23
+		s.internalError(w, err) // writes a limit refusal as such
 		return
 	}
 	cctx, cancel := context.WithTimeout(r.Context(), githubTimeout)

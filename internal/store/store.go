@@ -333,24 +333,10 @@ func (s *Store) ListDeployments(ctx context.Context, appID int64, limit int) ([]
 
 // ClaimNext atomically moves the oldest queued deployment to "building" and
 // returns it. FOR UPDATE SKIP LOCKED lets many workers poll without picking
-// the same job. It returns ErrNotFound when the queue is empty.
+// the same job. It returns ErrNotFound when the queue is empty. Deployments
+// of suspended teams are skipped (Faz 23; ClaimNextFor adds per-team bounds).
 func (s *Store) ClaimNext(ctx context.Context) (Deployment, error) {
-	var id int64
-	err := s.db.QueryRowContext(ctx, `
-		UPDATE deployments SET status = 'building', started_at = now(),
-			attempts = attempts + 1, heartbeat_at = now()
-		WHERE id = (
-			SELECT id FROM deployments WHERE status = 'queued'
-			ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
-		)
-		RETURNING id`).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Deployment{}, ErrNotFound
-	}
-	if err != nil {
-		return Deployment{}, err
-	}
-	return s.GetDeployment(ctx, id)
+	return s.ClaimNextFor(ctx, ClaimCaps{})
 }
 
 func (s *Store) SetStatus(ctx context.Context, id int64, status string) error {

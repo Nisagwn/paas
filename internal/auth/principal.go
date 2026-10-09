@@ -85,6 +85,31 @@ type Authenticator struct {
 	// limits new members to known users.
 	Users UserDirectory
 	Log   *slog.Logger
+	// Admins are the GitHub logins of platform admins
+	// (PAAS_ADMIN_GITHUB_LOGINS, Faz 23): with the legacy token they may
+	// change plans and suspend teams and users (PlatformAdmin).
+	Admins []string
+}
+
+// ErrSuspended: the user was suspended by an admin (Faz 23).
+var ErrSuspended = errors.New("this account is suspended")
+
+// PlatformAdmin reports whether p administers the platform: the legacy
+// admin token, or a signed-in user listed in Admins.
+func (a *Authenticator) PlatformAdmin(p Principal) bool {
+	return p.Admin || (p.UserID != 0 && hasFold(a.Admins, p.Login))
+}
+
+// checkSuspended refuses a suspended user; admins listed in Admins pass.
+func (a *Authenticator) checkSuspended(ctx context.Context, u store.User) error {
+	suspended, err := a.Store.UserSuspended(ctx, u.ID)
+	if err != nil {
+		return err
+	}
+	if suspended && !hasFold(a.Admins, u.Login) {
+		return ErrSuspended
+	}
+	return nil
 }
 
 // UserDirectory looks up a GitHub account by login (github.Client).
@@ -111,6 +136,9 @@ func (a *Authenticator) Bearer(ctx context.Context, token string) (Principal, er
 	if err != nil {
 		return Principal{}, err
 	}
+	if err := a.checkSuspended(ctx, u); err != nil {
+		return Principal{}, err
+	}
 	return principalOf(u), nil
 }
 
@@ -132,6 +160,9 @@ func (a *Authenticator) Session(r *http.Request) (Principal, error) {
 		return Principal{}, ErrUnauthenticated
 	}
 	if err != nil {
+		return Principal{}, err
+	}
+	if err := a.checkSuspended(r.Context(), u); err != nil {
 		return Principal{}, err
 	}
 	return principalOf(u), nil

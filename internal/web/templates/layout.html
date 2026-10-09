@@ -188,6 +188,8 @@ svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
     <a class="cta" href="/import">+ Yeni proje</a>
     <a href="/teams">Ekipler</a>
     <a href="/tokens">Token'lar</a>
+    <a href="/usage">Kullanım</a>
+    {{if .PlatformAdmin}}<a href="/admin">Yönetim</a>{{end}}
     <details class="user-menu">
       <summary>{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}} ▾</summary>
       <div class="menu">
@@ -205,6 +207,9 @@ svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
   {{if .Error}}<div class="flash err" role="alert">{{.Error}}</div>{{end}}
   {{template "content" .}}
 </main>
+<footer class="site muted small" style="text-align:center;padding:0 16px 32px">
+  <a href="/terms">Kullanım koşulları</a> · <a href="/privacy">Gizlilik politikası</a>
+</footer>
 <script nonce="{{.Nonce}}">
 // A link to #section opens the collapsed section it points at.
 (() => {

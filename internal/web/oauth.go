@@ -86,6 +86,15 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := s.GitHub.Complete(r.Context(), s.Store, q.Get("code"), verifier)
+	if errors.Is(err, auth.ErrSuspended) || errors.Is(err, auth.ErrAccountTooNew) { // Faz 23
+		code := "suspended"
+		if errors.Is(err, auth.ErrAccountTooNew) {
+			code = "too_new"
+		}
+		s.Log.Warn("web: github login refused", "remote", r.RemoteAddr, "reason", code)
+		s.loginFailed(w, r, http.StatusForbidden, code)
+		return
+	}
 	if errors.Is(err, auth.ErrNotAllowed) {
 		s.Log.Warn("web: github login refused", "remote", r.RemoteAddr)
 		s.loginFailed(w, r, http.StatusForbidden, "not_allowed")

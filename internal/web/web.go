@@ -29,7 +29,9 @@ import (
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/plans"
 	"github.com/nisagwn/paas/internal/protect"
+	"github.com/nisagwn/paas/internal/ratelimit"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -75,6 +77,13 @@ type Server struct {
 	// Faz 25 (comments.go): mirrors comment threads to pull requests; nil
 	// keeps them in paas only.
 	Comments api.CommentSync
+
+	// Faz 23 (plans.go), all optional: plan enforcement (nil: no limits),
+	// rate limits, scaling suspended teams to zero, the legal pages.
+	Plans     *plans.Guard
+	Limits    *ratelimit.Set
+	Suspender api.Suspender
+	Legal     Legal
 
 	pages map[string]*template.Template
 }
@@ -123,7 +132,7 @@ func (s *Server) Handler() http.Handler {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
-		"deploys", "analytics", "settings", "databases", "review"} {
+		"deploys", "analytics", "settings", "databases", "review", "usage", "admin", "terms", "privacy"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/rollout.html", "templates/"+p+".html"))
 	}
@@ -136,7 +145,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
-	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("POST /login", s.limitSignIn(s.login))
 	mux.Handle("POST /logout", s.authed(s.logout))
 	mux.Handle("GET /{$}", s.authed(s.appsPage))
 	mux.Handle("POST /apps", s.authed(s.createApp))
@@ -181,8 +190,8 @@ func (s *Server) Handler() http.Handler {
 	// Faz 25: review page and preview comments (comments.go).
 	s.commentRoutes(mux)
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
-	mux.HandleFunc("GET /auth/github", s.githubStart)
-	mux.HandleFunc("GET /auth/github/callback", s.githubCallback)
+	mux.HandleFunc("GET /auth/github", s.limitSignIn(s.githubStart))
+	mux.HandleFunc("GET /auth/github/callback", s.limitSignIn(s.githubCallback))
 	mux.Handle("GET /teams", s.authed(s.teamsPage))
 	mux.Handle("POST /teams", s.authed(s.createTeam))
 	mux.Handle("GET /teams/{slug}", s.authed(s.teamPage))
@@ -197,6 +206,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /github/setup", s.githubSetup)
 	mux.Handle("GET /import", s.authed(s.importPage))
 	mux.Handle("POST /import", s.authed(s.importApp))
+	// Faz 23: usage, admin and legal pages (plans.go).
+	mux.Handle("GET /usage", s.authed(s.usagePage))
+	mux.Handle("GET /admin", s.authed(s.requireAdmin(s.adminPage)))
+	mux.Handle("POST /admin/teams/{slug}/plan", s.authed(s.requireAdmin(s.adminSetPlan)))
+	mux.Handle("POST /admin/teams/{slug}/suspend", s.authed(s.requireAdmin(s.adminSuspend)))
+	mux.Handle("POST /admin/teams/{slug}/unsuspend", s.authed(s.requireAdmin(s.adminUnsuspend)))
+	mux.Handle("POST /admin/users/suspend", s.authed(s.requireAdmin(s.adminSuspendUser)))
+	mux.Handle("POST /admin/users/unsuspend", s.authed(s.requireAdmin(s.adminUnsuspendUser)))
+	mux.HandleFunc("GET /terms", s.termsPage)
+	mux.HandleFunc("GET /privacy", s.privacyPage)
 	mux.Handle("/", s.authed(func(w http.ResponseWriter, r *http.Request) {
 		s.errorPage(w, r, http.StatusNotFound, "Sayfa bulunamadı.")
 	}))
@@ -243,6 +262,10 @@ func (s *Server) authed(h http.HandlerFunc) http.Handler {
 			return
 		}
 		p, err := s.Auth.Session(r)
+		if errors.Is(err, auth.ErrSuspended) { // Faz 23 (plans.go)
+			s.suspendedSession(w, r)
+			return
+		}
 		if err != nil && !errors.Is(err, auth.ErrUnauthenticated) {
 			s.internalError(w, r, err)
 			return
@@ -259,6 +282,9 @@ func (s *Server) authed(h http.HandlerFunc) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			if !s.Sessions.CheckCSRF(r) {
 				http.Error(w, "geçersiz CSRF token'ı ya da başka siteden gelen istek; sayfayı yenileyip tekrar dene", http.StatusForbidden)
+				return
+			}
+			if !s.allowWrite(w, r, p) { // Faz 23 rate limit (plans.go)
 				return
 			}
 		}
@@ -283,6 +309,8 @@ type page struct {
 	Data        any
 	// Me is the signed-in caller (Faz 13).
 	Me auth.Principal
+	// PlatformAdmin shows the admin link (Faz 23).
+	PlatformAdmin bool
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
@@ -292,6 +320,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	}
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
 	p.Me, p.LoggedIn = auth.From(r.Context())
+	p.PlatformAdmin = p.LoggedIn && s.Auth.PlatformAdmin(p.Me)
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("render", "page", name, "err", err)
@@ -370,6 +399,10 @@ func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, m
 }
 
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
+	if status, msg, ok := limitError(err); ok { // Faz 23: a plan refusal
+		s.errorPage(w, r, status, msg)
+		return
+	}
 	s.Log.Error("web: internal error", "path", r.URL.Path, "err", err)
 	s.errorPage(w, r, http.StatusInternalServerError, "Bir şeyler ters gitti. Ayrıntılar sunucu logunda.")
 }
@@ -476,6 +509,9 @@ func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, 
 }
 
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
+	if !s.allowImport(w, r) {
+		return
+	}
 	name := strings.TrimSpace(r.PostFormValue("name"))
 	repo := strings.TrimSpace(r.PostFormValue("repo"))
 	branch := strings.TrimSpace(r.PostFormValue("production_branch"))
@@ -500,6 +536,14 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if err := s.Plans.CheckCreateApp(r.Context(), team.ID); err != nil {
+		if status, msg, ok := limitError(err); ok {
+			s.renderApps(w, r, status, msg, form)
+			return
+		}
 		s.internalError(w, r, err)
 		return
 	}

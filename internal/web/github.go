@@ -313,11 +313,14 @@ func (s *Server) renderImport(w http.ResponseWriter, r *http.Request, status int
 }
 
 func (s *Server) importApp(w http.ResponseWriter, r *http.Request) {
+	if !s.allowImport(w, r) {
+		return
+	}
 	req := api.ImportRequest{
 		Repo: r.PostFormValue("repo"), Name: r.PostFormValue("name"),
 		Team: r.PostFormValue("team"), ProductionBranch: r.PostFormValue("production_branch"),
 	}
-	res, status, err := api.ImportApp(r.Context(), s.Store, s.Auth, s.GitHubApp, s.Log, me(r), req)
+	res, status, err := api.ImportAppLimited(r.Context(), s.Store, s.Auth, s.GitHubApp, s.Plans, s.Log, me(r), req)
 	if status == http.StatusInternalServerError {
 		s.internalError(w, r, err)
 		return
@@ -329,6 +332,10 @@ func (s *Server) importApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.Deployment != nil {
 		redirect(w, r, "/apps/"+res.App.Name+"?ok=imported")
+		return
+	}
+	if strings.Contains(res.Warning, "plan limit reached") { // Faz 23
+		redirect(w, r, "/apps/"+res.App.Name+"?ok=imported-limit")
 		return
 	}
 	redirect(w, r, "/apps/"+res.App.Name+"?ok=imported-idle")

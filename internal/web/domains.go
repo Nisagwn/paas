@@ -31,6 +31,14 @@ func (s *Server) addDomain(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if err := s.Plans.CheckDomain(r.Context(), app.TeamID); err != nil { // Faz 23
+		if status, msg, ok := limitError(err); ok {
+			s.domainsResponse(w, r, app, status, msg)
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
 	d, status, err := api.AddDomain(r.Context(), s.Store, s.Domains, app, s.Domain, r.PostFormValue("hostname"))
 	if status == http.StatusInternalServerError {
 		s.internalError(w, r, err)

@@ -98,6 +98,13 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 	if err != nil {
 		return fmt.Errorf("resource quota: %w", err)
 	}
+	// Faz 23: the team's plan sets the base and closes a suspended team's
+	// namespace to new pods (suspend.go).
+	pq, err := k.planQuota(ctx, app)
+	if err != nil {
+		return fmt.Errorf("resource quota: %w", err)
+	}
+	k.applyPlanQuota(hard, pq)
 	quota := &corev1.ResourceQuota{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns, Labels: lbl},
 		Spec:       corev1.ResourceQuotaSpec{Hard: hard},
@@ -117,11 +124,7 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 	// does; this covers anything else run in the namespace).
 	limits := &corev1.LimitRange{
 		ObjectMeta: metav1.ObjectMeta{Name: policyName, Namespace: ns, Labels: lbl},
-		Spec: corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{{
-			Type:           corev1.LimitTypeContainer,
-			Default:        corev1.ResourceList{corev1.ResourceCPU: k.q.cpuLim, corev1.ResourceMemory: k.q.memLim},
-			DefaultRequest: corev1.ResourceList{corev1.ResourceCPU: k.q.cpuReq, corev1.ResourceMemory: k.q.memReq},
-		}}},
+		Spec:       corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{k.limitRangeItem(pq)}},
 	}
 	if _, err := apply(ctx, k.client.CoreV1().LimitRanges(ns), policyName, limits,
 		func(have *corev1.LimitRange) bool {

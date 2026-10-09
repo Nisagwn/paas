@@ -408,6 +408,10 @@ func (s *Server) createAddon(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.Plans.CheckAddon(r.Context(), app.TeamID); err != nil { // Faz 23
+		s.internalError(w, err) // writes a limit refusal as such
+		return
+	}
 	a, err := CreateAddon(r.Context(), s.Store, app, req)
 	if err != nil {
 		s.addonFail(w, err)
