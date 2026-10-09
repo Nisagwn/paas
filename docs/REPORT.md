@@ -42,8 +42,16 @@ preview'leri; anında rollback; ortam değişkenleri; canlı build ve çalışma
 GitHub commit status'ları ve PR yorumları; web arayüzü; eski deployment'ların temizlenmesi;
 çökme sonrası kurtarma; altyapının kod olarak tanımı.
 
-**Sonraki aşamalar:** çoklu kullanıcı ve ekipler, veritabanı sağlama, özel alan adları,
-faturalandırma, daha fazla dil ve framework, çok düğümlü küme, sıfıra ölçekleme.
+**Kapsam genişlemesi (Faz 9–22, ayrıntılar [PHASES.md](PHASES.md)):** Python / Ruby / Java
+(Faz 9); env değerlerinin AES-256-GCM ile şifrelenmesi ve anahtar rotasyonu (Faz 10); sıfıra
+ölçekleme (Faz 11); özel alan adları ve alan adı başına sertifika (Faz 12); kullanıcılar, ekipler ve
+roller (Faz 13); sabit Dockerfile frontend'iyle daha hızlı ılık build (Faz 14); GitHub App ile
+kurulum ve import (Faz 15); proje ayarları ve framework preset'leri (Faz 16); ortamlar, promote,
+redeploy, iptal ve deploy hook'ları (Faz 17); `paas` komut satırı aracı (Faz 18); Traefik
+metriklerinden analitik (Faz 19); web / worker / cron süreç tipleri (Faz 20); kademeli yayın ve
+otomatik geri alma (Faz 21); yönetilen Postgres / Redis ve preview başına veritabanı kopyası (Faz 22).
+
+**Sonraki aşamalar:** faturalandırma, çok düğümlü küme, Postgres için okuma kopyaları.
 
 ## 3. Benzer sistemler
 
@@ -192,7 +200,7 @@ yazmak hem riskli hem gereksiz olurdu.
 
 ## 7. Test ve doğrulama
 
-- **79 test fonksiyonu**, ~3 750 satır test kodu.
+- **317 test fonksiyonu**, ~18 000 satır test kodu (ilk sürümde 79 / ~3 750; sayılar Faz 22 sonrası).
 - Veritabanı testleri gerçek PostgreSQL'e karşı çalışır; eşzamanlılık (8 worker × 50 iş),
   idempotentlik, alias'ın yalnızca ileri gitmesi, rollback/temizlik yarışı, çökme kurtarması.
 - Kubernetes katmanı client-go fake clientset ile: nesnelerin doğruluğu, idempotentlik,
@@ -242,8 +250,18 @@ Açıkça belirtilmesi gerekenler:
 - **Ölçümler dizüstü bilgisayarda alındı;** hedef sunucuda (arm64, 2 vCPU) tekrar alınmalı.
   Kubernetes'teki pod hazır olma süresi ve uygulama trafiği kapasitesi henüz ölçülmedi.
 - **Tek düğüm:** Postgres ve build cache düğümün diskinde; düğüm kaybı veri kaybıdır.
+- **Sonraki fazların bir kısmı yalnızca testlerle doğrulandı.** Faz 17, 19, 20 ve 22 birim,
+  veritabanı ve client-go fake kümesi testleriyle; Faz 21'in ağırlıklı yönlendirmesi k3d / Traefik
+  üzerinde canlı denendi. Faz 22'nin iş betikleri Docker'da gerçek `postgres:16-alpine` /
+  `redis:7-alpine` üzerinde çalıştırıldı; eklentilerin Kubernetes nesneleri (StatefulSet, PVC,
+  NetworkPolicy, Job'lar) için uçtan uca küme koşusu başlatıldı ve ilk bulguyu düzeltti (kopya
+  işinin NetworkPolicy gecikmesine karşı sunucuyu beklemesi), ama tamamlandığı henüz kayda
+  geçmedi. Faz 15 sahte GitHub'a karşı test edildi; gerçek bir GitHub App ile denenmedi.
 - **Tek kontrol düzlemi kopyası varsayılır;** çok kopyada yönlendirme senkronları arasında
-  kısa yarışlar olabilir (uzlaştırma döngüsü düzeltir).
+  kısa yarışlar olabilir (uzlaştırma döngüsü düzeltir). Yayın denetleyicisi (Faz 21) ve eklenti
+  döngüsü (Faz 22) `FOR UPDATE SKIP LOCKED` kiralama ve compare-and-set ile çok kopyada güvenlidir.
+- **Eklenti diskleri düğümün yerel diskinde** (`local-path`, Faz 22): yedekler de aynı düğümde
+  durur; düğüm kaybı eklenti verisinin ve yedeklerinin kaybıdır. `local-path` PVC genişletemez.
 - **Env değerleri veritabanında şifreli (Faz 10):** AES-256-GCM, değer başına rastgele nonce,
   uygulama + değişken adına bağlı; anahtar `PAAS_ENV_KEY` ile verilir, rotasyon desteklenir. Anahtar
   ortam değişkeni olarak (Kubernetes Secret) durur, KMS ile sarılmaz; anahtarı ele geçiren veritabanı
@@ -260,13 +278,18 @@ Açıkça belirtilmesi gerekenler:
 
 ## 10. Gelecek çalışmalar
 
-1. Gerçek küme üzerinde kurulum, uçtan uca doğrulama ve ölçümlerin tekrarı.
-2. Sıfıra ölçekleme (KEDA HTTP add-on): kullanılmayan preview'ler kaynak tüketmez.
-3. Env şifreleme anahtarının KMS ile sarılması (zarf şifreleme) ve ekip bazlı yetkilendirme.
-4. Özel alan adları (HTTP-01 ya da DNS doğrulamalı sertifikalar).
-5. Yönetilen veritabanı (RDS) ve çok düğümlü küme.
-6. Dockerfile frontend'inin digest'e sabitlenmesi (ılık build'lerdeki ~2 s'lik sabit maliyet).
-7. Daha fazla dil (Python, Ruby, Java) ve framework'e özgü algılama.
+İlk sürümün gelecek çalışmalar listesindeki sıfıra ölçekleme (Faz 11, KEDA yerine kendi
+aktivatörüyle), env şifreleme (Faz 10), ekip bazlı yetkilendirme (Faz 13), özel alan adları (Faz 12),
+yönetilen veritabanı (Faz 22, RDS yerine küme içinde), Dockerfile frontend'inin sabitlenmesi (Faz 14)
+ve daha fazla dil / framework (Faz 9, 16) yapıldı. Kalanlar:
+
+1. AWS'de `terraform apply` ile kurulum, uçtan uca doğrulama ve ölçümlerin hedef sunucuda
+   (arm64, 2 vCPU) tekrarı; pod hazır olma süresi ve uygulama trafiği kapasitesinin ölçülmesi.
+2. Faz 17, 19, 20 ve 22'nin gerçek kümede uçtan uca koşusu; Faz 15'in gerçek bir GitHub App ile denenmesi.
+3. Env şifreleme anahtarının KMS ile sarılması (zarf şifreleme).
+4. Çok düğümlü küme: eklenti diskleri için ağ depolaması ve S3 uyumlu yedek hedefi.
+5. Postgres eklentileri için okuma kopyaları; faturalandırma.
+6. Fork'lardan açılan PR'lar için güvenli preview akışı.
 
 ## Ekler
 
