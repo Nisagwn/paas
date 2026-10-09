@@ -65,6 +65,10 @@ type Server struct {
 	Usage api.UsageSource
 	Now   func() time.Time
 
+	// Faz 25 (comments.go): mirrors comment threads to pull requests; nil
+	// keeps them in paas only.
+	Comments api.CommentSync
+
 	pages map[string]*template.Template
 }
 
@@ -112,7 +116,7 @@ func (s *Server) Handler() http.Handler {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
-		"deploys", "analytics", "settings"} {
+		"deploys", "analytics", "settings", "review"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/"+p+".html"))
 	}
@@ -146,6 +150,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /apps/{name}/domains/verify", s.authed(s.verifyDomain))
 	mux.Handle("POST /apps/{name}/domains/delete", s.authed(s.deleteDomain))
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
+	// Faz 25: review page and preview comments (comments.go).
+	s.commentRoutes(mux)
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.githubStart)
 	mux.HandleFunc("GET /auth/github/callback", s.githubCallback)

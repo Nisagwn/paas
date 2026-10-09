@@ -118,6 +118,14 @@ func TestAuthorizationMatrix(t *testing.T) {
 	owner := want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 200, "dave": 404, "admin": 200}
 
 	d := f.d1.ID
+	// Faz 25: a preview comment thread by alice on d1.
+	aliceID := f.users["alice"].ID
+	thread, err := f.st.CreateThread(context.Background(), f.d1, store.NewComment{AuthorID: &aliceID, AuthorLogin: "alice", Body: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpath := fmt.Sprintf("/api/comments/%d", thread.ID)
+	comment := want{"anonymous": 401, "carol": 201, "bob": 201, "alice": 201, "dave": 404, "admin": 201}
 	cases := []struct {
 		method, path string
 		body         func(who string) any
@@ -157,6 +165,16 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"GET", "/api/apps/blog/analytics?range=1h", nil, read, nil},
 		{"GET", "/api/apps/blog/health", nil, read, nil},
 		{"GET", "/api/apps/blog/usage", nil, read, nil},
+		// Faz 25 preview comments: viewers read and comment (reviewers),
+		// members resolve anyone's thread; deleting is checked in TestCommentDelete.
+		{"GET", fmt.Sprintf("/api/deployments/%d/comments", d), nil, read, nil},
+		{"POST", fmt.Sprintf("/api/deployments/%d/comments", d), func(string) any { return map[string]any{"body": "hi", "path": "/a", "x": 10, "y": 20} }, comment, nil},
+		{"POST", cpath + "/replies", func(string) any { return map[string]string{"body": "re"} }, comment, nil},
+		{"POST", cpath + "/resolve", nil, write, nil},
+		{"POST", cpath + "/reopen", nil, write, nil},
+		{"DELETE", "/api/comments/999999", nil,
+			want{"anonymous": 401, "carol": 404, "bob": 404, "alice": 404, "dave": 404, "admin": 404}, nil},
+		{"GET", "/api/apps/blog/comments", nil, read, nil},
 		// Faz 16 build settings: reading is viewer, changes are member.
 		{"GET", "/api/apps/blog/settings", nil, read, nil},
 		{"PUT", "/api/apps/blog/settings", func(string) any { return map[string]string{"framework": "nextjs"} }, write, nil},

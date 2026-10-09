@@ -180,6 +180,10 @@ func run(log *slog.Logger) error {
 	// Faz 19: request analytics and live resource usage (read per request).
 	apiSrv.Usage = startAnalytics(ctx, cfg, st, applier, log, &wg)
 	ui.Usage = apiSrv.Usage // Faz 16–19 screens: the Analitik tab; read per request, set before serving
+	// Faz 25: preview comment threads on pull requests (best effort, async).
+	if cs := startCommentSync(ctx, cfg, st, repoTokens, log, &wg); cs != nil {
+		apiSrv.Comments, ui.Comments = cs, cs
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

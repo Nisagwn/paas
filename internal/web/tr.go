@@ -170,6 +170,17 @@ var messages = map[string]string{
 	"range must be 1h, 24h or 7d":                                                  "Aralık 1 sa, 24 sa ya da 7 gün olmalı.",
 	"resource usage needs the kubernetes deployer":                                 "Kullanım verisi yalnızca Kubernetes ile çalışırken okunur.",
 	"resource metrics unavailable: metrics-server (metrics.k8s.io) is not running": "Kullanım verisi yok: kümede metrics-server çalışmıyor.",
+	// Faz 25: preview comments (api.CheckCommentBody, CheckCommentPin).
+	"comment body is required":                          "Yorum boş olamaz.",
+	"comment body must be valid UTF-8":                  "Yorum geçerli UTF-8 metin olmalı.",
+	"comment body is longer than 2000 characters":       "Yorum en fazla 2000 karakter olabilir.",
+	"comment body contains control characters":          "Yorumda kontrol karakteri olamaz.",
+	`path must start with a single "/" (e.g. /pricing)`: `Yol tek bir "/" ile başlamalı (ör. /fiyatlar).`,
+	"path is longer than 1024 characters":               "Yol en fazla 1024 karakter olabilir.",
+	"path must not contain spaces":                      "Yolda boşluk olamaz.",
+	"x and y must be given together":                    "Nokta için x ve y birlikte verilmeli.",
+	"x and y must be percentages between 0 and 100":     "Nokta önizlemenin içinde olmalı (yüzde 0–100).",
+	"viewport_width must be between 1 and 10000":        "Görünüm genişliği 1 ile 10000 piksel arasında olmalı.",
 }
 
 var normMessages = func() map[string]string {
@@ -200,6 +211,7 @@ var patterns = []struct {
 	{regexp.MustCompile(`^only ready deployments can be promoted \(status (\w+)\)$`), "Yalnızca hazır deploy'lar production'a taşınabilir (durum: %s)."},
 	{regexp.MustCompile(`^deployment is still (\w+); cancel it or wait until it finishes$`), "Deploy hâlâ sürüyor (%s); iptal et ya da bitmesini bekle."},
 	{regexp.MustCompile(`^deployment already finished \((\w+)\)$`), "Deploy zaten bitti (%s)."},
+	{regexp.MustCompile(`^comments need a ready deployment \(status (\w+)\)$`), "Yorum yalnızca hazır deploy'lara bırakılabilir (durum: %s)."},
 	{regexp.MustCompile(`(?i)^invalid variable name (".*")$`), "Geçersiz değişken adı: %s."},
 	{regexp.MustCompile(`(?i)^(.+) is set by the platform$`), "%s platform tarafından ayarlanır."},
 	{regexp.MustCompile(`(?i)^(.+) is longer than 32 KiB$`), "%s en fazla 32 KiB olabilir."},

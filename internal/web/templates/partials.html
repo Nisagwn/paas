@@ -46,6 +46,7 @@
 {{if and .Origin (ne .Origin "git")}}<span class="tag" title="Kaynak deploy{{with .SourceDeploymentID}} #{{.}}{{end}}">{{origin .Origin}}</span>{{end}}
 <div class="trunc small" title="{{.CommitMessage}}">{{firstLine .CommitMessage}}</div>
 {{if eq .Status "ready"}}<a class="small" href="{{.URL}}" target="_blank" rel="noopener">{{.URL}}</a>{{end}}
+{{if eq .Status "ready"}}<a class="small review-link" href="/deployments/{{.ID}}/review" title="Önizlemeyi aç ve yorum bırak">İncele{{with .OpenComments}} <span class="tag warn" title="{{.}} açık yorum">{{.}}</span>{{end}}</a>{{end}}
 {{if .Error}}<div class="small" style="color:var(--err)">{{tr .Error}}</div>{{end}}
 {{end}}
 

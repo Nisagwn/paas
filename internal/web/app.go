@@ -52,6 +52,8 @@ type deploymentRow struct {
 	CanRedeploy bool
 	CanCancel   bool
 	AliasesHere []string
+	// Faz 25: open preview comment threads (the "İncele" badge).
+	OpenComments int
 }
 
 type aliasRow struct {
@@ -145,6 +147,10 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 		shas[d.ID] = d.CommitSHA
 	}
 	hosts := map[int64][]string{}
+	openComments, err := s.Store.OpenCommentCounts(ctx, app.ID)
+	if err != nil {
+		return v, err
+	}
 	var prodID int64
 	for _, a := range aliases {
 		v.Aliases = append(v.Aliases, aliasRow{Alias: a, URL: naming.URL(s.Scheme, a.Hostname), SHA: shas[a.DeploymentID]})
@@ -163,6 +169,7 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 			Production:  d.ID == prodID,
 			AliasesHere: hosts[d.ID],
 		}
+		row.OpenComments = openComments[d.ID] // Faz 25
 		if v.CanWrite {
 			// Rollback moves production to an older production build;
 			// a preview is promoted instead (it needs production variables).
