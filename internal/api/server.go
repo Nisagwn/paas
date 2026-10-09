@@ -74,6 +74,10 @@ type Server struct {
 	// (tests); nil is time.Now.
 	Usage UsageSource
 	Now   func() time.Time
+
+	// Faz 25 (comments.go): mirrors preview comment threads to the pull
+	// request (github.CommentSync); nil keeps them in paas only.
+	Comments CommentSync
 }
 
 func (s *Server) Handler() http.Handler {
@@ -165,6 +169,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/tokens", s.listTokens)
 	api.HandleFunc("POST /api/tokens", s.createToken)
 	api.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
+	// Faz 25: preview comments (comments.go; roles checked there).
+	s.commentRoutes(api)
 	mux.Handle("/api/", s.authenticate(api))
 	if s.UI != nil {
 		mux.Handle("/", s.UI)

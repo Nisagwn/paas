@@ -234,5 +234,21 @@ queued → building → deploying → ready
 - RBAC: `statefulsets`, `persistentvolumeclaims` (Job'lar Faz 20'den beri vardı); `pods/exec` gerekmedi
 - **Çıktı:** tek tıkla veritabanı; her pull request production verisinin (istenirse anonimleştirilmiş) kendi kopyasıyla, production'a dokunmadan test ediliyor — Vercel'in pazar yerine bıraktığı iş platformun içinde
 
+### Faz 25 — Preview yorumları (migration 018) ✅ (Postgres'e ve sahte GitHub'a karşı test edildi; gerçek PR'da deneme bekliyor)
+- İnceleme sayfası `/deployments/{id}/review`: hazır deploy sandbox'lı bir iframe'de (`allow-scripts allow-same-origin allow-forms`),
+  CSP `frame-src <scheme>://*.<domain>` yalnızca bu sayfada; deploy kontrol paneliyle aynı origin'deyse iframe gösterilmez
+- Yorum modu: iframe'in üstündeki saydam katmana tıklayınca nokta (görünen alana göre x / y yüzdesi) + reviewer'ın yazdığı
+  sayfa yolu + iframe genişliği kaydedilir; numaralı iğneler, genişlik seçici (Tam / 1280 / 768 / 375)
+- Yan panel: diziler, yanıtlar, çözme / yeniden açma, silme, ekip üyelerini `@login` ile anma; htmx ile yalnızca panel yenilenir
+- `preview_comments` tablosu: dizi ve yanıtlar tek tabloda (deploy + uygulama, yazar, düz metin ≤ 2000 karakter, yol, x / y,
+  genişlik, açık / çözüldü, anmalar); deploy ve uygulama başına liste ve sayılar
+- API: `GET/POST /api/deployments/{id}/comments`, `POST /api/comments/{id}/replies|resolve|reopen`, `DELETE /api/comments/{id}`,
+  `GET /api/apps/{name}/comments`. viewer okur ve yorum yazar, member her diziyi çözer, yazar kendi dizisini çözer ve
+  kendi yorumunu siler, owner her yorumu kaldırabilir; yetki deploy'un uygulamasının ekibinden
+- GitHub senkronu: dizi, deploy'un branch'indeki açık PR'lara işaretli tek yorum olarak yazılır, yanıt / çözme / yeniden
+  açmada güncellenir, silinince kaldırılır; kurulum token'larıyla, kuyruklu ve sıralı, hatalar yalnızca loglanır
+- Deploy listesi ve proje sayfasında hazır deploy'lar için "İncele" bağlantısı ve açık yorum rozeti
+- **Çıktı:** bir PR'ın preview'i ekipçe sayfa üzerinde yorumlanıyor ve yorumlar PR'da görünüyor
+
 ## Sonraki aşamalar
 Faturalandırma, çok düğümlü küme (eklenti diskleri için ağ depolaması ya da S3 uyumlu yedek hedefi), Postgres için okuma kopyaları.

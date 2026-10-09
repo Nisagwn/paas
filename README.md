@@ -1036,6 +1036,70 @@ ilk push deploy eder.
 çalışmaya devam eder (bkz. [Gerçek GitHub'a bağlamak](#gerçek-githuba-bağlamak)). App yapılandırılmamışsa
 import sayfası bu yolu anlatır; arayüzdeki *New app* formu her iki durumda da kullanılabilir.
 
+### Preview yorumları (Faz 25)
+
+Vercel Comments'in karşılığı: ekip üyeleri hazır bir deploy'u kontrol panelinde açar, sayfanın bir noktasına
+yorum bırakır, yanıtlaşır ve çözülünce kapatır. Yorumlar deploy'a (ve uygulamaya) bağlıdır; deploy bir PR'ın
+branch'inden geldiyse her yorum dizisi PR'a da yorum olarak yazılır. Tablo: `preview_comments` (migration 018).
+
+**İnceleme sayfası** — `/deployments/{id}/review`. Deploy listesinde ve proje sayfasında her hazır deploy'un
+yanında **İncele** bağlantısı ve açık yorum sayısı rozeti, deploy sayfasında da **İncele** düğmesi var.
+
+- Deploy, `sandbox="allow-scripts allow-same-origin allow-forms"` ile bir iframe'de açılır. Deploy başka bir
+  origin'de (`<sha7>-<app>.<domain>`) çalıştığı için sayfa iframe'in DOM'una, kaydırma konumuna ya da adresine
+  erişemez; `allow-same-origin` yalnızca uygulamanın kendi çerezleri ve depolaması için verilir. Deploy adresi
+  kontrol paneliyle aynı olsaydı sandbox kaldırılabilirdi; bu durumda iframe hiç gösterilmez.
+- CSP yalnızca bu sayfada `frame-src <scheme>://*.<domain>` ile genişler; diğer sayfalar `default-src 'self'`
+  ile kalır, `frame-ancestors 'none'` her yerde geçerlidir.
+- **Sayfa** alanına yorumlanacak yol yazılır (`/fiyatlar`), "Git" ile iframe o sayfaya gider. **Tam / 1280 /
+  768 / 375** iframe genişliğini seçer.
+- **Yorum modu** açıkken iframe'in üstündeki saydam katmana tıklamak bir nokta bırakır: x / y görünen alanın
+  yüzdesi olarak, yol ve iframe genişliğiyle birlikte kaydedilir. Nokta seçmeden yazılan yorum sabitlenmemiş
+  genel bir yorumdur. Noktalar numaralı iğnelerle gösterilir; yan paneldeki yoruma tıklamak sayfasını ve
+  genişliğini geri yükler.
+- Yan panel: açık diziler, yanıtlar, "Çözüldü" / "Yeniden aç", "Sil"; çözülenler ayrı bir bölümde.
+  Formlar htmx ile yalnızca paneli yeniler (iframe yeniden yüklenmez); JavaScript olmadan da çalışır.
+  Her form CSRF ve aynı-origin kontrolünden geçer.
+- `@kullanıcı` ile ekip üyeleri anılır: yalnızca ekipte olan GitHub kullanıcı adları geçerli sayılır,
+  kanonik yazımıyla saklanır (`mentions`) ve vurgulanır. Paneldeki üye adlarına tıklamak onları ekler.
+
+**Yetki** (deploy'un uygulamasının ekibi üzerinden):
+
+| İşlem | Gereken |
+|---|---|
+| Okumak, yorum ve yanıt yazmak | viewer (inceleyenler) |
+| Diziyi çözmek / yeniden açmak | member, ya da dizinin yazarı |
+| Silmek | yorumun yazarı; ekip sahibi (owner) her yorumu kaldırabilir |
+
+Diğer ekiplerin yorumları `404` döner. Yorum düz metindir: en fazla 2000 karakter, kontrol karakteri yok;
+yol `/` ile başlar (`//` olmaz), en fazla 1024 karakter, boşluksuz; x / y 0–100 ve ikisi birlikte. Yeni dizi
+yalnızca hazır deploy'a açılır (`409`).
+
+```bash
+# Noktaya sabitlenmiş yorum
+curl -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/deployments/12/comments \
+  -d '{"body":"Başlık mobilde taşıyor @alice","path":"/fiyatlar","x":42.5,"y":18,"viewport_width":375}'
+# Yanıt, çözme, yeniden açma, silme
+curl -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/comments/5/replies -d '{"body":"Düzeltildi"}'
+curl -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/comments/5/resolve
+curl -X POST -H "Authorization: Bearer $TOKEN" localhost:8080/api/comments/5/reopen
+curl -X DELETE -H "Authorization: Bearer $TOKEN" localhost:8080/api/comments/5
+# Deploy'un ya da uygulamanın dizileri ve sayıları
+curl -H "Authorization: Bearer $TOKEN" "localhost:8080/api/deployments/12/comments?status=open"
+curl -H "Authorization: Bearer $TOKEN" "localhost:8080/api/apps/blog/comments?status=open&limit=50"
+# {"counts":{"open":3,"resolved":1},"threads":[{"id":5,"path":"/fiyatlar","x":42.5,…,"replies":[…]}]}
+```
+
+**GitHub senkronu.** Commit status'ları açıksa (`PAAS_GITHUB_STATUS` `false` değilse ve GitHub App ya da
+`PAAS_GITHUB_TOKEN` varsa) her dizi değişikliği bir kuyruğa girer, tek bir arka plan döngüsü sırayla işler:
+deploy'un branch'indeki açık PR'lar bulunur (Faz 5'teki PR yorumu mantığı), dizi her PR'a gizli bir işaretle
+(`<!-- paas:comment:<id> -->`) tek yorum olarak yazılır; yanıt, çözme ve yeniden açmada aynı yorum güncellenir,
+dizi silinince PR yorumu da silinir. PR yorumunda durum (🟢 Açık / ✅ Çözüldü), yazar, yol ve genişlik, commit,
+son 20 yanıt ve inceleme sayfasına bağlantı (`PAAS_PUBLIC_URL/deployments/<id>/review?thread=<id>`) bulunur.
+Kimlik doğrulama Faz 15'teki kurulum token'larıyla yapılır. İstek GitHub'ı beklemez; hatalar loglanır ve yorumu
+yazana yansımaz. Kullanıcı metni HTML'siz alıntılanır (sahte işaret yazılamaz); yalnızca geçerli anmalar
+GitHub'da `@` olarak kalır, diğer `@kelime`ler ve yazar adları bildirim göndermez.
+
 ### CLI (Faz 18)
 
 `paas`, platformun komut satırı istemcisidir (`vercel` CLI'ı örnek alındı). Yalnızca HTTP API'sini kullanır,
@@ -1302,6 +1366,13 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/tokens` | Kişisel token'lar (değerleri değil) |
 | POST | `/api/tokens` | `{"name","expires_in_days"?}` — `token` alanı yalnızca bu yanıtta |
 | DELETE | `/api/tokens/{id}` | Token'ı iptal eder |
+| GET | `/api/deployments/{id}/comments?status=open\|resolved` | Preview yorum dizileri (yanıtlarıyla) ve sayılar (viewer) |
+| POST | `/api/deployments/{id}/comments` | `{"body","path"?,"x"?,"y"?,"viewport_width"?}` — yeni dizi; yalnızca hazır deploy (`201`; viewer) |
+| POST | `/api/comments/{id}/replies` | `{"body"}` — yanıt (`201`; viewer) |
+| POST | `/api/comments/{id}/resolve` | Diziyi çözer (member ya da dizinin yazarı) |
+| POST | `/api/comments/{id}/reopen` | Diziyi yeniden açar (member ya da dizinin yazarı) |
+| DELETE | `/api/comments/{id}` | Yorumu siler; dizi yanıtlarıyla gider (`204`; yazar ya da owner) |
+| GET | `/api/apps/{name}/comments?status=&limit=` | Uygulamanın tüm deploy'larındaki diziler, yeniden eskiye, ve sayılar (viewer) |
 
 ## Proje yapısı
 
