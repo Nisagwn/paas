@@ -29,10 +29,12 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/nisagwn/paas/internal/deploy"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -90,6 +92,9 @@ type Controller struct {
 
 	// Now is the clock (tests); nil is time.Now.
 	Now func() time.Time
+
+	// Notify receives addon.failed events (Faz 26, notify.go); nil is off.
+	Notify notify.Emitter
 
 	kicks chan int64
 }
@@ -242,6 +247,10 @@ func (c *Controller) statusFor(a store.Addon, ready bool) string {
 func (c *Controller) setState(ctx context.Context, a store.Addon, status, msg string) {
 	if err := c.Store.SetAddonState(ctx, a.ID, status, msg); err != nil {
 		c.Log.Error("addons: state", "addon", a.Name, "err", err)
+		return
+	}
+	if status == store.AddonFailed && a.Status != store.AddonFailed {
+		c.notifyFailure(ctx, a, notify.AddonProvision, msg, strconv.FormatInt(c.Now().UnixNano(), 36))
 	}
 }
 
@@ -413,6 +422,7 @@ func (c *Controller) checkCopy(ctx context.Context, a store.Addon, b store.Addon
 		if _, err := c.Store.FailAddonBranch(ctx, b.ID, b.Generation, reason); err != nil {
 			return err
 		}
+		c.notifyFailure(ctx, a, notify.AddonCopy, b.Branch+": "+reason, fmt.Sprintf("%d:%d", b.ID, b.Generation))
 		return c.Cluster.DeleteAddonJob(ctx, a, name)
 	}
 	r := store.BranchResult{Mode: b.Mode}
@@ -499,6 +509,10 @@ func (c *Controller) backups(ctx context.Context, a store.Addon) error {
 			}
 		case r.Failed:
 			run.Status, run.Error = store.BackupFailed, lastLines(r.Message)
+			// Reported once per job (the event key); old runs are not.
+			if r.Finished == nil || c.Now().Sub(*r.Finished) < time.Hour {
+				c.notifyFailure(ctx, a, notify.AddonBackup, run.Error, r.Name)
+			}
 		}
 		if err := c.Store.RecordBackupRun(ctx, a.ID, run); err != nil {
 			return err
@@ -556,6 +570,7 @@ func (c *Controller) restore(ctx context.Context, a store.Addon, b store.AddonBa
 		if err := c.Store.SetRestoreStatus(ctx, b.ID, store.BackupFailed, lastLines(job.Message)); err != nil {
 			return err
 		}
+		c.notifyFailure(ctx, a, notify.AddonRestore, lastLines(job.Message), name)
 	default:
 		c.Log.Info("addon restored", "app", a.AppName, "addon", a.Name, "backup", b.ID)
 		if err := c.Store.SetRestoreStatus(ctx, b.ID, store.BackupSucceeded, ""); err != nil {

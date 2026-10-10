@@ -31,6 +31,10 @@ var statusLabels = map[string]string{
 	"verified": "Doğrulandı",
 	"active":   "Aktif",
 	"error":    "Hata",
+	// Faz 26: notification deliveries.
+	"sending": "Gönderiliyor",
+	"sent":    "Gönderildi",
+	"skipped": "Atlandı",
 }
 
 var roleLabels = map[string]string{
@@ -181,6 +185,25 @@ var messages = map[string]string{
 	"x and y must be given together":                    "Nokta için x ve y birlikte verilmeli.",
 	"x and y must be percentages between 0 and 100":     "Nokta önizlemenin içinde olmalı (yüzde 0–100).",
 	"viewport_width must be between 1 and 10000":        "Görünüm genişliği 1 ile 10000 piksel arasında olmalı.",
+	// Faz 26: notification channels (internal/notify).
+	"name must be 1-100 characters on one line":                                 "Ad tek satırda 1-100 karakter olmalı.",
+	"the kind of a channel cannot change; create a new channel":                 "Kanalın türü değiştirilemez; yeni bir kanal ekle.",
+	"kind must be email, slack, discord or webhook":                             "Tür e-posta, Slack, Discord ya da webhook olmalı.",
+	"choose at least one event":                                                 "En az bir olay seç.",
+	"email channels need an SMTP server: set PAAS_SMTP_HOST and PAAS_SMTP_FROM": "E-posta kanalları için sunucuda SMTP ayarlı olmalı (PAAS_SMTP_HOST ve PAAS_SMTP_FROM).",
+	"email channels have no url; use recipients":                                "E-posta kanalının URL'si olmaz; adres yaz.",
+	"an email channel can have at most 20 addresses":                            "Bir e-posta kanalında en fazla 20 adres olabilir.",
+	"add at least one address or send to the team members":                      "En az bir adres yaz ya da ekip üyelerine gönder.",
+	"recipients only apply to email channels":                                   "Adresler yalnızca e-posta kanallarında kullanılır.",
+	"url is required for slack, discord and webhook channels":                   "Slack, Discord ve webhook kanalları için URL gerekli.",
+	"url is longer than 2048 characters":                                        "URL en fazla 2048 karakter olabilir.",
+	"url must be an absolute https:// URL":                                      "URL https:// ile başlayan tam bir adres olmalı.",
+	"url must not contain a user name or password":                              "URL kullanıcı adı ya da şifre içeremez.",
+	"url must not point at a private or local address":                          "URL özel ya da yerel bir ağ adresini gösteremez.",
+	"only webhook channels have a signing secret":                               "Yalnızca webhook kanallarının imza anahtarı olur.",
+	"a channel with this name already exists":                                   "Bu adla bir kanal zaten var.",
+	"a team can have at most 50 notification channels":                          "Bir ekipte en fazla 50 bildirim kanalı olabilir.",
+	"email preferences belong to a user; sign in with GitHub":                   "E-posta tercihleri bir kullanıcıya aittir; GitHub ile giriş yap.",
 }
 
 var normMessages = func() map[string]string {
@@ -198,6 +221,10 @@ var patterns = []struct {
 	re *regexp.Regexp
 	tr string
 }{
+	// Faz 26: notification channels.
+	{regexp.MustCompile(`^invalid email address (.+)$`), "Geçersiz e-posta adresi: %s."},
+	{regexp.MustCompile(`^app (.+) is not an app of this team$`), "%s bu ekibin projesi değil."},
+	{regexp.MustCompile(`^unknown event type (\S+); use one of: .+$`), "Bilinmeyen olay türü: %s."},
 	// Faz 16–19 screens: build.NormalizeSettings.
 	{regexp.MustCompile(`^(\w+) is longer than (\d+) characters$`), "%s en fazla %s karakter olabilir."},
 	{regexp.MustCompile(`^(\w+) must be relative \(no leading "/"\)$`), `%s göreli olmalı (başta "/" olmadan).`},

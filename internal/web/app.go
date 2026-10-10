@@ -11,6 +11,7 @@ import (
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/build"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -351,6 +352,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("rollback", "app", app.Name, "deployment", id, "via", "web")
+	s.productionChanged(r, id, notify.ReasonRollback)
 	if !s.syncRoutes(w, r, app, "Geri alma") {
 		return
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -124,7 +125,10 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	me, _ := auth.From(r.Context())
-	_, err := api.RolloutAction(r.Context(), s.Store, s.Router, app, action, me.Login)
+	ro, err := api.RolloutAction(r.Context(), s.Store, s.Router, app, action, me.Login)
+	if err == nil || errors.Is(err, api.ErrRouteSync) {
+		s.productionChanged(r, notify.RolloutProductionTarget(ro), notify.ReasonRollout)
+	}
 	switch {
 	case errors.Is(err, api.ErrRouteSync):
 		s.Log.Error("rollout action: route sync", "app", app.Name, "err", err)

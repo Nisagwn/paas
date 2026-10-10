@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -61,6 +62,9 @@ type Verifier struct {
 	Log      *slog.Logger
 	// Now is replaced in tests.
 	Now func() time.Time
+	// Notify receives domain.failed and domain.certificate_expiring events
+	// (Faz 26, notify.go); nil is off.
+	Notify notify.Emitter
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
@@ -189,6 +193,7 @@ func (v *Verifier) Check(ctx context.Context, d store.Domain) (store.Domain, err
 		v.Log.Info("domain checked", "app", saved.AppName, "domain", saved.Hostname,
 			"status", saved.Status, "routed", saved.Routed, "via", saved.VerifiedBy)
 	}
+	v.notifyCheck(ctx, wasStatus, saved, now)
 	return saved, err
 }
 

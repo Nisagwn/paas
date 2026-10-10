@@ -185,8 +185,16 @@ func run(log *slog.Logger) error {
 	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
 
 	var wg sync.WaitGroup
+	// Faz 26: notifications (email, Slack, Discord, webhooks). Deployment
+	// and rollout events go through the worker's notifier chain.
+	notifications, err := startNotifications(ctx, cfg, st, log, &wg)
+	if err != nil {
+		return err
+	}
+	w.Notifier = deploymentNotifier(notifications, st, log, w.Notifier)
+	apiSrv.Notifications, ui.Notifications, verifier.Notify = notifications, notifications, notifications
 	// Faz 22: managed databases; deployments wait for their copies.
-	dbs, err := startAddons(ctx, st, applier, log, &wg)
+	dbs, err := startAddons(ctx, st, applier, log, &wg, notifications)
 	if err != nil {
 		return err
 	}
