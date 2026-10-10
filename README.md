@@ -113,6 +113,10 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
   yalnızca kendi namespace'inden erişilir), `DATABASE_URL` / `REDIS_URL` deploy'lara kendiliğinden eklenir; her preview branch'i
   production veritabanının `pg_dump | pg_restore` ile alınmış, istenirse anonimleştirilmiş kendi kopyasıyla çalışır, branch silinince
   kopya da silinir; günlük yedek, geri yükleme, şifre yenileme ([ayrıntılar](#veritabanları-faz-22))
+- [x] Faz 23: herkese açılış: ekip planları (Hobby / Pro / Sınırsız) ve limitleri (proje, eşzamanlı build, aylık build
+  dakikası, build zaman aşımı, günlük deploy, alan adı, veritabanı, kopya / cron, namespace kotası), adil build kuyruğu,
+  IP ve kullanıcı başına hız sınırları, en düşük GitHub hesap yaşı, ekip / kullanıcı askıya alma, Kullanım ve Yönetim
+  sayfaları, kullanım koşulları ve KVKK'ya uygun gizlilik politikası ([ayrıntılar](#planlar-ve-limitler-faz-23))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -561,6 +565,106 @@ Redis'te pod'un yeniden başlamasıyla uygulanır; açık bağlantılar sürer, 
 Küme RBAC'ına `statefulsets` ve `persistentvolumeclaims` eklendi; `pods/exec` kullanılmaz (işlerin sonucu pod'un
 sonlandırma mesajından okunur). `PAAS_DEPLOYER=dryrun` ile eklentiler küme olmadan hazır sayılır, kopyalar ve
 yedekler veri olmadan başarılı olur (yerel geliştirme).
+
+### Planlar ve limitler (Faz 23)
+
+Platformu herkese açmanın (`PAAS_OPEN_SIGNUP=true`) önkoşulu: her ekibin bir planı vardır ve kaynak harcayan her
+işlem bu plana göre denetlenir. Kötüye kullanıma karşı istekler hız sınırına tabidir, yöneticiler ekipleri ve
+kullanıcıları askıya alabilir.
+
+**Planlar.** `hobby` varsayılandır: açık kayıtla gelen kullanıcının kişisel ekibi ve sonradan kurulan her ekip
+Hobby'de başlar. `pro` ve `unlimited` (arayüzde "Sınırsız") yalnızca bir platform yöneticisi tarafından atanır.
+Migration 016'dan önce var olan ekipler (izin listeleriyle kurulmuş kurulumlar) `unlimited`'e alınır; mevcut
+kurulumlar yükseltmeden sonra kısıtlanmaz.
+
+| Limit (anahtar) | Hobby | Pro | Sınırsız | Nerede uygulanır |
+|---|---|---|---|---|
+| Proje (`projects`) | 10 | 100 | ∞ | Proje oluşturma ve GitHub'dan import (API + arayüz) |
+| Eşzamanlı build (`concurrent_builds`) | 1 | 4 | ∞ | Worker kuyruğu: sınırdaki ekip atlanır, diğerleri beklemez |
+| Aylık build dakikası (`build_minutes`) | 600 | 6000 | ∞ | Yeni deploy (push, deploy hook'u, yeniden deploy, preview'i production'a taşıma, import) |
+| Build zaman aşımı, dk (`build_timeout_minutes`) | 15 | 45 | yok | Worker'ın build aşaması (`PAAS_DEPLOY_TIMEOUT` ayrıca geçerli) |
+| Günlük deploy (`deployments_per_day`) | 50 | 1000 | ∞ | Yeni deploy (yukarıdakilerle aynı) |
+| Özel alan adı (`domains`) | 3 | 50 | ∞ | Alan adı ekleme (API + arayüz) |
+| Veritabanı (`addons`, Faz 22) | 2 | 20 | ∞ | Eklenti oluşturma (API + arayüz) |
+| Süreç başına kopya (`replicas`, Faz 20) | 2 | 10 | ∞ | Worker ölçekleme (API + arayüz) ve build sonrası `paas.yaml` |
+| Cron işi (`crons`, Faz 20) | 2 | 10 | ∞ | Build sonrası `paas.yaml` |
+| Proje başına CPU kotası (`cpu`) | 1 | 4 | `PAAS_APP_QUOTA_CPU` | Namespace `ResourceQuota` (`requests.cpu`) |
+| Proje başına bellek kotası (`memory`) | 2Gi | 8Gi | `PAAS_APP_QUOTA_MEMORY` | `ResourceQuota` (`requests.memory`, `limits.memory`) ve `LimitRange` varsayılanının üst sınırı |
+
+Her değer ortam değişkeniyle değişir: `PAAS_PLAN_<PLAN>_<ANAHTAR>`, ör. `PAAS_PLAN_HOBBY_PROJECTS=5`,
+`PAAS_PLAN_PRO_BUILD_MINUTES=unlimited`, `PAAS_PLAN_HOBBY_MEMORY=1Gi`. Bir yönetici tek bir ekip için tek tek
+limitleri de değiştirebilir (Yönetim sayfasında `projects=50` gibi satırlar ya da API'de `"limits"` nesnesi); yazılmayan
+anahtarlar planı izler. Günlük ve aylık pencereler UTC takvimine göredir. Build süresi deploy başına saklanır
+(`deployments.build_seconds`, her deneme eklenir; imajı yeniden kullanan deploy'lar build dakikası harcamaz); aylık
+toplam bu ay oluşturulan deploy'ların toplamıdır ve yukarı yuvarlanmış dakika olarak gösterilir. Eklentilerin
+kotası (Faz 22) plan kotasının üstüne eklenir.
+
+**Reddetme.** Sayılarla ilgili limitler `403`, sıfırlanan pencereler (günlük deploy, aylık dakika) `429` döner:
+
+```json
+{"error": "plan limit reached: the Hobby plan allows 50 deployments per day", "limit": "deployments_per_day", "plan": "hobby", "max": 50, "used": 50}
+```
+
+Arayüz aynı hataları Türkçe gösterir ("Plan limitine ulaşıldı: Hobby planında günde en fazla 50 deploy
+yapılabilir…"). Limit yüzünden kuyruğa alınmayan bir push, webhook'a `{"result": "refused", …}` ile cevaplanır ve
+commit GitHub'da kırmızı **"Plan limiti aşıldı (limit reached)"** durumu alır (bağlantısı Kullanım sayfası). Import
+proje limitine takılırsa proje oluşmaz; yalnızca günlük deploy ya da aylık dakika doluysa proje oluşur ama ilk
+deploy başlamaz (uyarıyla). Planı aşan bir `paas.yaml` (fazla cron ya da kopya) deploy'u nedeniyle `failed` yapar.
+
+**Adil kuyruk.** Worker sırada en eski deploy'u değil, eşzamanlı build sınırının altındaki ekiplerin en eski
+deploy'unu alır (`ClaimNextFor`); sınırındaki bir ekibin deploy'ları sırada bekler ama başka ekipleri tıkamaz.
+Seçim kısa bir advisory lock altında yapılır, iki worker aynı ekibi sınırın üstüne çıkaramaz.
+
+**Askıya alma.** Askıya alınan ekip deploy edemez ve yeni kaynak oluşturamaz; sıradaki deploy'ları iptal edilir,
+süren deploy'ları durdurulur, uygulamaları sıfıra ölçeklenir (Deployment / StatefulSet kopya sayıları açıklamaya
+yazılır, CronJob'lar `suspend` edilir, namespace kotası `pods: 0` olur). Nesneler, diskler ve veriler korunur;
+askı kaldırılınca her şey kayıtlı kopya sayısıyla geri gelir. Askıya alınan kullanıcı giriş yapamaz, oturumu
+kapanır, token'ları `403` alır. Platform yöneticileri askıya alınamaz.
+
+**Kötüye kullanım koruması.** Bellekte token bucket (her kontrol düzlemi kopyası kendi payını sayar):
+
+| Değişken | Varsayılan | Ne sınırlanır |
+|---|---|---|
+| `PAAS_RATE_LIMIT_SIGNIN` | `20/1m` | GitHub girişi ve token girişi, IP başına |
+| `PAAS_RATE_LIMIT_IMPORT` | `20/1h` | Proje oluşturma ve import, kullanıcı ve IP başına |
+| `PAAS_RATE_LIMIT_API_WRITES` | `120/1m` | Her durum değiştiren API isteği ve arayüz formu, kullanıcı ve IP başına (okumalar serbest) |
+| `PAAS_TRUST_PROXY_HEADERS` | `false` | `true`: istemci IP'si `X-Forwarded-For`'un son girdisinden (Traefik arkasında) |
+| `PAAS_SIGNUP_MIN_ACCOUNT_AGE` | `0` (kapalı) | Açık kayıtta bundan genç GitHub hesapları reddedilir (`720h` ya da `30d`; GitHub `/user` yanıtındaki `created_at`). Yöneticiler, `PAAS_ALLOWED_GITHUB_USERS` ve bir ekibe davet edilmiş hesaplar etkilenmez |
+
+Değerler `<sayı>/<süre>` ya da `off`. Sınırı aşan istek `429` ve `Retry-After` alır.
+
+**Yönetim.** Platform yöneticisi `PAAS_ADMIN_GITHUB_LOGINS`'teki bir GitHub kullanıcısı ya da eski admin token'ıdır.
+Arayüzde üst menüde **Yönetim** (`/admin`): tüm ekipler kullanımlarıyla (çubuklar), plan ve özel limit formu,
+askıya alma / kaldırma, kullanıcı askıya alma. API:
+
+| Yöntem | Yol | Açıklama |
+|---|---|---|
+| GET | `/api/teams/{slug}/usage` | Ekibin planı, geçerli limitleri ve kullanımı (viewer) |
+| GET | `/api/admin/teams` | Tüm ekipler: plan, limitler, kullanım, üye sayısı, sahipler |
+| GET | `/api/admin/teams/{slug}` | Tek ekip |
+| PUT | `/api/admin/teams/{slug}/plan` | `{"plan":"pro","limits":{"projects":50,"memory":"4Gi"}}`; `limits` yazılmazsa özel limitler kalır, `null` / `{}` temizler |
+| POST | `/api/admin/teams/{slug}/suspend` | `{"reason"?}`: askıya alır, uygulamaları sıfıra ölçekler |
+| POST | `/api/admin/teams/{slug}/unsuspend` | Askıyı kaldırır, uygulamaları geri ölçekler |
+| GET | `/api/admin/users/suspended` | Askıdaki kullanıcılar |
+| POST | `/api/admin/users/{login}/suspend` | `{"reason"?}` |
+| POST | `/api/admin/users/{login}/unsuspend` | Askıyı kaldırır |
+
+**Kullanım sayfası.** Üst menüdeki **Kullanım** (`/usage?team=<slug>`, ekip sayfasından da bağlantılı): projeler, bu
+ayki build dakikası, bugünkü deploy'lar, veritabanları, alan adları ve süren build'ler, limitlerine göre çubuklarla
+(%80'de sarı, dolunca kırmızı); altında build zaman aşımı, kopya, cron ve kota limitleri.
+
+**Yasal sayfalar.** `/terms` (Kullanım koşulları) ve `/privacy` (Gizlilik politikası, KVKK'ya göre: saklanan veriler
+— GitHub kullanıcı adı, adı, avatarı, şifreli ortam değişkenleri, loglar —, amaçlar, saklama süreleri, haklar)
+girişsiz açılır; her sayfanın alt bilgisinde ve giriş sayfasında ("Giriş yaparak koşulları kabul edersin")
+bağlantılıdır. `PAAS_CONTACT_EMAIL` başvuru adresini, `PAAS_OPERATOR_NAME` platformu işleteni adlandırır. Metinler
+şablondur; yayına almadan önce bir hukukçuya gözden geçirtin (not şablonun içinde yorum olarak durur, sayfada
+görünmez).
+
+**Herkese açık kurulum için kontrol listesi.** `PAAS_OPEN_SIGNUP=true`; GitHub App ayarlarında *Where can this
+GitHub App be installed?* → **Any account** (yoksa başka hesaplar repolarını bağlayamaz, bkz.
+[GitHub App](#github-app-faz-15)); `PAAS_ADMIN_GITHUB_LOGINS` ile en az bir yönetici; Traefik arkasında
+`PAAS_TRUST_PROXY_HEADERS=true`; `PAAS_CONTACT_EMAIL` ve gözden geçirilmiş yasal metinler; gerekirse
+`PAAS_SIGNUP_MIN_ACCOUNT_AGE=30d`.
 
 ### Deploy koruması (Faz 24)
 
@@ -1030,6 +1134,8 @@ veya organizasyona kurulabilir (platform tek bir organizasyonun repolarını dep
 **Any account**: başka kullanıcılar ve organizasyonlar da kurabilir (platformu farklı GitHub hesaplarına
 açıyorsanız). İki durumda da kimin giriş yapabileceğini Faz 13'ün izin listeleri belirler; bir kurulumun
 repoları yalnızca onu bağlayan ekibe listelenir.
+Platformu herkese açarken (`PAAS_OPEN_SIGNUP=true`, [Faz 23](#planlar-ve-limitler-faz-23)) bu ayar **Any
+account** olmalıdır.
 
 *Create GitHub App* → açılan *General* sayfasında:
 
@@ -1436,6 +1542,8 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/tokens` | Kişisel token'lar (değerleri değil) |
 | POST | `/api/tokens` | `{"name","expires_in_days"?}` — `token` alanı yalnızca bu yanıtta |
 | DELETE | `/api/tokens/{id}` | Token'ı iptal eder |
+| GET | `/api/teams/{slug}/usage` | Ekibin planı, limitleri ve kullanımı (viewer; Faz 23) |
+| GET / PUT / POST | `/api/admin/…` | Planlar, özel limitler, askıya alma (yalnızca platform yöneticisi; bkz. [Faz 23](#planlar-ve-limitler-faz-23)) |
 | GET | `/api/deployments/{id}/comments?status=open\|resolved` | Preview yorum dizileri (yanıtlarıyla) ve sayılar (viewer) |
 | POST | `/api/deployments/{id}/comments` | `{"body","path"?,"x"?,"y"?,"viewport_width"?}` — yeni dizi; yalnızca hazır deploy (`201`; viewer) |
 | POST | `/api/comments/{id}/replies` | `{"body"}` — yanıt (`201`; viewer) |
@@ -1465,6 +1573,8 @@ internal/scale/       sıfıra ölçekleme: boşta olma tespiti, aktivatör (uya
 internal/analytics/   istek metrikleri: Traefik sayaçlarından dakikalık farklar, saklama, p50/p95
 internal/rollout/     kademeli yayın denetleyicisi: karar fonksiyonu, adımlar, otomatik geri alma
 internal/addons/      yönetilen veritabanları (Faz 22): uzlaştırma döngüsü, preview kopyaları, anonimleştirme, yedekler
+internal/plans/       ekip planları ve limitleri (Faz 23): plan kataloğu, her giriş noktasının sorduğu Guard
+internal/ratelimit/   bellekte token bucket hız sınırlayıcı (giriş, import, yazma istekleri)
 internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar

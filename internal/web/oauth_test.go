@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/github"
@@ -37,12 +38,14 @@ type fakeGitHub struct {
 	// Faz 15: installation ids each login can access, and their repositories.
 	installs map[string][]int64
 	repos    map[int64][]map[string]any
+	// Faz 23: account creation dates (zero: not sent).
+	created map[string]time.Time
 }
 
 func newFakeGitHub(t *testing.T) *fakeGitHub {
 	f := &fakeGitHub{t: t, users: map[string]int64{"root": 1, "orgie": 2, "stranger": 3, "friend": 4},
 		orgs:     map[string][]string{"orgie": {"other", "ACME"}, "stranger": {"evil"}},
-		installs: map[string][]int64{}, repos: map[int64][]map[string]any{}}
+		installs: map[string][]int64{}, repos: map[int64][]map[string]any{}, created: map[string]time.Time{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login/oauth/access_token", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -66,7 +69,10 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
 			return
 		}
-		json.NewEncoder(w).Encode(github.User{ID: id, Login: login, Name: strings.ToUpper(login)})
+		f.mu.Lock()
+		created := f.created[login]
+		f.mu.Unlock()
+		json.NewEncoder(w).Encode(github.User{ID: id, Login: login, Name: strings.ToUpper(login), CreatedAt: created})
 	}
 	authed := func(r *http.Request) string {
 		return strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer tok-")

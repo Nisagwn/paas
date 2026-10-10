@@ -120,8 +120,9 @@ func (g *GitHubLogin) Complete(ctx context.Context, st *store.Store, code, verif
 		}
 		allowed = slices.ContainsFunc(orgs, func(o string) bool { return hasFold(g.AllowedOrgs, o) })
 	}
-	if allowed && !admin && !hasFold(g.AllowedUsers, acct.Login) && g.tooNew(acct) {
-		// Open sign-up only: an invited account may still come in.
+	if g.OpenSignup && !admin && !hasFold(g.AllowedUsers, acct.Login) && g.tooNew(acct) {
+		// Open sign-up only (allowlisted organizations are trusted): an
+		// invited account may still come in.
 		if ok, err := invited(ctx, st, acct.ID); err != nil {
 			return store.User{}, err
 		} else if !ok {

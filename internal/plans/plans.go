@@ -62,7 +62,7 @@ type Catalog map[string]Limits
 var Plans = []string{store.PlanHobby, store.PlanPro, store.PlanUnlimited}
 
 // DefaultCatalog is the configuration without PAAS_PLAN_* variables. Hobby
-// fits one person's side projects on a shared node; pro a small company;
+// fits one person's side projects on a shared node; pro a company's team;
 // unlimited only bounds the namespace quota by the global settings.
 func DefaultCatalog() Catalog {
 	return Catalog{
