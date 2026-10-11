@@ -119,6 +119,15 @@ type appDetail struct {
 
 	// Faz 24: the Koruma section of Ayarlar (protection.go).
 	Protection *protectionPanel
+
+	// project_ux.go: Genel's hero and entry points (O), the Deploy'lar
+	// filters (F); success messages of the htmx env and domain cards and
+	// the bulk .env text kept after an error.
+	O           *overviewUX
+	F           *deployFilter
+	EnvFlash    string
+	EnvBulk     string
+	DomainFlash string
 }
 
 // loadApp loads the {name} app and checks the caller's team role: viewer
@@ -285,6 +294,10 @@ func (s *Server) renderTabOf(w http.ResponseWriter, r *http.Request, app store.A
 			return
 		}
 	}
+	if err := s.tabExtras(r, tab, &v); err != nil {
+		s.internalError(w, r, err)
+		return
+	}
 	if edit != nil {
 		edit(&v)
 	}
@@ -315,6 +328,7 @@ func (s *Server) deploymentsPage(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	v.F = deployFilterOf(r, v.Deployments)
 	s.partial(w, r, http.StatusOK, "deployments", v, "")
 }
 
@@ -356,7 +370,11 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 	if !s.syncRoutes(w, r, app, "Geri alma") {
 		return
 	}
-	redirect(w, r, "/apps/"+app.Name+"/deployments?ok=rollback")
+	flash := "rollback"
+	if r.PostFormValue("from") == "deployment" {
+		flash = "rollback-here"
+	}
+	redirect(w, r, backTo(r, app, id, flash))
 }
 
 // syncRoutes applies a production alias change to the router; on failure
@@ -416,6 +434,12 @@ func (s *Server) changeEnv(w http.ResponseWriter, r *http.Request, key string, v
 		if err != nil {
 			s.internalError(w, r, err)
 			return
+		}
+		if msg == "" {
+			v.EnvFlash = envSaved
+			if value == nil {
+				v.EnvFlash = envDeleted
+			}
 		}
 		s.partial(w, r, status, "env", v, msg)
 		return

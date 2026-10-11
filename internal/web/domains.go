@@ -116,6 +116,9 @@ func (s *Server) domainsResponse(w http.ResponseWriter, r *http.Request, app sto
 			s.internalError(w, r, err)
 			return
 		}
+		if msg == "" {
+			v.DomainFlash = domainsSaved
+		}
 		var buf bytes.Buffer
 		p := page{Data: v, CSRF: s.Sessions.CSRFToken(r), DomainError: tr(msg)}
 		if err := s.pages["domains"].Execute(&buf, p); err != nil {

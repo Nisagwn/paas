@@ -1,6 +1,35 @@
+{{define "head"}}
+{{template "ux-css"}}
+<style>
+/* Deploy'lar: filter bar. */
+.filters { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 20px 0 8px; }
+.filters > div { min-width: 150px; }
+.filters select { width: 100%; }
+.filters .f-btns { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.list-note { display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; margin: 0 0 12px; }
+</style>
+{{end}}
+
 {{define "content"}}
 {{template "apphead" .}}
-<p class="sub small" style="margin-top:20px">Her push yeni bir deploy oluşturur. Önizlemeyi build etmeden production'a taşıyabilir,
-  bir deploy'u yeniden çalıştırabilir ya da süren bir deploy'u iptal edebilirsin.{{if not .Data.CanWrite}} Bu işlemler için ekipte üye rolü gerekir.{{end}}</p>
+{{$a := .Data.App}}{{$f := .Data.F}}
+<form class="filters" method="get" action="/apps/{{$a.Name}}/deployments" role="search" aria-label="Deploy filtreleri" id="deploy-filters">
+  <div><label for="f-env">Ortam</label>
+    <select id="f-env" name="env">{{range $f.Envs}}<option value="{{.ID}}"{{if eq .ID $f.Env}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+  <div><label for="f-branch">Branch</label>
+    <select id="f-branch" name="branch"><option value="">Tüm branch'ler</option>{{range $f.Branches}}<option value="{{.}}"{{if eq . $f.Branch}} selected{{end}}>{{.}}</option>{{end}}</select></div>
+  <div><label for="f-status">Durum</label>
+    <select id="f-status" name="status">{{range $f.Statuses}}<option value="{{.ID}}"{{if eq .ID $f.Status}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+  <div class="f-btns"><button class="no-js" type="submit">Filtrele</button>{{if $f.Any}}<a class="small" href="/apps/{{$a.Name}}/deployments">Filtreleri temizle</a>{{end}}</div>
+</form>
+<p class="sub small list-note">
+  <span>{{if $f.Any}}{{len $f.Rows}} / {{$f.Total}} deploy gösteriliyor.{{else}}Son {{$f.Total}} deploy.{{end}}</span>
+  <span>Her push yeni bir deploy oluşturur. Önizlemeyi build etmeden production'a taşıyabilir, eski bir production sürümüne dönebilir ya da süren bir deploy'u iptal edebilirsin; diğer eylemler <span aria-hidden="true">⋯</span> menüsünde.{{if not .Data.CanWrite}} Bu işlemler için ekipte üye rolü gerekir.{{end}}</span>
+</p>
 {{template "deployments" .}}
+{{template "ux-js" .}}
+<script nonce="{{.Nonce}}">
+// Filters apply as soon as a choice changes.
+document.getElementById("deploy-filters").addEventListener("change", (e) => e.currentTarget.requestSubmit());
+</script>
 {{end}}
