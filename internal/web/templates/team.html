@@ -1,79 +1,206 @@
+{{define "head"}}<style>
+.team-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 32px 0 12px; }
+.sec-head h2 { margin: 0; }
+.sec-head .muted { font-size: 13px; }
+.sec-head .actions { margin-left: auto; display: flex; gap: 8px; }
+.member { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.member:last-child { border-bottom: 0; }
+.member .who { flex: 1; min-width: 180px; }
+.member .ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.member .ctl select { padding: 4px 8px; font-size: 13px; }
+.why { font-size: 12px; color: var(--muted); }
+.roles th:not(:first-child), .roles td:not(:first-child) { text-align: center; width: 90px; }
+.roles .yes { color: var(--ok); font-weight: 700; }
+.roles .no { color: var(--muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.panel-off { padding: 14px 16px; color: var(--muted); font-size: 13px; }
+.danger-zone { border-color: var(--err); }
+.danger-zone .row > div:first-child { min-width: 240px; }
+@media (max-width: 720px) {
+  .member .ctl { justify-content: flex-start; width: 100%; }
+  .roles th:not(:first-child), .roles td:not(:first-child) { width: 56px; }
+}
+</style>{{end}}
 {{define "content"}}
-{{$t := .Data.Team}}{{$csrf := .CSRF}}{{$owner := .Data.Owner}}{{$roles := .Data.Roles}}{{$me := .Me}}
+{{$t := .Data.Team}}{{$csrf := .CSRF}}{{$owner := .Data.Owner}}{{$roles := .Data.Roles}}
+<nav class="sub" aria-label="Konum" style="margin:0"><a href="/teams">Ekipler</a> /</nav>
 <div class="head"><div>
-  <p class="sub" style="margin:0"><a href="/teams">Ekipler</a> /</p>
   <h1>{{$t.Name}}</h1>
-  <p class="sub"><span class="mono">{{$t.Slug}}</span> · rolün <span class="tag">{{role $t.Role}}</span> · <a href="/usage?team={{$t.Slug}}">Plan ve kullanım</a></p>
+  <div class="team-meta">
+    <span class="mono muted small">{{$t.Slug}}</span>
+    <span class="tag" title="Bu ekipteki rolün">Rolün: {{role $t.Role}}</span>
+    <span class="tag">{{.Data.PlanLabel}} planı</span>
+    {{if .Data.Status.Suspended}}<span class="badge s-failed">Askıda</span>{{end}}
+  </div>
 </div>
-<div class="actions"><a class="btn" href="/teams/{{$t.Slug}}/notifications">Bildirimler</a></div>
+<div class="actions">
+  {{if .Data.CanWrite}}<a class="btn primary" href="/import">+ Yeni proje</a>{{end}}
+</div>
 </div>
 
-<h2>Projeler</h2>
+<nav class="tabs" aria-label="Ekip bölümleri">
+  <a class="on" aria-current="page" href="/teams/{{$t.Slug}}">Genel</a>
+  <a href="/teams/{{$t.Slug}}/notifications">Bildirimler</a>
+  <a href="/usage?team={{$t.Slug}}">Plan ve kullanım</a>
+</nav>
+
+{{if .Data.Status.Suspended}}
+<div class="flash err" role="alert" style="margin-top:16px">Bu ekip bir platform yöneticisi tarafından askıya alındı{{with .Data.Status.SuspendedReason}}: {{.}}{{end}}. Deploy ve yeni kaynak oluşturma kapalı; veriler korunuyor.</div>
+{{end}}
+
+<!-- Members -->
+<div class="sec-head" id="members">
+  <h2>Üyeler</h2><span class="muted">{{len .Data.Members}} kişi</span>
+  {{if $owner}}<div class="actions"><a class="btn small" href="#invite">+ Üye ekle</a></div>{{end}}
+</div>
+<div class="card">
+{{range .Data.Members}}
+  <div class="member">
+    <div class="who">
+      <strong>@{{.Login}}</strong>{{if .Me}} <span class="tag">Sen</span>{{end}}
+      {{with .Name}}<div class="muted small">{{.}}</div>{{end}}
+    </div>
+    <div class="ctl">
+      {{if and $owner (not .LastOwner)}}
+      <form class="inline" method="post" action="/teams/{{$t.Slug}}/members">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="hidden" name="login" value="{{.Login}}">
+        <input type="hidden" name="op" value="role">
+        {{$r := .Role}}
+        <select name="role" aria-label="@{{.Login}} rolü">
+          {{range $roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{role .}}</option>{{end}}
+        </select>
+        <button class="small" type="submit">Rolü kaydet</button>
+      </form>
+      {{else}}
+      <span class="tag" title="{{roledesc .Role}}">{{role .Role}}</span>
+      {{end}}
+      {{if and $owner (not .Me)}}
+        {{if .LastOwner}}
+        <button class="small danger" type="button" disabled aria-describedby="lo-{{.ID}}">Çıkar</button>
+        <span class="why" id="lo-{{.ID}}">Ekibin tek sahibi</span>
+        {{else}}
+        <form class="inline" method="post" action="/teams/{{$t.Slug}}/members/remove"
+          hx-post="/teams/{{$t.Slug}}/members/remove" hx-target="main" hx-select="main" hx-swap="outerHTML"
+          hx-confirm="@{{.Login}} ekipten çıkarılsın mı? Ekibin projelerine erişimi hemen kapanır.">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="login" value="{{.Login}}">
+          <button class="small danger" type="submit">Çıkar</button>
+        </form>
+        {{end}}
+      {{end}}
+      {{if and $owner .LastOwner}}<span class="why">Tek sahip; rolü değiştirmek için önce başka birini sahip yap.</span>{{end}}
+    </div>
+  </div>
+{{else}}
+  <div class="empty">Bu ekipte henüz üye yok.{{if $owner}} <a href="#invite">İlk üyeyi ekle →</a>{{end}}</div>
+{{end}}
+</div>
+
+<details class="card section" id="invite" style="margin-top:12px" {{if .Data.Invite.Login}}open{{end}}>
+  <summary>Üye ekle <span class="muted">GitHub kullanıcı adıyla</span></summary>
+  <div class="body">
+  {{if $owner}}
+  <form method="post" action="/teams/{{$t.Slug}}/members">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    {{$ir := .Data.Invite.Role}}
+    <div class="row">
+      <div><label for="login">GitHub kullanıcı adı</label><input id="login" name="login" value="{{.Data.Invite.Login}}" placeholder="octocat" required autocomplete="off" aria-describedby="invite-hint"></div>
+      <div style="flex:0 0 160px"><label for="role">Rol</label>
+        <select id="role" name="role" style="width:100%">{{range $roles}}<option value="{{.}}" {{if eq . $ir}}selected{{end}}>{{role .}}</option>{{end}}</select></div>
+      <div style="flex:0"><button class="primary" type="submit">Ekle</button></div>
+    </div>
+    <p class="muted small" id="invite-hint" style="margin:8px 0 0">Kişi hemen eklenir; davet e-postası gönderilmez. GitHub ile giriş yaptığında ekibi ve projelerini görür. Rollerin farkı aşağıdaki tabloda.</p>
+  </form>
+  {{else}}
+  <p class="muted small" style="margin:0">Üye eklemeyi yalnızca ekip sahipleri yapabilir{{with .Data.Owners}} (sahipler: {{range $i, $o := .}}{{if $i}}, {{end}}@{{$o}}{{end}}){{end}}. Birini eklemek istiyorsan onlara GitHub kullanıcı adını ilet.</p>
+  {{end}}
+  </div>
+</details>
+
+<details class="card section" id="roles" style="margin-top:12px">
+  <summary>Roller ne yapabilir?</summary>
+  <div class="body">
+    <table class="roles">
+      <thead><tr><th scope="col">Yetki</th><th scope="col">İzleyici</th><th scope="col">Üye</th><th scope="col">Sahip</th></tr></thead>
+      <tbody>
+      {{range .Data.RoleRows}}
+        <tr><td>{{.Label}}</td>
+          <td>{{if .Viewer}}<span class="yes" aria-hidden="true">✓</span><span class="sr">Evet</span>{{else}}<span class="no" aria-hidden="true">—</span><span class="sr">Hayır</span>{{end}}</td>
+          <td>{{if .Member}}<span class="yes" aria-hidden="true">✓</span><span class="sr">Evet</span>{{else}}<span class="no" aria-hidden="true">—</span><span class="sr">Hayır</span>{{end}}</td>
+          <td>{{if .Owner}}<span class="yes" aria-hidden="true">✓</span><span class="sr">Evet</span>{{else}}<span class="no" aria-hidden="true">—</span><span class="sr">Hayır</span>{{end}}</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</details>
+
+<!-- Projects -->
+<div class="sec-head">
+  <h2>Projeler</h2><span class="muted">{{len .Data.Apps}} proje</span>
+</div>
 <div class="card">
 {{with .Data.Apps}}
   <table><tbody>
-  {{range .}}<tr><td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td><td class="mono muted">{{.Repo}}</td></tr>{{end}}
+  {{range .}}<tr><td><a href="/apps/{{.Name}}"><strong>{{.Name}}</strong></a></td><td class="mono muted small hide-sm">{{.Repo}}</td><td style="text-align:right"><a href="/apps/{{.Name}}" aria-label="{{.Name}} projesini aç">→</a></td></tr>{{end}}
   </tbody></table>
 {{else}}
-  <div class="empty">Bu ekipte henüz proje yok.</div>
+  <div class="empty">Bu ekipte henüz proje yok.{{if .Data.CanWrite}} <a href="/import">GitHub'dan bir repo içe aktar →</a>{{else}} Proje oluşturmak için ekipte en az Üye rolü gerekir.{{end}}</div>
 {{end}}
 </div>
 
-<h2>Üyeler</h2>
+<!-- GitHub -->
+<div class="sec-head" id="github">
+  <h2>GitHub bağlantıları</h2><span class="muted">Ekibin içe aktarabildiği repolar bu hesaplardan gelir</span>
+</div>
 <div class="card">
-{{with .Data.Members}}
+  {{with .Data.Installs}}
   <table>
-    <thead><tr><th>Kullanıcı</th><th>Rol</th><th></th></tr></thead>
+    <thead><tr><th>Hesap</th><th>Tür</th><th>Durum</th></tr></thead>
     <tbody>
     {{range .}}
-      <tr>
-        <td><strong>@{{.Login}}</strong> <span class="muted small">{{.Name}}</span></td>
-        <td>
-          {{if $owner}}
-          <form class="inline" method="post" action="/teams/{{$t.Slug}}/members">
-            <input type="hidden" name="csrf" value="{{$csrf}}">
-            <input type="hidden" name="login" value="{{.Login}}">
-            {{$r := .Role}}
-            <select name="role" aria-label="{{.Login}} rolü">
-              {{range $roles}}<option value="{{.}}" {{if eq . $r}}selected{{end}}>{{role .}}</option>{{end}}
-            </select>
-            <button class="small" type="submit">Değiştir</button>
-          </form>
-          {{else}}<span class="tag">{{role .Role}}</span>{{end}}
-        </td>
-        <td style="text-align:right">
-          {{if or $owner (eq .ID $me.UserID)}}
-          <form class="inline" method="post" action="/teams/{{$t.Slug}}/members/remove">
-            <input type="hidden" name="csrf" value="{{$csrf}}">
-            <input type="hidden" name="login" value="{{.Login}}">
-            <button class="small danger" type="submit">{{if eq .ID $me.UserID}}Ekipten ayrıl{{else}}Çıkar{{end}}</button>
-          </form>
-          {{end}}
-        </td>
-      </tr>
+      <tr><td><strong>{{.AccountLogin}}</strong></td>
+        <td class="muted small">{{if .Org}}Organizasyon{{else}}Kişisel hesap{{end}}</td>
+        <td>{{if .Suspended}}<span class="badge s-failed">GitHub'da askıya alındı</span>{{else}}<span class="badge s-ready">Bağlı</span>{{end}}</td></tr>
     {{end}}
     </tbody>
   </table>
-{{else}}
-  <div class="empty">Henüz üye yok.</div>
-{{end}}
+  {{else}}
+  <div class="empty">Bu ekibe bağlı bir GitHub hesabı yok. Bağladığında hesabın repoları <a href="/import">Yeni proje</a> sayfasında listelenir.</div>
+  {{end}}
+  <div class="panel-off" style="border-top:1px solid var(--border)">
+    {{if .Data.InstallWhy}}
+    <button type="button" class="small" disabled aria-describedby="install-why">GitHub hesabı bağla</button>
+    <span id="install-why">{{.Data.InstallWhy}}</span>
+    {{else}}
+    <a class="btn small" href="/github/install?team={{$t.Slug}}">GitHub hesabı bağla ↗</a>
+    <span>GitHub'da uygulamayı bir hesaba ya da organizasyona kurar, hangi repoları paylaşacağını seçersin.</span>
+    {{end}}
+  </div>
 </div>
 
-{{if $owner}}
-<details class="card section" style="margin-top:20px">
-  <summary>Üye ekle</summary>
-  <div class="body">
-  <form method="post" action="/teams/{{$t.Slug}}/members">
-    <input type="hidden" name="csrf" value="{{$csrf}}">
-    <div class="row">
-      <div><label for="login">GitHub kullanıcı adı</label><input id="login" name="login" placeholder="octocat" required></div>
-      <div><label for="role">Rol</label>
-        <select id="role" name="role">{{range $roles}}<option value="{{.}}" {{if eq . "member"}}selected{{end}}>{{role .}}</option>{{end}}</select></div>
-      <div style="flex:0"><button class="primary" type="submit">Ekle</button></div>
+<!-- Leave -->
+{{with .Data.Mine}}
+<h2>Ekipten ayrıl</h2>
+<div class="card pad danger-zone">
+  <div class="row" style="align-items:center">
+    <div><p style="margin:0">Ayrılınca bu ekibin projelerine erişimin kapanır. Geri dönmek için bir sahibin seni yeniden eklemesi gerekir.</p>
+      {{if .LastOwner}}<p class="why" id="leave-why" style="margin:4px 0 0">Ekibin tek sahibisin. Ayrılmadan önce başka bir üyeyi sahip yap.</p>{{end}}</div>
+    <div style="flex:0">
+      {{if .LastOwner}}
+      <button class="danger" type="button" disabled aria-describedby="leave-why">Ekipten ayrıl</button>
+      {{else}}
+      <form method="post" action="/teams/{{$t.Slug}}/members/remove"
+        hx-post="/teams/{{$t.Slug}}/members/remove" hx-target="main" hx-select="main" hx-swap="outerHTML"
+        hx-confirm="{{$t.Name}} ekibinden ayrılmak istediğine emin misin?">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <input type="hidden" name="login" value="{{.Login}}">
+        <button class="danger" type="submit">Ekipten ayrıl</button>
+      </form>
+      {{end}}
     </div>
-    <p class="muted small" style="margin-bottom:0">Eklenen kişi GitHub ile giriş yapabilir.</p>
-  </form>
   </div>
-</details>
+</div>
 {{end}}
 {{end}}

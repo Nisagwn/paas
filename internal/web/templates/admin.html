@@ -1,99 +1,160 @@
 {{define "head"}}<style>
-.meter { height: 6px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin-top: 3px; min-width: 80px; }
+.meter { height: 6px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin-top: 4px; }
 .meter > span { display: block; height: 100%; background: var(--ok); }
 .meter.warn > span { background: var(--warn); }
 .meter.full > span { background: var(--err); }
-.admin-team { margin-bottom: 16px; }
-.admin-team .bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 12px 0; }
-.admin-team .bars .k { font-size: 12px; color: var(--muted); }
-.admin-team .bars .v { font-variant-numeric: tabular-nums; font-size: 13px; }
+.admin-stats { margin-bottom: 16px; }
+.admin-stats a.stat { color: var(--text); display: block; }
+.admin-stats a.stat:hover { border-color: var(--muted); text-decoration: none; }
+.admin-stats a.stat.on { border-color: var(--text); }
+.admin-find { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+.admin-find > div { flex: 1; min-width: 200px; }
+.admin-find select { min-width: 160px; }
+.at { border-bottom: 1px solid var(--border); padding: 14px 16px; }
+.at:last-child { border-bottom: 0; }
+.at.is-suspended { background: var(--err-bg); }
+.at-main { display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(240px, 2fr) auto; gap: 16px; align-items: center; }
+.at .who strong { font-size: 15px; }
+.at .use { display: grid; grid-template-columns: repeat(3, minmax(70px, 1fr)); gap: 12px; }
+.at .use .k { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.at .use .v { font-size: 13px; font-variant-numeric: tabular-nums; }
+.at .plan { display: flex; gap: 6px; align-items: center; }
+.at .plan select { padding: 4px 8px; font-size: 13px; }
+.at .susp { margin-top: 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--err); font-size: 13px; }
+.at details { margin-top: 8px; font-size: 13px; }
+.at details > summary { color: var(--muted); }
+.at details .cols { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 10px; }
 textarea { font: inherit; font-family: var(--mono); font-size: 13px; width: 100%; padding: 8px 10px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+@media (max-width: 720px) {
+  .at-main, .at details .cols { grid-template-columns: 1fr; }
+}
 </style>{{end}}
 {{define "content"}}
-{{$csrf := .CSRF}}
+{{$csrf := .CSRF}}{{$d := .Data}}
 <div class="head"><div>
   <h1>Yönetim</h1>
-  <p class="sub">Ekiplerin planı ve kullanımı; askıya alma. Yalnızca platform yöneticileri görür.</p>
+  <p class="sub">Ekiplerin planı, kullanımı ve askıya alma. Bu sayfayı yalnızca platform yöneticileri görür.</p>
 </div></div>
 {{with .Data.Flash}}<div class="flash ok" role="status">{{.}}</div>{{end}}
 
-<h2>Ekipler</h2>
+<div class="stats admin-stats">
+  <a class="card pad stat {{if eq $d.Filter ""}}on{{end}}" href="/admin"><div class="k">Ekipler</div><div class="v">{{$d.Total}}</div></a>
+  <a class="card pad stat {{if eq $d.Filter "limit"}}on{{end}}" href="/admin?filter=limit"><div class="k">Bir limitte</div><div class="v">{{$d.AtLimit}}</div></a>
+  <a class="card pad stat {{if eq $d.Filter "suspended"}}on{{end}}" href="/admin?filter=suspended"><div class="k">Askıda</div><div class="v {{if $d.Suspended}}bad{{end}}">{{$d.Suspended}}</div></a>
+</div>
+
+<h2 style="margin-top:0">Ekipler</h2>
+<form class="admin-find" method="get" action="/admin" role="search">
+  <div><label for="q">Ekip ara</label><input id="q" name="q" type="search" value="{{$d.Q}}" placeholder="Ad, kısa ad ya da sahip (@alice)"></div>
+  <div style="flex:0"><label for="filter">Göster</label>
+    <select id="filter" name="filter">
+      <option value="" {{if eq $d.Filter ""}}selected{{end}}>Tüm ekipler</option>
+      <option value="limit" {{if eq $d.Filter "limit"}}selected{{end}}>Bir limitte olanlar</option>
+      <option value="suspended" {{if eq $d.Filter "suspended"}}selected{{end}}>Askıdakiler</option>
+    </select></div>
+  <div style="flex:0"><button type="submit">Ara</button></div>
+  {{if or $d.Q $d.Filter}}<div style="flex:0;padding-bottom:8px"><a class="small" href="/admin">Filtreyi temizle</a></div>{{end}}
+</form>
+
+<div class="card">
 {{range .Data.Teams}}{{$t := .T}}
-<div class="card pad admin-team" id="team-{{$t.Slug}}">
-  <div class="head">
-    <div>
-      <strong>{{$t.Name}}</strong> <span class="mono muted small">{{$t.Slug}}</span>
-      <span class="tag prod">{{.PlanLabel}}</span>
-      {{if $t.Suspended}}<span class="badge s-failed">Askıda</span>{{end}}
-      <div class="muted small">{{$t.Members}} üye{{with $t.Owners}} · sahip: {{range $i, $o := .}}{{if $i}}, {{end}}@{{$o}}{{end}}{{end}}{{with .Overrides}} · özel limitler: <code>{{.}}</code>{{end}}</div>
-      {{if $t.Suspended}}<div class="small" style="color:var(--err)">Askıya alındı: {{time $t.SuspendedAt.UTC}}{{with $t.SuspendedReason}} · {{.}}{{end}}</div>{{end}}
+<section class="at {{if $t.Suspended}}is-suspended{{end}}" id="team-{{$t.Slug}}" aria-labelledby="tn-{{$t.Slug}}">
+  <div class="at-main">
+    <div class="who">
+      <strong id="tn-{{$t.Slug}}">{{$t.Name}}</strong> <span class="mono muted small">{{$t.Slug}}</span>
+      {{if $t.Suspended}}<span class="badge s-failed">Askıda</span>{{else if eq .Level "full"}}<span class="badge h-failing">Limitte</span>{{else if eq .Level "warn"}}<span class="badge h-degraded">Limite yakın</span>{{end}}
+      <div class="muted small">{{$t.Members}} üye{{with $t.Owners}} · sahip: {{range $i, $o := .}}{{if $i}}, {{end}}@{{$o}}{{end}}{{end}}</div>
+      {{with .Overrides}}<div class="muted small">Özel limitler var</div>{{end}}
     </div>
-  </div>
-  <div class="bars">
-    {{range .Bars}}
-    <div><div class="k">{{.Label}}</div>
-      <div class="v">{{.Used}} / {{if .Unlimited}}∞{{else}}{{.Max}}{{end}}</div>
-      {{if not .Unlimited}}<div class="meter {{.Level}}"><span style="width:{{.Percent}}%"></span></div>{{end}}
+    <div class="use" aria-label="{{$t.Name}} kullanımı">
+      {{with .Bar "projects"}}{{template "adminbar" .}}{{end}}
+      {{with .Bar "build_minutes"}}{{template "adminbar" .}}{{end}}
+      {{with .Bar "deploys"}}{{template "adminbar" .}}{{end}}
     </div>
-    {{end}}
-  </div>
-  <div class="row">
-    <form method="post" action="/admin/teams/{{$t.Slug}}/plan" style="flex:2;min-width:260px">
+    <form class="plan" method="post" action="/admin/teams/{{$t.Slug}}/plan"
+      hx-post="/admin/teams/{{$t.Slug}}/plan" hx-target="main" hx-select="main" hx-swap="outerHTML"
+      hx-confirm="{{$t.Name}} ekibinin planı değiştirilsin mi? Yeni limitler hemen geçerli olur.">
       <input type="hidden" name="csrf" value="{{$csrf}}">
-      <div class="row">
-        <div style="flex:0 0 140px"><label for="plan-{{$t.Slug}}">Plan</label>
-          <select id="plan-{{$t.Slug}}" name="plan">
-            {{range $.Data.Plans}}<option value="{{.}}" {{if eq . $t.Plan}}selected{{end}}>{{index $.Data.PlanLabels .}}</option>{{end}}
-          </select></div>
-        <div><label for="limits-{{$t.Slug}}">Özel limitler (anahtar=değer, satır başına bir tane)</label>
-          <textarea id="limits-{{$t.Slug}}" name="limits" rows="2" placeholder="projects=50&#10;build_minutes=unlimited">{{.Lines}}</textarea></div>
-        <div style="flex:0"><button class="primary" type="submit">Kaydet</button></div>
-      </div>
-      <p class="muted small" style="margin:4px 0 0">Boş bırakılırsa planın kendi limitleri geçerli olur. Anahtarlar: {{range $i, $k := $.Data.Keys}}{{if $i}}, {{end}}<code>{{$k}}</code>{{end}}.</p>
+      <label for="plan-{{$t.Slug}}" class="small" style="margin:0">Plan</label>
+      <select id="plan-{{$t.Slug}}" name="plan">
+        {{range $d.Plans}}<option value="{{.}}" {{if eq . $t.Plan}}selected{{end}}>{{index $d.PlanLabels .}}</option>{{end}}
+      </select>
+      <button class="small" type="submit">Kaydet</button>
     </form>
-    <div style="flex:1;min-width:220px">
-      {{if $t.Suspended}}
-      <form method="post" action="/admin/teams/{{$t.Slug}}/unsuspend">
+  </div>
+
+  {{if $t.Suspended}}
+  <div class="susp">
+    <span>Askıya alındı: {{time $t.SuspendedAt.UTC}}{{with $t.SuspendedReason}} · Gerekçe: {{.}}{{end}}. Uygulamaları sıfıra ölçeklendi; deploy ve yeni kaynak kapalı.</span>
+    <form class="inline" method="post" action="/admin/teams/{{$t.Slug}}/unsuspend"
+      hx-post="/admin/teams/{{$t.Slug}}/unsuspend" hx-target="main" hx-select="main" hx-swap="outerHTML"
+      hx-confirm="{{$t.Name}} ekibinin askısı kaldırılsın mı? Uygulamaları yeniden ölçeklenir.">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <button class="small primary" type="submit">Askıyı kaldır</button>
+    </form>
+  </div>
+  {{end}}
+
+  <details>
+    <summary>Tüm kullanım, özel limitler{{if not $t.Suspended}} ve askıya alma{{end}}</summary>
+    <div class="use" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:10px">
+      {{range .Bars}}{{template "adminbar" .}}{{end}}
+    </div>
+    <div class="cols">
+      <form method="post" action="/admin/teams/{{$t.Slug}}/plan">
         <input type="hidden" name="csrf" value="{{$csrf}}">
-        <button type="submit">Askıyı kaldır</button>
+        <input type="hidden" name="plan" value="{{$t.Plan}}">
+        <label for="limits-{{$t.Slug}}">Özel limitler (satır başına bir anahtar=değer)</label>
+        <textarea id="limits-{{$t.Slug}}" name="limits" rows="3" placeholder="projects=50&#10;build_minutes=unlimited" aria-describedby="limits-hint-{{$t.Slug}}">{{.Lines}}</textarea>
+        <p class="muted small" id="limits-hint-{{$t.Slug}}" style="margin:4px 0 8px">Boş bırakırsan planın kendi limitleri geçerli olur; <code>unlimited</code> sınırı kaldırır. Anahtarlar: {{range $i, $k := $d.Keys}}{{if $i}}, {{end}}<code>{{$k}}</code>{{end}}.</p>
+        <button class="small primary" type="submit">Limitleri kaydet</button>
       </form>
-      {{else}}
-      <form method="post" action="/admin/teams/{{$t.Slug}}/suspend">
+      {{if not $t.Suspended}}
+      <form method="post" action="/admin/teams/{{$t.Slug}}/suspend"
+        hx-post="/admin/teams/{{$t.Slug}}/suspend" hx-target="main" hx-select="main" hx-swap="outerHTML"
+        hx-confirm="{{$t.Name}} ekibi askıya alınsın mı? Tüm uygulamaları sıfıra ölçeklenir, deploy'lar durur.">
         <input type="hidden" name="csrf" value="{{$csrf}}">
         <label for="reason-{{$t.Slug}}">Askıya alma gerekçesi</label>
-        <input id="reason-{{$t.Slug}}" name="reason" maxlength="500" placeholder="Kötüye kullanım">
-        <p style="margin:6px 0 0"><button class="danger" type="submit">Askıya al</button></p>
+        <input id="reason-{{$t.Slug}}" name="reason" maxlength="500" required placeholder="ör. Kötüye kullanım bildirimi" aria-describedby="reason-hint-{{$t.Slug}}">
+        <p class="muted small" id="reason-hint-{{$t.Slug}}" style="margin:4px 0 8px">Ekip üyeleri bu gerekçeyi görür. Veriler silinmez.</p>
+        <button class="small danger" type="submit">Askıya al</button>
       </form>
       {{end}}
     </div>
-  </div>
-</div>
+  </details>
+</section>
 {{else}}
-<div class="card"><div class="empty">Henüz ekip yok.</div></div>
+  <div class="empty">{{if or $d.Q $d.Filter}}Aramana uyan ekip yok. <a href="/admin">Tüm ekipleri göster</a>{{else}}Henüz ekip yok. Kullanıcılar ilk girişte kendi ekiplerini oluşturur.{{end}}</div>
 {{end}}
+</div>
 
 <h2 id="users">Kullanıcılar</h2>
 <div class="card pad">
-  <form method="post" action="/admin/users/suspend">
+  <form method="post" action="/admin/users/suspend"
+    hx-post="/admin/users/suspend" hx-target="main" hx-select="main" hx-swap="outerHTML"
+    hx-confirm="Bu kullanıcı askıya alınsın mı? Oturumları ve token'ları hemen çalışmaz.">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <div class="row">
-      <div><label for="ulogin">GitHub kullanıcı adı</label><input id="ulogin" name="login" required placeholder="octocat"></div>
-      <div><label for="ureason">Gerekçe</label><input id="ureason" name="reason" maxlength="500"></div>
-      <div style="flex:0"><button class="danger" type="submit">Askıya al</button></div>
+      <div><label for="ulogin">GitHub kullanıcı adı</label><input id="ulogin" name="login" required placeholder="octocat" autocomplete="off"></div>
+      <div><label for="ureason">Gerekçe</label><input id="ureason" name="reason" maxlength="500" placeholder="ör. Spam"></div>
+      <div style="flex:0"><button class="danger" type="submit">Kullanıcıyı askıya al</button></div>
     </div>
-    <p class="muted small" style="margin-bottom:0">Askıdaki kullanıcı giriş yapamaz; oturumları ve token'ları çalışmaz.</p>
+    <p class="muted small" style="margin:8px 0 0">Askıdaki kullanıcı giriş yapamaz; oturumları ve token'ları çalışmaz. Platform yöneticileri askıya alınamaz.</p>
   </form>
 </div>
-{{with .Data.Users}}
 <div class="card" style="margin-top:12px">
+{{with .Data.Users}}
   <table>
-    <thead><tr><th>Kullanıcı</th><th>Askıya alındı</th><th>Gerekçe</th><th></th></tr></thead>
+    <thead><tr><th>Kullanıcı</th><th class="hide-sm">Askıya alındı</th><th>Gerekçe</th><th><span class="hide-sm">İşlem</span></th></tr></thead>
     <tbody>
     {{range .}}
-    <tr><td><strong>@{{.Login}}</strong></td><td class="small">{{time .SuspendedAt}}</td><td class="small">{{.SuspendedReason}}</td>
+    <tr><td><strong>@{{.Login}}</strong></td><td class="small hide-sm">{{time .SuspendedAt}}</td><td class="small">{{with .SuspendedReason}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
       <td style="text-align:right">
-        <form class="inline" method="post" action="/admin/users/unsuspend">
+        <form class="inline" method="post" action="/admin/users/unsuspend"
+          hx-post="/admin/users/unsuspend" hx-target="main" hx-select="main" hx-swap="outerHTML"
+          hx-confirm="@{{.Login}} kullanıcısının askısı kaldırılsın mı?">
           <input type="hidden" name="csrf" value="{{$csrf}}">
           <input type="hidden" name="login" value="{{.Login}}">
           <button class="small" type="submit">Askıyı kaldır</button>
@@ -102,6 +163,16 @@ textarea { font: inherit; font-family: var(--mono); font-size: 13px; width: 100%
     {{end}}
     </tbody>
   </table>
+{{else}}
+  <div class="empty">Askıda kullanıcı yok.</div>
+{{end}}
 </div>
 {{end}}
+
+{{define "adminbar"}}
+<div>
+  <div class="k" title="{{.Label}}">{{.Label}}</div>
+  <div class="v">{{.Used}}{{if .Unit}} {{.Unit}}{{end}} / {{if .Unlimited}}Sınırsız{{else}}{{.Max}}{{end}}</div>
+  {{if not .Unlimited}}<div class="meter {{.Level}}" role="progressbar" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.Percent}}"><span style="width:{{.Percent}}%"></span></div>{{end}}
+</div>
 {{end}}

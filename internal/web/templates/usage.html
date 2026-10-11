@@ -1,22 +1,35 @@
 {{define "head"}}<style>
-.meter { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin: 6px 0 4px; }
+.meter { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin: 8px 0 6px; }
 .meter > span { display: block; height: 100%; background: var(--ok); border-radius: 999px; }
 .meter.warn > span { background: var(--warn); }
 .meter.full > span { background: var(--err); }
 .usage-row { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .usage-row:last-child { border-bottom: 0; }
-.usage-row .top { display: flex; justify-content: space-between; gap: 12px; }
+.usage-row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.usage-row .label { font-weight: 600; }
 .usage-row .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.usage-row .pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; margin-left: 8px; font-weight: 400; }
+.usage-row .lvl { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 6px; margin-left: 8px; }
+.usage-row .lvl.warn { color: var(--warn); background: var(--warn-bg); }
+.usage-row .lvl.full { color: var(--err); background: var(--err-bg); }
+.usage-row .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.usage-row .foot .at-limit.full { color: var(--err); }
+.usage-row .foot .at-limit.warn { color: var(--warn); }
+.plan-card { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.plan-card .plan-name { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.plan-card > div { min-width: 180px; }
+.plan-card .grow { flex: 1; min-width: 240px; }
+.flash.warn { background: var(--warn-bg); color: var(--warn); }
 </style>{{end}}
 {{define "content"}}
 <div class="head"><div>
   <h1>Kullanım</h1>
-  <p class="sub">Ekibinin planı, bu ayki ve bugünkü kullanımı.</p>
+  <p class="sub">Ekibinin planı ve limitlerine ne kadar yaklaştığı. Sayılar her sayfa açılışında güncellenir.</p>
 </div>
 {{if gt (len .Data.Teams) 1}}
 <div class="actions">
-  <form method="get" action="/usage">
-    <label for="team" class="small">Ekip</label>
+  <form method="get" action="/usage" class="row" style="gap:8px;align-items:center">
+    <label for="team" class="small" style="margin:0">Ekip</label>
     <select id="team" name="team">
       {{$cur := .Data.Team.Slug}}
       {{range .Data.Teams}}<option value="{{.Slug}}" {{if eq .Slug $cur}}selected{{end}}>{{.Name}}</option>{{end}}
@@ -28,41 +41,73 @@
 </div>
 
 {{with .Data.Status}}
+<nav class="tabs" aria-label="Ekip bölümleri" style="margin-bottom:16px">
+  <a href="/teams/{{.Slug}}">Genel</a>
+  <a href="/teams/{{.Slug}}/notifications">Bildirimler</a>
+  <a class="on" aria-current="page" href="/usage?team={{.Slug}}">Plan ve kullanım</a>
+</nav>
 {{if .Suspended}}
 <div class="flash err" role="alert">Bu ekip askıya alındı{{with .SuspendedReason}}: {{.}}{{end}}. Deploy ve yeni kaynak oluşturma kapalı; uygulamalar sıfıra ölçeklendi ve veriler korunuyor.</div>
+{{else if eq $.Data.Worst "full"}}
+<div class="flash err" role="alert">Ekip en az bir limite ulaştı. Aşağıda kırmızı işaretli satırda neyin durduğunu ve nasıl devam edebileceğini görebilirsin.</div>
+{{else if eq $.Data.Worst "warn"}}
+<div class="flash warn" role="status">Bazı limitlerin %80'ini geçtin. Limite ulaşınca yeni işlemler reddedilir; çalışan siteler etkilenmez.</div>
 {{end}}
-<div class="card pad" style="margin-bottom:16px">
-  <div class="row" style="align-items:center">
-    <div><div class="muted small">Ekip</div><strong><a href="/teams/{{.Slug}}">{{.Name}}</a></strong></div>
-    <div><div class="muted small">Plan</div><span class="tag prod" data-plan="{{.Plan}}">{{$.Data.PlanLabel}}</span></div>
-    <div><div class="muted small">Dönem</div><span class="small">{{.MonthStart.Format "01.2006"}} · gün {{.DayStart.Format "02.01.2006"}} (UTC)</span></div>
+
+<section class="card pad" style="margin-bottom:16px" aria-labelledby="plan-h">
+  <div class="plan-card">
+    <div>
+      <div class="muted small" id="plan-h">Plan</div>
+      <div class="plan-name" data-plan="{{.Plan}}">{{$.Data.PlanLabel}}</div>
+      <div class="muted small"><a href="/teams/{{.Slug}}">{{.Name}}</a> ekibi</div>
+    </div>
+    <div class="grow">
+      <p style="margin:0 0 6px">{{planinfo .Plan}}</p>
+      <p class="muted small" style="margin:0">Daha yüksek limit ya da farklı bir plan için
+        {{with $.Data.Contact}}<a href="mailto:{{.}}?subject={{$.Data.Team.Slug}}%20ekibi%20plan%20talebi">{{.}}</a> adresine yaz{{else}}platform yöneticisine başvur{{end}};
+        planı yalnızca platform yöneticileri değiştirebilir.</p>
+      {{if $.Data.Admin}}<p style="margin:8px 0 0"><a class="btn small" href="/admin?q={{.Slug}}#team-{{.Slug}}">Planı Yönetim'de değiştir →</a></p>{{end}}
+    </div>
+    <div>
+      <div class="muted small">Dönem (UTC)</div>
+      <div class="small">Ay: {{.MonthStart.Format "01.2006"}}</div>
+      <div class="small">Gün: {{.DayStart.Format "02.01.2006"}}</div>
+    </div>
   </div>
-  {{if not $.Data.Enforced}}<p class="muted small" style="margin-bottom:0">Bu kurulumda plan limitleri uygulanmıyor; değerler varsayılan planlara göre gösteriliyor.</p>{{end}}
-</div>
+  {{if not $.Data.Enforced}}<p class="muted small" style="margin:12px 0 0">Bu kurulumda plan limitleri uygulanmıyor; değerler varsayılan planlara göre gösteriliyor.</p>{{end}}
+</section>
 {{end}}
 
 {{with .Data.Bars}}
+<h2>Limitler</h2>
 <div class="card">
-  {{range .}}
+  {{range .}}{{$lvl := .Level}}
   <div class="usage-row">
-    <div class="top"><span>{{.Label}}</span>
-      <span class="num">{{.Used}}{{if .Unit}} {{.Unit}}{{end}} / {{if .Unlimited}}Sınırsız{{else}}{{.Max}}{{if .Unit}} {{.Unit}}{{end}}{{end}}</span></div>
+    <div class="top">
+      <span class="label">{{.Label}}{{with .LevelLabel}}<span class="lvl {{$lvl}}">{{.}}</span>{{end}}</span>
+      <span><span class="num">{{.Used}}{{if .Unit}} {{.Unit}}{{end}} / {{if .Unlimited}}Sınırsız{{else}}{{.Max}}{{if .Unit}} {{.Unit}}{{end}}{{end}}</span>{{if not .Unlimited}}<span class="pct">%{{.Percent}}</span>{{end}}</span>
+    </div>
     {{if not .Unlimited}}
-    <div class="meter {{.Level}}" role="progressbar" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.Percent}}"><span style="width:{{.Percent}}%"></span></div>
+    <div class="meter {{$lvl}}" role="progressbar" aria-label="{{.Label}}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{.Percent}}" aria-valuetext="{{.Used}} / {{.Max}}{{with .LevelLabel}}, {{.}}{{end}}"><span style="width:{{.Percent}}%"></span></div>
     {{end}}
-    {{with .Note}}<div class="muted small">{{.}}</div>{{end}}
+    <div class="foot">
+      <span class="at-limit {{$lvl}}">{{if eq $lvl "full"}}Limitte: {{.AtLimit}}{{else if eq $lvl "warn"}}{{.Left}} kaldı. Limitte: {{.AtLimit}}{{else if .Unlimited}}Bu planda sınır yok.{{else}}{{.Left}} kaldı.{{end}}</span>
+      {{if not .Reset.IsZero}}<span>Sıfırlanma: {{.Reset.Format "02.01.2006 15:04"}} UTC</span>{{else}}{{with .Note}}<span>{{.}}</span>{{end}}{{end}}
+    </div>
   </div>
   {{end}}
 </div>
 {{else}}
-<div class="card"><div class="empty">Henüz bir ekibin yok.</div></div>
+<div class="card"><div class="empty">Henüz bir ekibin yok. Kullanım bir ekibe göre hesaplanır; <a href="/teams#new-team">bir ekip oluştur →</a></div></div>
 {{end}}
 
 {{with .Data.Limits}}
 <h2>Diğer limitler</h2>
-<div class="card"><table><tbody>
+<div class="card"><table>
+  <thead><tr><th scope="col">Limit</th><th scope="col">Bu planda</th></tr></thead>
+  <tbody>
   {{range .}}<tr><td>{{index . 0}}</td><td class="mono">{{index . 1}}</td></tr>{{end}}
-</tbody></table></div>
-<p class="muted small">Daha yüksek limitler için platform yöneticisiyle iletişime geç.</p>
+  </tbody></table></div>
+<p class="muted small">Bir limit bir işlemi durdurduğunda nedeni o ekranda yazılır. Daha yüksek limitler için yukarıdaki plan bölümüne bak.</p>
 {{end}}
 {{end}}

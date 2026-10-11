@@ -2,19 +2,43 @@
      (web/protection.go). The form posts to this host; on success the
      browser continues to the app host with a one-time token. */}}
 
+{{define "head"}}<style>
+.gate { max-width: 420px; margin: 48px auto 0; padding: 32px 28px 24px; }
+.gate .lock { width: 44px; height: 44px; border-radius: 50%; background: var(--idle-bg); color: var(--text);
+  display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+.gate h1 { text-align: center; }
+.gate .host { text-align: center; margin: 0 0 6px; word-break: break-all; }
+.gate .why { text-align: center; color: var(--muted); font-size: 14px; margin: 0 0 20px; }
+.gate .full { width: 100%; display: block; text-align: center; }
+.gate .or { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; margin: 20px 0; }
+.gate .or::before, .gate .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.gate-foot { max-width: 420px; margin: 12px auto 0; text-align: center; }
+@media (max-width: 720px) { .gate { margin-top: 16px; padding: 24px 16px 16px; } }
+</style>{{end}}
+
 {{define "content"}}
-<div class="card pad" style="max-width:420px;margin:48px auto">
-  <h1 style="text-align:center">Korumalı deploy</h1>
-  <p class="sub" style="text-align:center"><span class="mono">{{.Data.Host}}</span> şifreyle korunuyor.</p>
+<section class="card gate" aria-labelledby="gate-h">
+  <div class="lock" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a3.5 3.5 0 0 0-3.5 3.5V7H4a1.5 1.5 0 0 0-1.5 1.5v5A1.5 1.5 0 0 0 4 15h8a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 12 7h-.5V4.5A3.5 3.5 0 0 0 8 1zm2 6H6V4.5a2 2 0 1 1 4 0z"/></svg>
+  </div>
+  <h1 id="gate-h">Bu deploy korumalı</h1>
+  <p class="host mono">{{.Data.Host}}</p>
+  <p class="why">Projenin sahibi bu adresi şifreyle korumaya aldı. Devam etmek için şifreyi gir; şifreyi bilmiyorsan seni bu bağlantıyla davet eden kişiden iste.</p>
   <form method="post" action="/_protect/login">
     <input type="hidden" name="app" value="{{.Data.App}}">
     <input type="hidden" name="next" value="{{.Data.Next}}">
     <label for="prot-pw">Şifre</label>
-    <input id="prot-pw" name="password" type="password" autocomplete="current-password" required autofocus>
-    <p><button class="primary" type="submit" style="width:100%">Devam et</button></p>
+    <input id="prot-pw" name="password" type="password" autocomplete="current-password" required autofocus
+      {{if .Error}}aria-invalid="true"{{end}}>
+    <p style="margin:12px 0 0"><button class="primary big full" type="submit">Devam et</button></p>
   </form>
-  {{if not .Data.SignedIn}}
-  <p class="muted small" style="margin-bottom:0;text-align:center">Projenin ekibindeysen <a href="{{.Data.SignIn}}">giriş yaparak</a> şifresiz açabilirsin.</p>
+  {{if .Data.SignedIn}}
+  <p class="muted small" style="margin:16px 0 0;text-align:center">Giriş yaptığın hesap bu projenin ekibinde değil; şifreyle devam edebilirsin.</p>
+  {{else}}
+  <div class="or">ya da</div>
+  <a class="btn full" href="{{.Data.SignIn}}">Ekip hesabınla giriş yap</a>
+  <p class="muted small" style="margin:8px 0 0;text-align:center">Projenin ekibindeysen şifre gerekmez.</p>
   {{end}}
-</div>
+</section>
+<p class="gate-foot muted small">Bu sayfa paas tarafından gösterilir; şifre yalnızca bu deploy'a erişim için kullanılır.</p>
 {{end}}

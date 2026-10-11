@@ -5,14 +5,50 @@
   dışına aktarım dayanağı (barındırma sağlayıcısı) ve saklama süreleri
   işletmeye göre kesinleştirilmelidir. Bu not sayfada görünmez.
 */}}
+{{define "head"}}<style>
+.legal-wrap { display: grid; grid-template-columns: 200px minmax(0, 720px); gap: 32px; justify-content: center; align-items: start; }
+.legal-toc { position: sticky; top: 16px; font-size: 13px; }
+.legal-toc h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+.legal-toc ol { list-style: none; margin: 0; padding: 0; }
+.legal-toc li { margin: 0 0 6px; }
+.legal-toc a { color: var(--muted); }
+.legal-toc a:hover { color: var(--text); }
+.legal-toc .other { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+article.legal { padding: 32px 36px; line-height: 1.7; }
+article.legal h1 { font-size: 28px; }
+article.legal h2 { font-size: 17px; margin: 32px 0 8px; scroll-margin-top: 16px; }
+article.legal p, article.legal li { color: var(--text); }
+article.legal ul { padding-left: 20px; }
+article.legal li { margin-bottom: 6px; }
+article.legal .lead { color: var(--muted); }
+@media (max-width: 720px) {
+  .legal-wrap { grid-template-columns: 1fr; gap: 12px; }
+  .legal-toc { position: static; }
+  article.legal { padding: 20px 16px; }
+}
+</style>{{end}}
 {{define "content"}}
-<article class="card pad legal" style="max-width:760px;margin:0 auto">
+<div class="legal-wrap">
+<nav class="legal-toc" aria-label="İçindekiler">
+  <h2>İçindekiler</h2>
+  <ol>
+    <li><a href="#islenen-veriler">1. İşlenen veriler</a></li>
+    <li><a href="#isleme-amaclari-ve-hukuki-sebepler">2. İşleme amaçları ve hukuki sebepler</a></li>
+    <li><a href="#saklama-sureleri">3. Saklama süreleri</a></li>
+    <li><a href="#aktarim">4. Aktarım</a></li>
+    <li><a href="#cerezler">5. Çerezler</a></li>
+    <li><a href="#haklarin">6. Hakların</a></li>
+    <li><a href="#iletisim">7. İletişim</a></li>
+  </ol>
+  <p class="other"><a href="/terms">Kullanım koşulları →</a></p>
+</nav>
+<article class="card legal">
   <h1>Gizlilik politikası</h1>
   <p class="sub">{{.Data.Operator}} · {{.Data.Domain}}</p>
 
   <p>Bu metin, {{.Data.Operator}} platformunu kullanırken hangi kişisel verilerinin işlendiğini, neden işlendiğini ve 6698 sayılı Kişisel Verilerin Korunması Kanunu (KVKK) kapsamındaki haklarını açıklar. Veri sorumlusu platformu işleten {{.Data.Operator}}'tır.</p>
 
-  <h2>1. İşlenen veriler</h2>
+  <h2 id="islenen-veriler">1. İşlenen veriler</h2>
   <ul>
     <li><strong>GitHub hesap bilgileri:</strong> GitHub kullanıcı adın, GitHub hesap numaran, görünen adın ve profil resmi adresin. GitHub erişim token'ın yalnızca giriş sırasında kullanılır, saklanmaz.</li>
     <li><strong>Ekip ve yetki bilgileri:</strong> üyesi olduğun ekipler ve rolün.</li>
@@ -23,10 +59,10 @@
     <li><strong>Yönetilen veritabanları:</strong> eklediğin veritabanlarının içeriği ve yedekleri; bu içeriğin sorumlusu sensin.</li>
   </ul>
 
-  <h2>2. İşleme amaçları ve hukuki sebepler</h2>
+  <h2 id="isleme-amaclari-ve-hukuki-sebepler">2. İşleme amaçları ve hukuki sebepler</h2>
   <p>Veriler; hizmeti sunmak (giriş, derleme, deploy, yönlendirme), hesabını ve ekiplerini yönetmek, plan limitlerini ve kullanımı hesaplamak, güvenliği sağlamak ve kötüye kullanımı önlemek amacıyla işlenir. Hukuki sebepler KVKK md. 5/2 kapsamında sözleşmenin kurulması ve ifası, hukuki yükümlülüklerin yerine getirilmesi ve meşru menfaattir.</p>
 
-  <h2>3. Saklama süreleri</h2>
+  <h2 id="saklama-sureleri">3. Saklama süreleri</h2>
   <ul>
     <li>Hesap ve ekip bilgileri: hesabın açık kaldığı sürece.</li>
     <li>Build logları ve deploy kayıtları: deploy kaydı silinene kadar; eski önizleme deploy'ları otomatik olarak emekliye ayrılır.</li>
@@ -36,16 +72,17 @@
   </ul>
   <p>Saklama süresi dolan veriler silinir ya da anonim hale getirilir.</p>
 
-  <h2>4. Aktarım</h2>
+  <h2 id="aktarim">4. Aktarım</h2>
   <p>Veriler, hizmetin altyapısını sağlayan barındırma sağlayıcısının sunucularında tutulur. Giriş ve depo erişimi için GitHub ile veri alışverişi yapılır. Bunların dışında verilerin üçüncü kişilerle paylaşılmaz; yasal bir zorunluluk olduğunda yetkili mercilere aktarılabilir.</p>
 
-  <h2>5. Çerezler</h2>
+  <h2 id="cerezler">5. Çerezler</h2>
   <p>Yalnızca oturumunu açık tutmak ve sahte istekleri (CSRF) engellemek için zorunlu çerezler kullanılır. Reklam ya da izleme çerezi kullanılmaz.</p>
 
-  <h2>6. Hakların</h2>
+  <h2 id="haklarin">6. Hakların</h2>
   <p>KVKK md. 11 uyarınca kişisel verilerinin işlenip işlenmediğini öğrenme, bilgi talep etme, işleme amacını öğrenme, aktarıldığı kişileri bilme, eksik ya da yanlış işlenmişse düzeltilmesini, şartları oluştuğunda silinmesini isteme, itiraz etme ve zararın giderilmesini talep etme haklarına sahipsin.</p>
 
-  <h2>7. İletişim</h2>
+  <h2 id="iletisim">7. İletişim</h2>
   <p>{{with .Data.Contact}}Başvuruların için: <a href="mailto:{{.}}">{{.}}</a>{{else}}Başvuruların için platform yöneticisine başvur.{{end}}</p>
 </article>
+</div>
 {{end}}

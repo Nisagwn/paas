@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
@@ -125,11 +126,36 @@ func limitError(err error) (int, string, bool) {
 
 // usageBar is one row of the usage page.
 type usageBar struct {
+	Key   string // usageAtLimit key
 	Label string
 	Used  int64
 	Max   int // plans.Unlimited: no bound
 	Unit  string
 	Note  string
+	// Reset is when a windowed counter starts again (UTC); zero for totals.
+	Reset time.Time
+}
+
+// AtLimit says what happens when the bar is full.
+func (b usageBar) AtLimit() string { return usageAtLimit[b.Key] }
+
+// LevelLabel names the bar's level for people (and screen readers).
+func (b usageBar) LevelLabel() string {
+	switch b.Level() {
+	case "full":
+		return "Limitte"
+	case "warn":
+		return "Limite yakın"
+	}
+	return ""
+}
+
+// Left is what remains until the limit (never negative).
+func (b usageBar) Left() int64 {
+	if b.Max < 0 || int64(b.Max) <= b.Used {
+		return 0
+	}
+	return int64(b.Max) - b.Used
 }
 
 // Unlimited reports whether the bar has no bound.
@@ -169,14 +195,14 @@ func (b usageBar) Level() string {
 func usageBars(st plans.TeamStatus) []usageBar {
 	l, u := st.Limits, st.Usage
 	return []usageBar{
-		{Label: "Projeler", Used: int64(u.Projects), Max: l.Projects},
-		{Label: "Build dakikası (bu ay)", Used: st.BuildMinutes, Max: l.BuildMinutes, Unit: "dk",
-			Note: "Her ayın ilk günü (UTC) sıfırlanır."},
-		{Label: "Deploy (bugün)", Used: int64(u.DeploymentsToday), Max: l.DeploymentsPerDay,
-			Note: "Her gün 00:00 UTC'de sıfırlanır."},
-		{Label: "Veritabanları", Used: int64(u.Addons), Max: l.Addons},
-		{Label: "Alan adları", Used: int64(u.Domains), Max: l.Domains},
-		{Label: "Eşzamanlı build", Used: int64(u.ActiveBuilds), Max: l.ConcurrentBuilds,
+		{Key: "projects", Label: "Projeler", Used: int64(u.Projects), Max: l.Projects},
+		{Key: "build_minutes", Label: "Build dakikası (bu ay)", Used: st.BuildMinutes, Max: l.BuildMinutes, Unit: "dk",
+			Note: "Her ayın ilk günü (UTC) sıfırlanır.", Reset: st.MonthStart.AddDate(0, 1, 0)},
+		{Key: "deploys", Label: "Deploy (bugün)", Used: int64(u.DeploymentsToday), Max: l.DeploymentsPerDay,
+			Note: "Her gün 00:00 UTC'de sıfırlanır.", Reset: st.DayStart.AddDate(0, 0, 1)},
+		{Key: "addons", Label: "Veritabanları", Used: int64(u.Addons), Max: l.Addons},
+		{Key: "domains", Label: "Alan adları", Used: int64(u.Domains), Max: l.Domains},
+		{Key: "builds", Label: "Eşzamanlı build", Used: int64(u.ActiveBuilds), Max: l.ConcurrentBuilds,
 			Note: "Sınırdayken yeni build'ler sırada bekler; diğer ekipleri engellemez."},
 	}
 }
@@ -232,9 +258,23 @@ func (s *Server) usagePage(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	bars := usageBars(st)
+	worst := "ok"
+	for _, b := range bars {
+		switch b.Level() {
+		case "full":
+			worst = "full"
+		case "warn":
+			if worst == "ok" {
+				worst = "warn"
+			}
+		}
+	}
 	s.render(w, r, http.StatusOK, "usage", "Kullanım", map[string]any{
-		"Teams": teams, "Team": pick, "Status": st, "Bars": usageBars(st), "Limits": limitRows(st.Limits),
-		"PlanLabel": planLabel(st.Plan), "Enforced": s.Plans != nil,
+		"Teams": teams, "Team": pick, "Status": st, "Bars": bars, "Limits": limitRows(st.Limits),
+		"PlanLabel": planLabel(st.Plan), "Enforced": s.Plans != nil, "Worst": worst,
+		"Contact": s.Legal.ContactEmail, "Admin": s.Auth.PlatformAdmin(me(r)),
+		"Owner": pick.Role == store.RoleOwner,
 	}, "")
 }
 
@@ -274,19 +314,66 @@ func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, status int,
 		s.internalError(w, r, err)
 		return
 	}
-	rows := make([]map[string]any, 0, len(teams))
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	filter := r.URL.Query().Get("filter") // "", "suspended" or "limit"
+	rows := make([]adminRow, 0, len(teams))
+	var suspended, atLimit int
 	for _, t := range teams {
-		overrides := ""
+		row := adminRow{T: t, Bars: usageBars(t.TeamStatus), Lines: overrideLines(t.Overrides), PlanLabel: planLabel(t.Plan)}
 		if o := string(t.Overrides); o != "" && o != "{}" {
-			overrides = o
+			row.Overrides = o
 		}
-		rows = append(rows, map[string]any{"T": t, "Bars": usageBars(t.TeamStatus), "Overrides": overrides,
-			"Lines": overrideLines(t.Overrides), "PlanLabel": planLabel(t.Plan)})
+		for _, b := range row.Bars {
+			switch b.Level() {
+			case "full":
+				row.Level = "full"
+			case "warn":
+				if row.Level != "full" {
+					row.Level = "warn"
+				}
+			}
+		}
+		if t.Suspended() {
+			suspended++
+		}
+		if row.Level == "full" {
+			atLimit++
+		}
+		if q != "" && !strings.Contains(strings.ToLower(t.Slug+" "+t.Name+" "+strings.Join(t.Owners, " ")), q) {
+			continue
+		}
+		if (filter == "suspended" && !t.Suspended()) || (filter == "limit" && row.Level != "full") {
+			continue
+		}
+		rows = append(rows, row)
 	}
 	s.render(w, r, status, "admin", "Yönetim", map[string]any{
-		"Teams": rows, "Users": users, "Plans": plans.Plans, "PlanLabels": planLabels,
+		"Teams": rows, "Total": len(teams), "Suspended": suspended, "AtLimit": atLimit,
+		"Q": r.URL.Query().Get("q"), "Filter": filter,
+		"Users": users, "Plans": plans.Plans, "PlanLabels": planLabels,
 		"Flash": adminFlashes[r.URL.Query().Get("ok")], "Keys": plans.Keys,
 	}, errMsg)
+}
+
+// adminRow is one team of the admin list.
+type adminRow struct {
+	T         api.AdminTeamView
+	Bars      []usageBar
+	Overrides string
+	Lines     string
+	PlanLabel string
+	// Level is the worst bar: "", "warn" or "full".
+	Level string
+}
+
+// Bar returns the bar with key (zero bar when missing).
+func (a adminRow) Bar(key string) usageBar {
+	for _, b := range a.Bars {
+		if b.Key == key {
+			return b
+		}
+	}
+	return usageBar{}
 }
 
 func (s *Server) adminTeam(w http.ResponseWriter, r *http.Request) (store.Team, bool) {
@@ -346,7 +433,12 @@ func (s *Server) adminSetPlan(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limits, err := parseOverrides(r.PostFormValue("limits"))
+	// The inline plan form has no limits field: it keeps the overrides.
+	var limits map[string]any
+	var err error
+	if r.ParseForm(); r.PostForm.Has("limits") {
+		limits, err = parseOverrides(r.PostFormValue("limits"))
+	}
 	if err == nil {
 		err = api.SetTeamPlan(r.Context(), s.Store, t, r.PostFormValue("plan"), limits)
 	}
@@ -366,6 +458,10 @@ func (s *Server) adminSetPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminSuspend(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.adminTeam(w, r)
 	if !ok {
+		return
+	}
+	if strings.TrimSpace(r.PostFormValue("reason")) == "" {
+		s.renderAdmin(w, r, http.StatusBadRequest, "Askıya alma gerekçesi yaz; ekibin üyeleri bu metni görür.")
 		return
 	}
 	_, clusterErr, err := api.SuspendTeam(r.Context(), s.Store, s.Suspender, s.Log, t, r.PostFormValue("reason"), me(r).Login)

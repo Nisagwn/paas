@@ -22,6 +22,7 @@ func init() {
 		}
 		return k
 	}
+	funcs["deliveryclass"] = deliveryClass
 	funcs["eventlabel"] = func(t string) string {
 		if l, ok := notify.EventLabels[t]; ok {
 			return l
@@ -97,6 +98,42 @@ type channelRow struct {
 	Subscribed map[string]bool
 	InApps     map[string]bool
 	Secret     bool // kind has a URL
+	// EventGroups are the channel's event checkboxes.
+	EventGroups []eventChoiceGroup
+	// Icon is the kind's symbol on the card.
+	Icon string
+}
+
+// Last is the most recent delivery, nil when there is none.
+func (c channelRow) Last() *deliveryRow {
+	if len(c.Deliveries) == 0 {
+		return nil
+	}
+	return &c.Deliveries[0]
+}
+
+// deliveryClass maps a delivery status to a badge class.
+func deliveryClass(status string) string {
+	switch status {
+	case store.DeliverySent:
+		return "ready"
+	case store.DeliveryFailed:
+		return "failed"
+	case store.DeliverySending:
+		return "building"
+	case store.DeliverySkipped:
+		return "canceled"
+	}
+	return "queued"
+}
+
+func kindIcon(kind string) string {
+	for _, k := range channelKinds {
+		if k.Kind == kind {
+			return k.Icon
+		}
+	}
+	return "•"
 }
 
 type eventOption struct {
@@ -136,10 +173,11 @@ func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, t s
 			return
 		}
 		row := channelRow{NotificationChannel: c, Subscribed: map[string]bool{}, InApps: map[string]bool{},
-			Secret: c.Kind != store.ChannelEmail}
+			Secret: c.Kind != store.ChannelEmail, Icon: kindIcon(c.Kind)}
 		for _, e := range c.Events {
 			row.Subscribed[e] = true
 		}
+		row.EventGroups = eventChoices(func(e string) bool { return row.Subscribed[e] })
 		for _, a := range c.Apps {
 			row.InApps[a] = true
 		}
@@ -183,11 +221,15 @@ func (s *Server) renderNotifications(w http.ResponseWriter, r *http.Request, t s
 	for _, e := range prefs.MutedEvents {
 		muted[e] = true
 	}
+	formEvents := form.Events
 	s.render(w, r, status, "notifications", t.Name+" · Bildirimler", map[string]any{
 		"Team": t, "CanEdit": store.RoleAllows(t.Role, store.RoleMember), "Channels": rows, "Events": events,
 		"Apps": apps, "SMTP": s.notifications().SMTPConfigured, "Form": form,
-		"Kinds":   []string{store.ChannelSlack, store.ChannelDiscord, store.ChannelWebhook, store.ChannelEmail},
-		"Created": createdName, "Secret": secret,
+		"Kinds":      []string{store.ChannelSlack, store.ChannelDiscord, store.ChannelWebhook, store.ChannelEmail},
+		"KindCards":  channelKinds,
+		"FormEvents": eventChoices(func(e string) bool { return formEvents[e] }),
+		"PrefEvents": eventChoices(func(e string) bool { return !muted[e] }),
+		"Created":    createdName, "Secret": secret,
 		"Prefs": prefs, "Muted": muted, "HasUser": me(r).UserID != 0,
 	}, errMsg)
 }
