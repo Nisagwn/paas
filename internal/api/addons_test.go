@@ -182,7 +182,9 @@ func TestAddonsAPI(t *testing.T) {
 	// A preview deployment gets its own database before it is deployed;
 	// from here on the loop runs (the worker waits for it).
 	reconcile()
-	go ctrl.Run(runCtx)
+	loopCtx, stopLoop := context.WithCancel(runCtx)
+	loopDone := make(chan struct{})
+	go func() { ctrl.Run(loopCtx); close(loopDone) }()
 	e.push("nisagwn/blog", "feature/x", sha(1))
 	e.drain()
 	var branches []store.AddonBranch
@@ -198,6 +200,10 @@ func TestAddonsAPI(t *testing.T) {
 	if code := e.do("POST", "/api/apps/blog/addons/db/credentials/reveal", map[string]string{"branch": "nope"}, nil); code != 404 {
 		t.Errorf("reveal unknown branch: %d", code)
 	}
+	// From here on the test drives reconcile() itself: a background pass
+	// would finish a reset or rotation before the "already pending" checks.
+	stopLoop()
+	<-loopDone
 	if code := e.do("POST", "/api/apps/blog/addons/db/branches/feature%2Fx/reset", nil, nil); code != 202 {
 		t.Fatalf("reset: %d", code)
 	}
