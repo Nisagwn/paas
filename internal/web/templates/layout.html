@@ -177,7 +177,7 @@ svg.chart .axis { stroke: var(--border); stroke-width: 1; }
 svg.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
 /* Gezinme ve ilk kullanım: header, menus, helpers, dashboard, import flow. */
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.sr-only, .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .skip { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 14px; border-radius: 8px;
   background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .skip:focus { top: 8px; }
@@ -268,6 +268,23 @@ dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   text-transform: uppercase; letter-spacing: .04em; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 footer.site { text-align: center; padding: 0 16px 32px; }
+/* Ekip, hesap ve yönetim ekranlarından global'e taşınanlar. */
+textarea { font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.flash.warn { background: var(--warn-bg); color: var(--warn); }
+.meter { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin: 8px 0 6px; }
+.meter > span { display: block; height: 100%; background: var(--ok); border-radius: 999px; }
+.meter.warn > span { background: var(--warn); }
+.meter.full > span { background: var(--err); }
+.copy-row { display: flex; gap: 8px; align-items: stretch; }
+.copy-row input { font-family: var(--mono); font-size: 13px; margin: 0; }
+.copy-row button { white-space: nowrap; }
+.sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 32px 0 12px; }
+.sec-head h2 { margin: 0; }
+.sec-head .muted { font-size: 13px; }
+.sec-head .actions { margin-left: auto; display: flex; gap: 8px; }
+nav.tabs.tabs-spaced { margin-bottom: 16px; }
 @media (max-width: 720px) {
   .hide-sm { display: none; } th, td { padding: 8px; }
   header.top { flex-wrap: wrap; padding: 8px 16px 0; gap: 8px; min-height: 0; }
@@ -359,6 +376,9 @@ footer.site { text-align: center; padding: 0 16px 32px; }
 // Progressive enhancement only: every page works without this script.
 (() => {
   document.documentElement.classList.add("js");
+  // Copy buttons of .copy-row start hidden (useless without JS).
+  document.querySelectorAll("[data-copy-from][hidden]").forEach((b) => { b.hidden = false; });
+  document.addEventListener("focusin", (e) => { if (e.target.matches(".copy-row input[readonly]")) e.target.select(); });
 
   // A link to #section opens the collapsed section it points at.
   const openHash = () => {
@@ -383,13 +403,17 @@ footer.site { text-align: center; padding: 0 16px 32px; }
     return ok;
   };
   document.addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-copy]");
+    const b = e.target.closest("[data-copy], [data-copy-from]");
     if (b) {
       e.preventDefault();
-      const ok = await copyText(b.dataset.copy);
+      const src = b.dataset.copyFrom && document.querySelector(b.dataset.copyFrom);
+      if (src && src.select) src.select();
+      const ok = await copyText(src ? src.value : b.dataset.copy);
       b.classList.toggle("done", ok);
       announce(ok ? "Kopyalandı." : "Kopyalanamadı; metni elle seç.");
-      setTimeout(() => b.classList.remove("done"), 1500);
+      const text = !b.querySelector("svg") && b.textContent;
+      if (ok && text) b.textContent = "Kopyalandı ✓";
+      setTimeout(() => { b.classList.remove("done"); if (ok && text) b.textContent = text; }, 1500);
       return;
     }
     const back = e.target.closest("[data-back]");

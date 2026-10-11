@@ -1,8 +1,4 @@
 {{define "head"}}<style>
-.meter { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin: 8px 0 6px; }
-.meter > span { display: block; height: 100%; background: var(--ok); border-radius: 999px; }
-.meter.warn > span { background: var(--warn); }
-.meter.full > span { background: var(--err); }
 .usage-row { padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .usage-row:last-child { border-bottom: 0; }
 .usage-row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
@@ -19,7 +15,6 @@
 .plan-card .plan-name { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
 .plan-card > div { min-width: 180px; }
 .plan-card .grow { flex: 1; min-width: 240px; }
-.flash.warn { background: var(--warn-bg); color: var(--warn); }
 </style>{{end}}
 {{define "content"}}
 <div class="head"><div>
@@ -41,11 +36,7 @@
 </div>
 
 {{with .Data.Status}}
-<nav class="tabs" aria-label="Ekip bölümleri" style="margin-bottom:16px">
-  <a href="/teams/{{.Slug}}">Genel</a>
-  <a href="/teams/{{.Slug}}/notifications">Bildirimler</a>
-  <a class="on" aria-current="page" href="/usage?team={{.Slug}}">Plan ve kullanım</a>
-</nav>
+{{teamtabs .Slug "usage"}}
 {{if .Suspended}}
 <div class="flash err" role="alert">Bu ekip askıya alındı{{with .SuspendedReason}}: {{.}}{{end}}. Deploy ve yeni kaynak oluşturma kapalı; uygulamalar sıfıra ölçeklendi ve veriler korunuyor.</div>
 {{else if eq $.Data.Worst "full"}}

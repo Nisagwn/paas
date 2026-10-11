@@ -1,9 +1,5 @@
 {{define "head"}}<style>
 .team-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 32px 0 12px; }
-.sec-head h2 { margin: 0; }
-.sec-head .muted { font-size: 13px; }
-.sec-head .actions { margin-left: auto; display: flex; gap: 8px; }
 .member { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .member:last-child { border-bottom: 0; }
 .member .who { flex: 1; min-width: 180px; }
@@ -13,7 +9,6 @@
 .roles th:not(:first-child), .roles td:not(:first-child) { text-align: center; width: 90px; }
 .roles .yes { color: var(--ok); font-weight: 700; }
 .roles .no { color: var(--muted); }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .panel-off { padding: 14px 16px; color: var(--muted); font-size: 13px; }
 .danger-zone { border-color: var(--err); }
 .danger-zone .row > div:first-child { min-width: 240px; }
@@ -24,7 +19,7 @@
 </style>{{end}}
 {{define "content"}}
 {{$t := .Data.Team}}{{$csrf := .CSRF}}{{$owner := .Data.Owner}}{{$roles := .Data.Roles}}
-<nav class="sub" aria-label="Konum" style="margin:0"><a href="/teams">Ekipler</a> /</nav>
+{{crumbs "Ekipler" "/teams" $t.Name}}
 <div class="head"><div>
   <h1>{{$t.Name}}</h1>
   <div class="team-meta">
@@ -39,11 +34,7 @@
 </div>
 </div>
 
-<nav class="tabs" aria-label="Ekip bölümleri">
-  <a class="on" aria-current="page" href="/teams/{{$t.Slug}}">Genel</a>
-  <a href="/teams/{{$t.Slug}}/notifications">Bildirimler</a>
-  <a href="/usage?team={{$t.Slug}}">Plan ve kullanım</a>
-</nav>
+{{teamtabs $t.Slug "general"}}
 
 {{if .Data.Status.Suspended}}
 <div class="flash err" role="alert" style="margin-top:16px">Bu ekip bir platform yöneticisi tarafından askıya alındı{{with .Data.Status.SuspendedReason}}: {{.}}{{end}}. Deploy ve yeni kaynak oluşturma kapalı; veriler korunuyor.</div>

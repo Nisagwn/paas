@@ -66,3 +66,11 @@ var errorHints = map[int]string{
 func errorData(status int) map[string]any {
 	return map[string]any{"Status": status, "Hint": errorHints[status]}
 }
+
+// Team page sections (teamtabs).
+const (
+	teamTabsLabel        = "Ekip bölümleri"
+	teamTabGeneral       = "Genel"
+	teamTabNotifications = "Bildirimler"
+	teamTabUsage         = "Plan ve kullanım"
+)

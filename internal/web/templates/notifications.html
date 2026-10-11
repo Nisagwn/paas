@@ -33,8 +33,6 @@ label.ev { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px; co
 label.ev input { margin-top: 4px; }
 label.ev .d { display: block; font-size: 12px; color: var(--muted); }
 .form-sec { margin: 16px 0 6px; font-size: 13px; font-weight: 600; }
-.copy-row { display: flex; gap: 8px; }
-.copy-row input { font-family: var(--mono); font-size: 13px; }
 .note-off { padding: 12px 16px; font-size: 13px; color: var(--muted); }
 </style>{{end}}
 
@@ -62,35 +60,19 @@ label.ev .d { display: block; font-size: 12px; color: var(--muted); }
 {{if $edit}}<div class="actions"><a class="btn primary" href="#new-channel">+ Yeni kanal</a></div>{{end}}
 </div>
 
-<nav class="tabs" aria-label="Ekip bölümleri" style="margin-bottom:16px">
-  <a href="/teams/{{$t.Slug}}">Genel</a>
-  <a class="on" aria-current="page" href="/teams/{{$t.Slug}}/notifications">Bildirimler</a>
-  <a href="/usage?team={{$t.Slug}}">Plan ve kullanım</a>
-</nav>
+{{teamtabs $t.Slug "notifications"}}
 
 {{if .Data.Secret}}
 <section class="card pad" style="margin-bottom:16px;border-color:var(--warn)" aria-labelledby="secret-h">
   <h2 id="secret-h" style="margin:0 0 6px">"{{.Data.Created}}" kanalının imza anahtarı</h2>
-  <p class="flash" style="background:var(--warn-bg);color:var(--warn);margin:0 0 10px" role="alert">Bu anahtar yalnızca şimdi gösterilir. Kopyalayıp webhook alıcının ayarlarına kaydet.</p>
+  <p class="flash warn" style="margin:0 0 10px" role="alert">Bu anahtar yalnızca şimdi gösterilir. Kopyalayıp webhook alıcının ayarlarına kaydet.</p>
   <div class="copy-row">
     <input id="secret-value" class="secret mono" type="text" readonly value="{{.Data.Secret}}" aria-label="İmza anahtarı" style="margin:0">
-    <button type="button" class="primary" id="copy-secret" hidden>Kopyala</button>
+    <button type="button" class="primary" id="copy-secret" data-copy-from="#secret-value" hidden>Kopyala</button>
   </div>
   <p class="muted small" style="margin:8px 0 0">Alıcın her isteğin <code>X-Paas-Signature</code> başlığını
   <code>sha256=HMAC-SHA256(anahtar, X-Paas-Timestamp + "." + gövde)</code> ile doğrulamalı.</p>
 </section>
-<script nonce="{{.Nonce}}">
-(() => {
-  const btn = document.getElementById("copy-secret"), input = document.getElementById("secret-value");
-  if (!btn || !input) return;
-  btn.hidden = false;
-  btn.addEventListener("click", async () => {
-    input.select();
-    try { await navigator.clipboard.writeText(input.value); } catch (e) { document.execCommand && document.execCommand("copy"); }
-    btn.textContent = "Kopyalandı ✓";
-  });
-})();
-</script>
 {{end}}
 
 <h2 style="margin-top:0">Kanallar</h2>

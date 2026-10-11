@@ -106,7 +106,7 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `nav.crumbs` | Konum çizgisi (Ekip / Proje / Deploy). Elle yazma, `{{crumbs …}}` fonksiyonunu kullan (§3.4) |
 | `button.copy` | Panoya kopyala butonu; `{{copy .URL}}` üretir. JS yoksa gizlidir, metin seçilebilir kalır |
 | `.js-only` | Yalnızca JS varken görünür (`html.js`); ör. `data-back` butonu, `kbd` ipucu |
-| `.sr-only` | Görsel olarak gizli, ekran okuyucuya açık metin (ör. arama `label`'ı) |
+| `.sr-only` (eş ad `.sr`) | Görsel olarak gizli, ekran okuyucuya açık metin (ör. arama `label`'ı) |
 | `.skip` | "İçeriğe geç" bağlantısı (layout'ta; `main#main`'e gider) |
 | `kbd` | Klavye kısayolu ipucu (ör. arama kutusunda `/`) |
 | `.filterbar` (`.search`, `.count`) | Liste üstü arama satırı: `input[type=search][data-search][data-filter="#liste"]` + sayaç. `?q=` ile JS'siz de filtrelenir |
@@ -118,6 +118,12 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `.error-page` (`.code`, `.actions`) | Hata / yönlendirme kartı |
 | `.auth-card`, `.btn.block`, `.divider` | Giriş kartı, tam genişlik buton, "ya da" ayırıcı |
 | `.btn.small`, `.btn.danger`, `button:disabled` | Bağlantı-buton küçük/tehlikeli varyantı; devre dışı görünüm |
+| `.flash.warn` | Uyarı kutusu (`.flash.ok` / `.flash.err` yanında) |
+| `.meter` (`> span` genişlik %, `.warn`, `.full`) | Limit / kullanım çubuğu; `role="progressbar"` + `aria-valuenow` ile kullan |
+| `.copy-row` (input + buton) | Bir kez gösterilen gizli değer (token, imza anahtarı): `readonly` input odaklanınca seçilir; buton `data-copy-from="#input-id" hidden` (JS açar) |
+| `.sec-head` (`h2`, `.muted`, `.actions`) | Sayfa içi bölüm başlığı: başlık + açıklama solda, eylemler sağda |
+| `nav.tabs.tabs-spaced` | Altında 16px boşluklu sekmeler. Ekip sayfalarının sekmelerini elle yazma: `{{teamtabs $t.Slug "general"}}` (§3.4) |
+| `textarea` | Global temel stil (input ile aynı); sayfa yalnızca farkı yazar (ör. mono font) |
 
 ### 3.2 Şablon parçaları (`{{define}}` / `{{template}}`)
 
@@ -157,6 +163,7 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 | `crumbs` | `{{crumbs "Ekip" "/teams/web" "blog" "/apps/blog" "Deploy #12"}}` → `nav.crumbs`; son etiket (href'siz) geçerli sayfadır. Tüm şablon setlerinde (htmx parçaları dahil) çalışır |
 | `copy` | `{{copy .URL}}` ya da `{{copy .URL "Adresi kopyala"}}` → ikonlu `button.copy` |
 | `framework` | Framework kimliği → görünen ad (`nextjs` → `Next.js`) |
+| `teamtabs` | `{{teamtabs .Slug "general"\|"notifications"\|"usage"}}` → ekip sayfası sekmeleri (Genel, Bildirimler, Plan ve kullanım) |
 | `join`, `add1`, `initialOf`, `trimScheme` | `strings.Join`; sayaç +1; baş harf; `https://` olmadan adres |
 
 ---
@@ -206,6 +213,7 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 - Açılır menü / akordeon: `<details>`; JS yazma. Üst menü tarzı açılır menü için `details.dropdown`.
 - **Global yardımcı script** (`layout.html` sonunda, nonce'lu). Hepsi aşamalı iyileştirmedir; JS olmadan sayfa çalışır. Yeni sayfada aynı işi yapan ikinci script yazma, bu `data-` özniteliklerini kullan:
   - `data-copy="metin"` → tıklayınca panoya kopyalar (`{{copy …}}` üretir), ekran okuyucuya "Kopyalandı." der.
+  - `data-copy-from="#input"` → input'un değerini kopyalar; metinli butonda 1,5 sn "Kopyalandı ✓" yazar. `hidden` ile başlat, script açar.
   - `data-search` → `/` tuşu bu kutuya odaklanır (sayfada bir tane olsun).
   - `data-filter="#liste"` → `#liste` içindeki `[data-filter-text]` öğelerini canlı filtreler; boş kalan `[data-filter-group]` gizlenir; hiç sonuç yoksa `#liste-empty` görünür. Aynı form `GET ?q=` ile sunucuda da filtrelemeli.
   - `data-mirror="#hedef"` (+ `data-mirror-empty`) → input değerini hedef metne yansıtır (ör. proje adı → önizlenen adres).

@@ -4,6 +4,7 @@ import (
 	"html"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -134,6 +135,7 @@ func init() {
 	funcs["crumbs"] = crumbs
 	funcs["copy"] = copyButton
 	funcs["framework"] = frameworkName
+	funcs["teamtabs"] = teamTabs
 	funcs["join"] = strings.Join
 	funcs["add1"] = func(i int) int { return i + 1 }
 	funcs["initialOf"] = func(s string) string { return initial(auth.Principal{Login: s}) }
@@ -221,4 +223,28 @@ func frameworkName(id string) string {
 		return n
 	}
 	return id
+}
+
+// teamTabs renders the sections of a team page (Genel, Bildirimler, Plan ve
+// kullanım); on is "general", "notifications" or "usage":
+//
+//	{{teamtabs $t.Slug "general"}}
+func teamTabs(slug, on string) template.HTML {
+	s := url.PathEscape(slug)
+	tabs := []struct{ id, href, label string }{
+		{"general", "/teams/" + s, teamTabGeneral},
+		{"notifications", "/teams/" + s + "/notifications", teamTabNotifications},
+		{"usage", "/usage?team=" + url.QueryEscape(slug), teamTabUsage},
+	}
+	var b strings.Builder
+	b.WriteString(`<nav class="tabs tabs-spaced" aria-label="` + teamTabsLabel + `">`)
+	for _, t := range tabs {
+		b.WriteString("<a ")
+		if t.id == on {
+			b.WriteString(`class="on" aria-current="page" `)
+		}
+		b.WriteString(`href="` + html.EscapeString(t.href) + `">` + t.label + "</a>")
+	}
+	b.WriteString("</nav>")
+	return template.HTML(b.String())
 }

@@ -1,9 +1,6 @@
 {{define "head"}}<style>
 .new-token { border-color: var(--warn); margin-bottom: 20px; }
 .new-token .warn-line { display: flex; gap: 8px; align-items: flex-start; color: var(--warn); background: var(--warn-bg); border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; }
-.copy-row { display: flex; gap: 8px; align-items: stretch; }
-.copy-row input { font-family: var(--mono); font-size: 13px; }
-.copy-row button { white-space: nowrap; }
 .usage-hint { margin: 12px 0 0; }
 .usage-hint pre { background: var(--code-bg); color: var(--code-text); font-family: var(--mono); font-size: 12.5px; padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0 0; }
 .tok-state { white-space: nowrap; }
@@ -22,32 +19,14 @@
   <label for="new-token">Token</label>
   <div class="copy-row">
     <input id="new-token" type="text" readonly value="{{.}}" spellcheck="false" autocomplete="off">
-    <button type="button" class="primary" id="copy-token" data-copy="new-token" hidden>Kopyala</button>
+    <button type="button" class="primary" id="copy-token" data-copy-from="#new-token" hidden>Kopyala</button>
   </div>
-  <p class="muted small" id="copy-status" role="status" aria-live="polite" style="margin:6px 0 0"></p>
   <div class="usage-hint small">
     <span class="muted">Kullanım:</span>
     <pre>paas login --url {{$.Data.Origin}} --token &lt;token&gt;
 curl -H "Authorization: Bearer &lt;token&gt;" {{$.Data.Origin}}/api/apps</pre>
   </div>
 </section>
-<script nonce="{{$.Nonce}}">
-(() => {
-  const btn = document.getElementById("copy-token"), input = document.getElementById("new-token"),
-    status = document.getElementById("copy-status");
-  if (!btn || !input) return;
-  btn.hidden = false;
-  input.addEventListener("focus", () => input.select());
-  btn.addEventListener("click", async () => {
-    input.select();
-    try { await navigator.clipboard.writeText(input.value); }
-    catch (e) { document.execCommand && document.execCommand("copy"); }
-    btn.textContent = "Kopyalandı ✓";
-    status.textContent = "Token panoya kopyalandı.";
-    setTimeout(() => { btn.textContent = "Kopyala"; }, 2000);
-  });
-})();
-</script>
 {{end}}
 
 {{if .Data.HasUser}}

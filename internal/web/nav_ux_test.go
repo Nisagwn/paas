@@ -130,6 +130,11 @@ func TestTeamSwitcher(t *testing.T) {
 	// Other sections are highlighted in the header.
 	_, body, _ = u.get("/teams")
 	mustContain(t, "teams page", body, `<a href="/teams" class="on" aria-current="page">Ekipler</a>`)
+	// Team pages share the teamtabs and crumbs helpers.
+	_, body, _ = u.get("/teams/web")
+	mustContain(t, "team page", body, `<nav class="tabs tabs-spaced" aria-label="Ekip bölümleri">`,
+		`<a class="on" aria-current="page" href="/teams/web">Genel</a>`, `href="/usage?team=web"`,
+		`<nav class="crumbs" aria-label="Konum">`, `<span aria-current="page">Web Ekibi</span>`)
 }
 
 func TestErrorAndLoginPages(t *testing.T) {
