@@ -128,6 +128,10 @@ type Worker struct {
 
 	// Databases is optional (nil: deployments do not wait for add-ons).
 	Databases Databases
+
+	// Plans applies the team plans (Faz 23, plans.go): the fair queue, the
+	// build timeout and the process limits. Nil: no limits.
+	Plans Plans
 }
 
 // Run starts Concurrency polling loops and blocks until ctx is cancelled and
@@ -176,7 +180,7 @@ func (w *Worker) loop(ctx context.Context, n int) {
 // ProcessOne claims and runs a single deployment. It reports false when the
 // queue was empty. Exported so tests can drive the worker step by step.
 func (w *Worker) ProcessOne(ctx context.Context) (bool, error) {
-	d, err := w.Store.ClaimNext(ctx)
+	d, err := w.claim(ctx)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -303,9 +307,15 @@ func (w *Worker) run(ctx context.Context, d store.Deployment) error {
 		if err != nil {
 			return fmt.Errorf("build settings: %w", err)
 		}
-		built, err := w.Pipeline.Build(ctx, d, settings, log)
+		// Faz 23: the plan's build timeout and build minutes (plans.go).
+		built, err := w.build(ctx, d, settings, log)
 		if err != nil {
 			return fmt.Errorf("build: %w", err)
+		}
+		if built.Processes != nil {
+			if err := w.checkProcesses(ctx, d, *built.Processes); err != nil {
+				return err
+			}
 		}
 		image = built.Image
 		if err := w.Store.SetImage(ctx, d.ID, image); err != nil {

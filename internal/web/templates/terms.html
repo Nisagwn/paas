@@ -1,0 +1,45 @@
+{{/*
+  Faz 23: Kullanım koşulları ŞABLONU. Yayına almadan önce bir avukat
+  tarafından gözden geçirilmeli ve platformu işleten kişi/kurum, yetkili
+  mahkeme ve iletişim bilgileriyle tamamlanmalıdır. Bu not sayfada görünmez.
+*/}}
+{{define "content"}}
+<article class="card pad legal" style="max-width:760px;margin:0 auto">
+  <h1>Kullanım koşulları</h1>
+  <p class="sub">{{.Data.Operator}} · {{.Data.Domain}}</p>
+
+  <h2>1. Hizmet</h2>
+  <p>{{.Data.Operator}} (“platform”), GitHub depolarındaki uygulamaları derleyip çalıştıran bir barındırma hizmetidir. Platformu kullanarak bu koşulları kabul etmiş olursun. Koşulları kabul etmiyorsan platformu kullanma.</p>
+
+  <h2>2. Hesap</h2>
+  <p>Platforma GitHub hesabınla giriş yaparsın. Hesabının ve ona bağlı API token'larının güvenliğinden sen sorumlusun. Ekibine eklediğin kişilerin yaptığı işlemler de ekibin sorumluluğundadır.</p>
+
+  <h2>3. Planlar ve limitler</h2>
+  <p>Her ekip bir plana bağlıdır (ör. Hobby). Planın proje sayısı, build dakikası, günlük deploy sayısı, veritabanı, alan adı ve kaynak kotası gibi limitleri vardır; güncel değerleri <a href="/usage">Kullanım</a> sayfasında görebilirsin. Limite ulaşıldığında yeni işlem reddedilir; mevcut uygulamaların çalışmaya devam eder. Limitler önceden duyurularak değiştirilebilir.</p>
+
+  <h2>4. Kabul edilemez kullanım</h2>
+  <p>Platformda şunları çalıştıramaz ve yayınlayamazsın:</p>
+  <ul>
+    <li>yürürlükteki mevzuata aykırı içerik, başkalarının fikri haklarını ihlal eden içerik;</li>
+    <li>kimlik avı (phishing), zararlı yazılım, istenmeyen toplu ileti (spam) ya da dolandırıcılık amaçlı uygulamalar;</li>
+    <li>kripto para madenciliği ve platform kaynaklarını amacı dışında tüketen iş yükleri;</li>
+    <li>başka sistemlere saldırı, tarama ya da hizmet dışı bırakma girişimleri;</li>
+    <li>limitleri aşmak için birden çok hesap ya da ekip açmak gibi kötüye kullanım.</li>
+  </ul>
+
+  <h2>5. Askıya alma ve sonlandırma</h2>
+  <p>Bu koşullara aykırı kullanım ya da platformun güvenliğini tehlikeye atan bir durum fark edildiğinde, platform yöneticileri bir ekibi ya da kullanıcıyı önceden haber vermeden askıya alabilir. Askıdaki ekibin uygulamaları sıfıra ölçeklenir; veriler hemen silinmez. Askıya alma hakkında bilgi almak için aşağıdaki adresten yazabilirsin.</p>
+
+  <h2>6. Verilerin ve içeriğin</h2>
+  <p>Depoların, uygulamaların ve verilerin sana aittir. Platform, hizmeti sunmak için gereken ölçüde (derleme, çalıştırma, yedekleme, log tutma) bunları işler. Kişisel verilerin nasıl işlendiği <a href="/privacy">Gizlilik politikası</a>nda anlatılır.</p>
+
+  <h2>7. Hizmet seviyesi ve sorumluluk</h2>
+  <p>Platform “olduğu gibi” sunulur; kesintisiz ya da hatasız çalışacağı garanti edilmez. Önemli veriler için kendi yedeklerini almanı öneririz. Yürürlükteki mevzuatın izin verdiği ölçüde, platformun kullanımından doğan dolaylı zararlardan sorumluluk kabul edilmez.</p>
+
+  <h2>8. Değişiklikler</h2>
+  <p>Bu koşullar güncellenebilir. Önemli değişiklikler platform üzerinden duyurulur; değişiklikten sonra platformu kullanmaya devam etmen güncel koşulları kabul ettiğin anlamına gelir.</p>
+
+  <h2>9. İletişim</h2>
+  <p>{{with .Data.Contact}}Sorular ve bildirimler için: <a href="mailto:{{.}}">{{.}}</a>{{else}}Sorular ve bildirimler için platform yöneticisine başvur.{{end}}</p>
+</article>
+{{end}}

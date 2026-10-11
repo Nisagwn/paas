@@ -1,0 +1,107 @@
+{{define "head"}}<style>
+.meter { height: 6px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin-top: 3px; min-width: 80px; }
+.meter > span { display: block; height: 100%; background: var(--ok); }
+.meter.warn > span { background: var(--warn); }
+.meter.full > span { background: var(--err); }
+.admin-team { margin-bottom: 16px; }
+.admin-team .bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 16px; margin: 12px 0; }
+.admin-team .bars .k { font-size: 12px; color: var(--muted); }
+.admin-team .bars .v { font-variant-numeric: tabular-nums; font-size: 13px; }
+textarea { font: inherit; font-family: var(--mono); font-size: 13px; width: 100%; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+</style>{{end}}
+{{define "content"}}
+{{$csrf := .CSRF}}
+<div class="head"><div>
+  <h1>Yönetim</h1>
+  <p class="sub">Ekiplerin planı ve kullanımı; askıya alma. Yalnızca platform yöneticileri görür.</p>
+</div></div>
+{{with .Data.Flash}}<div class="flash ok" role="status">{{.}}</div>{{end}}
+
+<h2>Ekipler</h2>
+{{range .Data.Teams}}{{$t := .T}}
+<div class="card pad admin-team" id="team-{{$t.Slug}}">
+  <div class="head">
+    <div>
+      <strong>{{$t.Name}}</strong> <span class="mono muted small">{{$t.Slug}}</span>
+      <span class="tag prod">{{.PlanLabel}}</span>
+      {{if $t.Suspended}}<span class="badge s-failed">Askıda</span>{{end}}
+      <div class="muted small">{{$t.Members}} üye{{with $t.Owners}} · sahip: {{range $i, $o := .}}{{if $i}}, {{end}}@{{$o}}{{end}}{{end}}{{with .Overrides}} · özel limitler: <code>{{.}}</code>{{end}}</div>
+      {{if $t.Suspended}}<div class="small" style="color:var(--err)">Askıya alındı: {{time $t.SuspendedAt.UTC}}{{with $t.SuspendedReason}} · {{.}}{{end}}</div>{{end}}
+    </div>
+  </div>
+  <div class="bars">
+    {{range .Bars}}
+    <div><div class="k">{{.Label}}</div>
+      <div class="v">{{.Used}} / {{if .Unlimited}}∞{{else}}{{.Max}}{{end}}</div>
+      {{if not .Unlimited}}<div class="meter {{.Level}}"><span style="width:{{.Percent}}%"></span></div>{{end}}
+    </div>
+    {{end}}
+  </div>
+  <div class="row">
+    <form method="post" action="/admin/teams/{{$t.Slug}}/plan" style="flex:2;min-width:260px">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <div class="row">
+        <div style="flex:0 0 140px"><label for="plan-{{$t.Slug}}">Plan</label>
+          <select id="plan-{{$t.Slug}}" name="plan">
+            {{range $.Data.Plans}}<option value="{{.}}" {{if eq . $t.Plan}}selected{{end}}>{{index $.Data.PlanLabels .}}</option>{{end}}
+          </select></div>
+        <div><label for="limits-{{$t.Slug}}">Özel limitler (anahtar=değer, satır başına bir tane)</label>
+          <textarea id="limits-{{$t.Slug}}" name="limits" rows="2" placeholder="projects=50&#10;build_minutes=unlimited">{{.Lines}}</textarea></div>
+        <div style="flex:0"><button class="primary" type="submit">Kaydet</button></div>
+      </div>
+      <p class="muted small" style="margin:4px 0 0">Boş bırakılırsa planın kendi limitleri geçerli olur. Anahtarlar: {{range $i, $k := $.Data.Keys}}{{if $i}}, {{end}}<code>{{$k}}</code>{{end}}.</p>
+    </form>
+    <div style="flex:1;min-width:220px">
+      {{if $t.Suspended}}
+      <form method="post" action="/admin/teams/{{$t.Slug}}/unsuspend">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <button type="submit">Askıyı kaldır</button>
+      </form>
+      {{else}}
+      <form method="post" action="/admin/teams/{{$t.Slug}}/suspend">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <label for="reason-{{$t.Slug}}">Askıya alma gerekçesi</label>
+        <input id="reason-{{$t.Slug}}" name="reason" maxlength="500" placeholder="Kötüye kullanım">
+        <p style="margin:6px 0 0"><button class="danger" type="submit">Askıya al</button></p>
+      </form>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{else}}
+<div class="card"><div class="empty">Henüz ekip yok.</div></div>
+{{end}}
+
+<h2 id="users">Kullanıcılar</h2>
+<div class="card pad">
+  <form method="post" action="/admin/users/suspend">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="row">
+      <div><label for="ulogin">GitHub kullanıcı adı</label><input id="ulogin" name="login" required placeholder="octocat"></div>
+      <div><label for="ureason">Gerekçe</label><input id="ureason" name="reason" maxlength="500"></div>
+      <div style="flex:0"><button class="danger" type="submit">Askıya al</button></div>
+    </div>
+    <p class="muted small" style="margin-bottom:0">Askıdaki kullanıcı giriş yapamaz; oturumları ve token'ları çalışmaz.</p>
+  </form>
+</div>
+{{with .Data.Users}}
+<div class="card" style="margin-top:12px">
+  <table>
+    <thead><tr><th>Kullanıcı</th><th>Askıya alındı</th><th>Gerekçe</th><th></th></tr></thead>
+    <tbody>
+    {{range .}}
+    <tr><td><strong>@{{.Login}}</strong></td><td class="small">{{time .SuspendedAt}}</td><td class="small">{{.SuspendedReason}}</td>
+      <td style="text-align:right">
+        <form class="inline" method="post" action="/admin/users/unsuspend">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <input type="hidden" name="login" value="{{.Login}}">
+          <button class="small" type="submit">Askıyı kaldır</button>
+        </form>
+      </td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+{{end}}

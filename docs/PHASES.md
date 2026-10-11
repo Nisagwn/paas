@@ -234,6 +234,17 @@ queued → building → deploying → ready
 - RBAC: `statefulsets`, `persistentvolumeclaims` (Job'lar Faz 20'den beri vardı); `pods/exec` gerekmedi
 - **Çıktı:** tek tıkla veritabanı; her pull request production verisinin (istenirse anonimleştirilmiş) kendi kopyasıyla, production'a dokunmadan test ediliyor — Vercel'in pazar yerine bıraktığı iş platformun içinde
 
+### Faz 23 — Herkese açılış: planlar, limitler ve kötüye kullanım koruması (migration 016) ✅ (birim, veritabanı, sahte küme ve sahte GitHub testleriyle doğrulandı; açık kayıtla canlı deneme bekliyor)
+- Ekip başına plan (`teams.plan`: `hobby` varsayılan, `pro` / `unlimited` yönetici atar; 016'dan önceki ekipler `unlimited`) ve yöneticinin ekip başına özel limitleri (`teams.plan_limits` JSONB); limitlerin kendisi yapılandırmada (`internal/plans`, `PAAS_PLAN_<PLAN>_<ANAHTAR>`)
+- Limitler: proje, eşzamanlı build, aylık build dakikası, build zaman aşımı, günlük deploy, özel alan adı, veritabanı (Faz 22), süreç başına kopya ve cron (Faz 20), proje başına CPU / bellek kotası (namespace `ResourceQuota` tabanı ve `LimitRange` varsayılanının üst sınırı)
+- Uygulama: proje oluşturma / import (API + arayüz), push webhook'u (`429` / `403` + GitHub'da "Plan limiti aşıldı" commit durumu), deploy hook'u, yeniden deploy, preview'i production'a taşıma, alan adı, veritabanı, kopya ölçekleme; worker'da plan zaman aşımı ve `paas.yaml` kontrolü; build süresi deploy başına `deployments.build_seconds`
+- Adil kuyruk: `ClaimNextFor` eşzamanlı build sınırındaki ekipleri atlar (advisory lock altında), askıdaki ekiplerin deploy'larını hiç almaz
+- Kötüye kullanım: bellekte token bucket ile giriş (IP), import ve API / form yazmaları (kullanıcı + IP) için hız sınırı (`PAAS_RATE_LIMIT_*`, `429` + `Retry-After`); açık kayıtta en düşük GitHub hesap yaşı (`PAAS_SIGNUP_MIN_ACCOUNT_AGE`, `/user` yanıtındaki `created_at`)
+- Askıya alma: ekip (sıradaki deploy'lar iptal, süren durdurulur, uygulamalar sıfıra ölçeklenir ve kopya sayıları açıklamada saklanır, CronJob'lar `suspend`, kota `pods: 0`; veriler korunur) ve kullanıcı (giriş, oturum ve token'lar kapanır)
+- Yönetim: `PAAS_ADMIN_GITHUB_LOGINS` ya da admin token'ı; `/admin` sayfası ve `/api/admin/teams…`, `/api/admin/users…`; ekip kullanımı `GET /api/teams/{slug}/usage` ve `/usage` sayfası (çubuklar)
+- Yasal: `/terms`, `/privacy` (KVKK'ya göre; `PAAS_CONTACT_EMAIL`, `PAAS_OPERATOR_NAME`), alt bilgide ve giriş sayfasında bağlantı; hukukçu notu şablonun yorumunda
+- **Çıktı:** platform açık kayda hazır: bir hesap ya da ekip kaynakları tüketemiyor, kuyruğu tıkayamıyor; yönetici kimin ne kullandığını görüp müdahale edebiliyor
+
 ### Faz 24 — Deploy koruması (migration 017) ✅ (birim, veritabanı ve sahte dinamik istemci testleri; ForwardAuth akışı k3d / Traefik üzerinde TLS'siz canlı denendi)
 - Proje başına ayar (`app_protection`): mod `off` | `team` (ekibin giriş yapmış üyeleri) | `password` (ortak şifre, PBKDF2-HMAC-SHA256, standart kütüphane; ekip üyeleri şifresiz girer); kapsam `previews` (deploy adresleri + önizleme alias'ları) | `all` (canlı adres, özel alan adları ve canary `IngressRoute`'ları dahil)
 - Uygulama Traefik'te: korunan namespace'te `Middleware paas-protect` (forwardAuth → `PAAS_FORWARD_AUTH_URL?app=<app>`, dinamik istemciyle), kapsamdaki Ingress'lerde `router.middlewares` açıklaması. Açıklama `applyIngress` içinde hesaplanır (uzlaştırma onu hiç silmez); `routing.Syncer` ayardan sonra deploy Ingress'lerini günceller, kapanınca `Middleware`'i siler. CRD yoksa koruma açıkken rota güncellemesi hata verir (açık kalmaz)

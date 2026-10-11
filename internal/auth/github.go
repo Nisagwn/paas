@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/nisagwn/paas/internal/github"
 	"github.com/nisagwn/paas/internal/store"
@@ -36,11 +37,45 @@ type GitHubLogin struct {
 	AllowedOrgs  []string
 	// OpenSignup lets any GitHub account sign in (PAAS_OPEN_SIGNUP).
 	OpenSignup bool
-	Log        *slog.Logger
+	// MinAccountAge refuses open sign-ups of GitHub accounts younger than
+	// this (Faz 23, PAAS_SIGNUP_MIN_ACCOUNT_AGE); 0 is off. Admins,
+	// allowlisted and invited users are not affected.
+	MinAccountAge time.Duration
+	// Now is the clock of the account age check (tests); nil is time.Now.
+	Now func() time.Time
+	Log *slog.Logger
 }
 
 // ErrNotAllowed: the GitHub account is not on any allowlist.
 var ErrNotAllowed = errors.New("this GitHub account is not allowed to sign in")
+
+// ErrAccountTooNew: open sign-up refused a GitHub account younger than
+// MinAccountAge (Faz 23).
+var ErrAccountTooNew = errors.New("this GitHub account is too new to sign up")
+
+// tooNew applies MinAccountAge; an account without a creation date passes.
+func (g *GitHubLogin) tooNew(acct github.User) bool {
+	if g.MinAccountAge <= 0 || acct.CreatedAt.IsZero() {
+		return false
+	}
+	now := time.Now()
+	if g.Now != nil {
+		now = g.Now()
+	}
+	return now.Sub(acct.CreatedAt) < g.MinAccountAge
+}
+
+// invited reports whether the GitHub account already belongs to a team.
+func invited(ctx context.Context, st *store.Store, githubID int64) (bool, error) {
+	u, err := st.UserByGitHubID(ctx, githubID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return st.HasTeams(ctx, u.ID)
+}
 
 // Scope asks for read:org only when organization membership is checked.
 func (g *GitHubLogin) Scope() string {
@@ -85,6 +120,15 @@ func (g *GitHubLogin) Complete(ctx context.Context, st *store.Store, code, verif
 		}
 		allowed = slices.ContainsFunc(orgs, func(o string) bool { return hasFold(g.AllowedOrgs, o) })
 	}
+	if g.OpenSignup && !admin && !hasFold(g.AllowedUsers, acct.Login) && g.tooNew(acct) {
+		// Open sign-up only (allowlisted organizations are trusted): an
+		// invited account may still come in.
+		if ok, err := invited(ctx, st, acct.ID); err != nil {
+			return store.User{}, err
+		} else if !ok {
+			return store.User{}, ErrAccountTooNew
+		}
+	}
 	if !allowed {
 		// Invited by a team owner?
 		u, err := st.UserByGitHubID(ctx, acct.ID)
@@ -103,6 +147,13 @@ func (g *GitHubLogin) Complete(ctx context.Context, st *store.Store, code, verif
 	u, err := st.UpsertUser(ctx, acct.ID, acct.Login, acct.Name, acct.AvatarURL)
 	if err != nil {
 		return u, err
+	}
+	// Faz 23: an admin suspended the account (admins of the platform
+	// cannot lock themselves out).
+	if suspended, err := st.UserSuspended(ctx, u.ID); err != nil {
+		return u, err
+	} else if suspended && !admin {
+		return u, ErrSuspended
 	}
 	if admin {
 		t, err := st.GetTeamBySlug(ctx, store.DefaultTeam)

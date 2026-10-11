@@ -149,6 +149,11 @@ type Kubernetes struct {
 	// Protection reads the apps' deployment protection (Faz 24,
 	// protection.go); nil uses env when it implements ProtectionSource.
 	Protection ProtectionSource
+
+	// Plans sets the namespace quota by the team's plan and closes
+	// suspended teams' namespaces (Faz 23, suspend.go); nil uses the
+	// configured quota for every app.
+	Plans PlanQuotas
 }
 
 var _ worker.Deployer = (*Kubernetes)(nil)

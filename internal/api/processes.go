@@ -250,6 +250,12 @@ func (s *Server) putProcess(w http.ResponseWriter, r *http.Request) {
 		replicas = &n
 	}
 	proc := r.PathValue("proc")
+	if replicas != nil { // Faz 23: the plan bounds replicas per process
+		if err := s.Plans.CheckReplicas(r.Context(), app.TeamID, *replicas); err != nil {
+			s.internalError(w, err) // writes a limit refusal as such
+			return
+		}
+	}
 	status, err := ScaleProcess(r.Context(), s.Store, s.Router, app, proc, replicas)
 	if status == http.StatusInternalServerError {
 		s.internalError(w, err)

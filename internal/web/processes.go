@@ -171,6 +171,14 @@ func (s *Server) scaleProcess(w http.ResponseWriter, r *http.Request) {
 		s.processResult(w, r, app, http.StatusBadRequest, errors.New("Kopya sayısı 0 ile 10 arasında olmalı."), "")
 		return
 	}
+	if err := s.Plans.CheckReplicas(r.Context(), app.TeamID, n); err != nil { // Faz 23
+		if status, msg, ok := limitError(err); ok {
+			s.processResult(w, r, app, status, errors.New(msg), "")
+			return
+		}
+		s.internalError(w, r, err)
+		return
+	}
 	status, err := api.ScaleProcess(r.Context(), s.Store, s.Router, app, proc, &n)
 	if err == nil {
 		s.Log.Info("process scaled", "app", app.Name, "process", proc, "replicas", n, "via", "web")

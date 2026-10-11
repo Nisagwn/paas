@@ -48,6 +48,10 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	pub, err := config.LoadPublic() // Faz 23
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -183,6 +187,8 @@ func run(log *slog.Logger) error {
 			"public_url", cfg.PublicURL, "app", ghApp != nil)
 	}
 	w.Cleanup, w.StaleAfter = gc, cfg.WorkerStaleAfter
+	// Faz 23: plans, rate limits, suspension (read per request; set before serving).
+	setupPlans(pub, cfg, st, applier, authn, ghLogin, apiSrv, ui, w, log)
 
 	var wg sync.WaitGroup
 	// Faz 26: notifications (email, Slack, Discord, webhooks). Deployment

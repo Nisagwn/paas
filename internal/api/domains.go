@@ -91,6 +91,10 @@ func (s *Server) addDomain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, `body must be {"hostname": "www.example.com"}`)
 		return
 	}
+	if err := s.Plans.CheckDomain(r.Context(), app.TeamID); err != nil { // Faz 23
+		s.internalError(w, err) // writes a limit refusal as such
+		return
+	}
 	d, status, err := AddDomain(r.Context(), s.Store, s.Domains, app, s.Domain, req.Hostname)
 	if status == http.StatusInternalServerError {
 		s.internalError(w, err)

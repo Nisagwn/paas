@@ -11,6 +11,7 @@ import (
 
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/plans"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -90,6 +91,15 @@ const githubTimeout = 15 * time.Second
 // (500: err is internal and must not be shown).
 func ImportApp(ctx context.Context, st *store.Store, a *auth.Authenticator, gh RepoInspector, log *slog.Logger,
 	p auth.Principal, req ImportRequest) (ImportResult, int, error) {
+	return ImportAppLimited(ctx, st, a, gh, nil, log, p, req)
+}
+
+// ImportAppLimited is ImportApp under the team plans (Faz 23): the team
+// must have room for one more project (else the *plans.LimitError with
+// its status), and the first deployment is only queued when the plan
+// allows one more (else the app is created with a Warning).
+func ImportAppLimited(ctx context.Context, st *store.Store, a *auth.Authenticator, gh RepoInspector, limits *plans.Guard,
+	log *slog.Logger, p auth.Principal, req ImportRequest) (ImportResult, int, error) {
 	var res ImportResult
 	repo := strings.TrimSpace(req.Repo)
 	if !repoRe.MatchString(repo) {
@@ -171,6 +181,12 @@ func ImportApp(ctx context.Context, st *store.Store, a *auth.Authenticator, gh R
 	if err != nil {
 		return res, http.StatusInternalServerError, err
 	}
+	if err := limits.CheckCreateApp(ctx, team.ID); err != nil {
+		if le := plans.AsLimit(err); le != nil {
+			return res, le.Status, le
+		}
+		return res, http.StatusInternalServerError, err
+	}
 	// GitHub's spelling of the name, so webhooks and tokens match it exactly.
 	res.App, err = st.CreateAppInTeam(ctx, team.ID, name, pick.FullName, branch)
 	if errors.Is(err, store.ErrConflict) {
@@ -193,6 +209,13 @@ func ImportApp(ctx context.Context, st *store.Store, a *auth.Authenticator, gh R
 		log.Warn("import: branch head", "repo", pick.FullName, "branch", branch, "err", err)
 		res.Warning = "app created, but reading the head of " + branch + " failed; push to it to deploy"
 		return res, http.StatusCreated, nil
+	}
+	if err := limits.CheckDeploy(ctx, team.ID); err != nil {
+		if le := plans.AsLimit(err); le != nil {
+			res.Warning = "app created, but not deployed: " + le.Msg
+			return res, http.StatusCreated, nil
+		}
+		return res, http.StatusInternalServerError, err
 	}
 	d, _, err := st.EnqueueDeployment(ctx, res.App.ID, sha, branch, "Imported from GitHub")
 	if err != nil {
@@ -241,14 +264,20 @@ type importView struct {
 }
 
 func (s *Server) importApp(w http.ResponseWriter, r *http.Request) {
+	if !s.allowImport(w, r) {
+		return
+	}
 	var req ImportRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	res, status, err := ImportApp(r.Context(), s.Store, s.Auth, s.GitHubApp, s.Log, principal(r), req)
+	res, status, err := ImportAppLimited(r.Context(), s.Store, s.Auth, s.GitHubApp, s.Plans, s.Log, principal(r), req)
 	if status == http.StatusInternalServerError {
 		s.internalError(w, err)
+		return
+	}
+	if planError(w, err) {
 		return
 	}
 	if err != nil {

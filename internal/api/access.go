@@ -51,6 +51,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "missing or invalid bearer token")
 			return
 		}
+		if errors.Is(err, auth.ErrSuspended) { // Faz 23
+			writeError(w, http.StatusForbidden, "your account is suspended")
+			return
+		}
 		if err != nil {
 			s.internalError(w, err)
 			return

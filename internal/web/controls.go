@@ -72,6 +72,9 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if src.Target != store.EnvProduction && s.planRefused(w, r, app, tabDeploys, s.Plans.CheckDeploy(r.Context(), app.TeamID)) {
+		return // Faz 23: promoting a preview queues a deployment
+	}
 	res, err := api.Promote(r.Context(), s.Store, src, who(r))
 	if s.controlError(w, r, app, err) {
 		return
@@ -96,6 +99,9 @@ func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	src, ok := s.formDeployment(w, r, app)
 	if !ok {
+		return
+	}
+	if s.planRefused(w, r, app, tabDeploys, s.Plans.CheckDeploy(r.Context(), app.TeamID)) { // Faz 23
 		return
 	}
 	useCache := r.PostFormValue("no_cache") == ""

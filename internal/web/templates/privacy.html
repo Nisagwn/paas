@@ -1,0 +1,51 @@
+{{/*
+  Faz 23: Gizlilik politikası ŞABLONU (6698 sayılı KVKK dikkate alınarak
+  yazıldı). Yayına almadan önce bir avukat tarafından gözden geçirilmeli;
+  veri sorumlusunun unvanı/adresi, VERBİS kaydı gerekip gerekmediği, yurt
+  dışına aktarım dayanağı (barındırma sağlayıcısı) ve saklama süreleri
+  işletmeye göre kesinleştirilmelidir. Bu not sayfada görünmez.
+*/}}
+{{define "content"}}
+<article class="card pad legal" style="max-width:760px;margin:0 auto">
+  <h1>Gizlilik politikası</h1>
+  <p class="sub">{{.Data.Operator}} · {{.Data.Domain}}</p>
+
+  <p>Bu metin, {{.Data.Operator}} platformunu kullanırken hangi kişisel verilerinin işlendiğini, neden işlendiğini ve 6698 sayılı Kişisel Verilerin Korunması Kanunu (KVKK) kapsamındaki haklarını açıklar. Veri sorumlusu platformu işleten {{.Data.Operator}}'tır.</p>
+
+  <h2>1. İşlenen veriler</h2>
+  <ul>
+    <li><strong>GitHub hesap bilgileri:</strong> GitHub kullanıcı adın, GitHub hesap numaran, görünen adın ve profil resmi adresin. GitHub erişim token'ın yalnızca giriş sırasında kullanılır, saklanmaz.</li>
+    <li><strong>Ekip ve yetki bilgileri:</strong> üyesi olduğun ekipler ve rolün.</li>
+    <li><strong>API token'ları:</strong> yalnızca özetleri (SHA-256) saklanır; token'ın kendisi bir kez gösterilir.</li>
+    <li><strong>Uygulama verileri:</strong> bağladığın depo adları, commit bilgileri (SHA, branch, commit mesajı), build ayarları ve deploy geçmişi.</li>
+    <li><strong>Ortam değişkenleri:</strong> uygulamalarına girdiğin değerler veritabanında şifreli (AES-256-GCM) saklanır.</li>
+    <li><strong>Loglar:</strong> build logları, uygulamalarının çalışma zamanı logları, istek sayıları ve yanıt süreleri gibi kullanım ölçümleri; güvenlik ve kötüye kullanımı önleme için IP adresi içeren sunucu kayıtları.</li>
+    <li><strong>Yönetilen veritabanları:</strong> eklediğin veritabanlarının içeriği ve yedekleri; bu içeriğin sorumlusu sensin.</li>
+  </ul>
+
+  <h2>2. İşleme amaçları ve hukuki sebepler</h2>
+  <p>Veriler; hizmeti sunmak (giriş, derleme, deploy, yönlendirme), hesabını ve ekiplerini yönetmek, plan limitlerini ve kullanımı hesaplamak, güvenliği sağlamak ve kötüye kullanımı önlemek amacıyla işlenir. Hukuki sebepler KVKK md. 5/2 kapsamında sözleşmenin kurulması ve ifası, hukuki yükümlülüklerin yerine getirilmesi ve meşru menfaattir.</p>
+
+  <h2>3. Saklama süreleri</h2>
+  <ul>
+    <li>Hesap ve ekip bilgileri: hesabın açık kaldığı sürece.</li>
+    <li>Build logları ve deploy kayıtları: deploy kaydı silinene kadar; eski önizleme deploy'ları otomatik olarak emekliye ayrılır.</li>
+    <li>İstek ölçümleri: 7 gün.</li>
+    <li>Veritabanı yedekleri: veritabanı için seçtiğin yedek sayısı kadar.</li>
+    <li>Askıya alma kayıtları: ilgili ekip ya da kullanıcı hesabı silinene kadar.</li>
+  </ul>
+  <p>Saklama süresi dolan veriler silinir ya da anonim hale getirilir.</p>
+
+  <h2>4. Aktarım</h2>
+  <p>Veriler, hizmetin altyapısını sağlayan barındırma sağlayıcısının sunucularında tutulur. Giriş ve depo erişimi için GitHub ile veri alışverişi yapılır. Bunların dışında verilerin üçüncü kişilerle paylaşılmaz; yasal bir zorunluluk olduğunda yetkili mercilere aktarılabilir.</p>
+
+  <h2>5. Çerezler</h2>
+  <p>Yalnızca oturumunu açık tutmak ve sahte istekleri (CSRF) engellemek için zorunlu çerezler kullanılır. Reklam ya da izleme çerezi kullanılmaz.</p>
+
+  <h2>6. Hakların</h2>
+  <p>KVKK md. 11 uyarınca kişisel verilerinin işlenip işlenmediğini öğrenme, bilgi talep etme, işleme amacını öğrenme, aktarıldığı kişileri bilme, eksik ya da yanlış işlenmişse düzeltilmesini, şartları oluştuğunda silinmesini isteme, itiraz etme ve zararın giderilmesini talep etme haklarına sahipsin.</p>
+
+  <h2>7. İletişim</h2>
+  <p>{{with .Data.Contact}}Başvuruların için: <a href="mailto:{{.}}">{{.}}</a>{{else}}Başvuruların için platform yöneticisine başvur.{{end}}</p>
+</article>
+{{end}}

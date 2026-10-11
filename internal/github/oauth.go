@@ -91,6 +91,9 @@ type User struct {
 	Login     string `json:"login"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
+	// CreatedAt is when the account was created (Faz 23: minimum account
+	// age for open sign-up); zero when GitHub did not send it.
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ErrNotFound: the API answered 404.

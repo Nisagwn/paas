@@ -16,6 +16,8 @@ import (
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
 	"github.com/nisagwn/paas/internal/notify"
+	"github.com/nisagwn/paas/internal/plans"
+	"github.com/nisagwn/paas/internal/ratelimit"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/webhook"
 )
@@ -84,6 +86,14 @@ type Server struct {
 	// (protect.Guard); nil leaves /_auth/verify unanswered.
 	Protection http.Handler
 
+	// Faz 23 (plans.go), all optional. Plans enforces the team plans (nil:
+	// no limits); Limits rate-limits sign-in, imports and writes (nil: no
+	// rate limits); Refusals marks refused pushes on GitHub; Suspender
+	// scales suspended teams' apps to zero.
+	Plans     *plans.Guard
+	Limits    *ratelimit.Set
+	Refusals  RefusalReporter
+	Suspender Suspender
 	// Faz 26 (notifications.go): channels, test messages and production
 	// change events; nil stores channels but sends nothing.
 	Notifications *notify.Service
@@ -189,7 +199,17 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
 	// Faz 25: preview comments (comments.go; roles checked there).
 	s.commentRoutes(api)
-	mux.Handle("/api/", s.authenticate(api))
+	// Faz 23: usage of a team; plans and suspension for admins (plans.go).
+	api.HandleFunc("GET /api/teams/{slug}/usage", s.teamUsage)
+	api.HandleFunc("GET /api/admin/teams", s.requireAdmin(s.adminTeams))
+	api.HandleFunc("GET /api/admin/teams/{slug}", s.requireAdmin(s.adminTeam))
+	api.HandleFunc("PUT /api/admin/teams/{slug}/plan", s.requireAdmin(s.adminSetPlan))
+	api.HandleFunc("POST /api/admin/teams/{slug}/suspend", s.requireAdmin(s.adminSuspend))
+	api.HandleFunc("POST /api/admin/teams/{slug}/unsuspend", s.requireAdmin(s.adminUnsuspend))
+	api.HandleFunc("GET /api/admin/users/suspended", s.requireAdmin(s.adminSuspendedUsers))
+	api.HandleFunc("POST /api/admin/users/{login}/suspend", s.requireAdmin(s.adminSuspendUser))
+	api.HandleFunc("POST /api/admin/users/{login}/unsuspend", s.requireAdmin(s.adminUnsuspendUser))
+	mux.Handle("/api/", s.authenticate(s.limitWrites(api)))
 	if s.Protection != nil {
 		// Faz 24: asked by Traefik for every request to a protected host.
 		mux.Handle("/_auth/verify", s.Protection)
@@ -242,6 +262,9 @@ type createAppRequest struct {
 }
 
 func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
+	if !s.allowImport(w, r) {
+		return
+	}
 	var req createAppRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -271,6 +294,12 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "creating apps needs the member role on the team")
 		return
 	case err != nil:
+		s.internalError(w, err)
+		return
+	}
+	if err := s.Plans.CheckCreateApp(r.Context(), team.ID); planError(w, err) {
+		return
+	} else if err != nil {
 		s.internalError(w, err)
 		return
 	}
@@ -617,6 +646,16 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Faz 23: the team's plan (daily deployments, build minutes, suspension).
+	if err := s.Plans.CheckDeploy(r.Context(), app.TeamID); err != nil {
+		if le := plans.AsLimit(err); le != nil {
+			s.refusePush(w, app, push.Repo, push.SHA, push.Branch, le)
+			return
+		}
+		s.internalError(w, err)
+		return
+	}
+
 	d, created, err := s.Store.EnqueueDeployment(r.Context(), app.ID, push.SHA, push.Branch, push.Message)
 	if err != nil {
 		s.internalError(w, err)
@@ -653,6 +692,9 @@ func pathID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 func (s *Server) internalError(w http.ResponseWriter, err error) {
+	if planError(w, err) { // Faz 23: a limit that reached a generic error path
+		return
+	}
 	s.Log.Error("internal error", "err", err)
 	writeError(w, http.StatusInternalServerError, "internal error")
 }

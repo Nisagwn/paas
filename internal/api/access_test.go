@@ -116,6 +116,7 @@ func TestAuthorizationMatrix(t *testing.T) {
 	read := want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 404, "admin": 200}
 	write := want{"anonymous": 401, "carol": 403, "bob": 200, "alice": 200, "dave": 404, "admin": 200}
 	owner := want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 200, "dave": 404, "admin": 200}
+	platform := want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 403, "dave": 403, "admin": 200}
 
 	d := f.d1.ID
 	// Faz 25: a preview comment thread by alice on d1.
@@ -243,6 +244,17 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"DELETE", "/api/teams/web/members/erin", nil,
 			want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 204, "dave": 404, "admin": 204},
 			func() { f.st.SetMember(context.Background(), f.web.ID, f.users["erin"].ID, store.RoleViewer) }},
+		// Faz 23: a team's usage is visible to its members; plans and
+		// suspensions belong to platform admins only.
+		{"GET", "/api/teams/web/usage", nil, read, nil},
+		{"GET", "/api/admin/teams", nil, platform, nil},
+		{"GET", "/api/admin/teams/web", nil, platform, nil},
+		{"PUT", "/api/admin/teams/ops/plan", func(string) any { return map[string]string{"plan": "pro"} }, platform, nil},
+		{"POST", "/api/admin/teams/ops/suspend", nil, platform, nil},
+		{"POST", "/api/admin/teams/ops/unsuspend", nil, platform, nil},
+		{"GET", "/api/admin/users/suspended", nil, platform, nil},
+		{"POST", "/api/admin/users/erin/suspend", nil, platform, nil},
+		{"POST", "/api/admin/users/erin/unsuspend", nil, platform, nil},
 		// Faz 26 notifications: reading channels and the delivery log is
 		// viewer; creating, changing, deleting and test messages are member.
 		{"GET", "/api/teams/web/notifications", nil, read, nil},

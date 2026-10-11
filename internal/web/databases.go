@@ -229,6 +229,9 @@ func (s *Server) createDatabase(w http.ResponseWriter, r *http.Request) {
 	if req.Kind == store.AddonRedis {
 		req.PreviewMode = "" // the form's preview select applies to Postgres
 	}
+	if s.planRefused(w, r, app, tabDatabases, s.Plans.CheckAddon(r.Context(), app.TeamID)) { // Faz 23
+		return
+	}
 	a, err := api.CreateAddon(r.Context(), s.Store, app, req)
 	var ae *api.AddonError
 	if errors.As(err, &ae) {
