@@ -3,21 +3,59 @@
   tarafından gözden geçirilmeli ve platformu işleten kişi/kurum, yetkili
   mahkeme ve iletişim bilgileriyle tamamlanmalıdır. Bu not sayfada görünmez.
 */}}
+{{define "head"}}<style>
+.legal-wrap { display: grid; grid-template-columns: 200px minmax(0, 720px); gap: 32px; justify-content: center; align-items: start; }
+.legal-toc { position: sticky; top: 16px; font-size: 13px; }
+.legal-toc h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+.legal-toc ol { list-style: none; margin: 0; padding: 0; }
+.legal-toc li { margin: 0 0 6px; }
+.legal-toc a { color: var(--muted); }
+.legal-toc a:hover { color: var(--text); }
+.legal-toc .other { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+article.legal { padding: 32px 36px; line-height: 1.7; }
+article.legal h1 { font-size: 28px; }
+article.legal h2 { font-size: 17px; margin: 32px 0 8px; scroll-margin-top: 16px; }
+article.legal p, article.legal li { color: var(--text); }
+article.legal ul { padding-left: 20px; }
+article.legal li { margin-bottom: 6px; }
+article.legal .lead { color: var(--muted); }
+@media (max-width: 720px) {
+  .legal-wrap { grid-template-columns: 1fr; gap: 12px; }
+  .legal-toc { position: static; }
+  article.legal { padding: 20px 16px; }
+}
+</style>{{end}}
 {{define "content"}}
-<article class="card pad legal" style="max-width:760px;margin:0 auto">
+<div class="legal-wrap">
+<nav class="legal-toc" aria-label="İçindekiler">
+  <h2>İçindekiler</h2>
+  <ol>
+    <li><a href="#hizmet">1. Hizmet</a></li>
+    <li><a href="#hesap">2. Hesap</a></li>
+    <li><a href="#planlar-ve-limitler">3. Planlar ve limitler</a></li>
+    <li><a href="#kabul-edilemez-kullanim">4. Kabul edilemez kullanım</a></li>
+    <li><a href="#askiya-alma-ve-sonlandirma">5. Askıya alma ve sonlandırma</a></li>
+    <li><a href="#verilerin-ve-icerigin">6. Verilerin ve içeriğin</a></li>
+    <li><a href="#hizmet-seviyesi-ve-sorumluluk">7. Hizmet seviyesi ve sorumluluk</a></li>
+    <li><a href="#degisiklikler">8. Değişiklikler</a></li>
+    <li><a href="#iletisim">9. İletişim</a></li>
+  </ol>
+  <p class="other"><a href="/privacy">Gizlilik politikası →</a></p>
+</nav>
+<article class="card legal">
   <h1>Kullanım koşulları</h1>
   <p class="sub">{{.Data.Operator}} · {{.Data.Domain}}</p>
 
-  <h2>1. Hizmet</h2>
+  <h2 id="hizmet">1. Hizmet</h2>
   <p>{{.Data.Operator}} (“platform”), GitHub depolarındaki uygulamaları derleyip çalıştıran bir barındırma hizmetidir. Platformu kullanarak bu koşulları kabul etmiş olursun. Koşulları kabul etmiyorsan platformu kullanma.</p>
 
-  <h2>2. Hesap</h2>
+  <h2 id="hesap">2. Hesap</h2>
   <p>Platforma GitHub hesabınla giriş yaparsın. Hesabının ve ona bağlı API token'larının güvenliğinden sen sorumlusun. Ekibine eklediğin kişilerin yaptığı işlemler de ekibin sorumluluğundadır.</p>
 
-  <h2>3. Planlar ve limitler</h2>
+  <h2 id="planlar-ve-limitler">3. Planlar ve limitler</h2>
   <p>Her ekip bir plana bağlıdır (ör. Hobby). Planın proje sayısı, build dakikası, günlük deploy sayısı, veritabanı, alan adı ve kaynak kotası gibi limitleri vardır; güncel değerleri <a href="/usage">Kullanım</a> sayfasında görebilirsin. Limite ulaşıldığında yeni işlem reddedilir; mevcut uygulamaların çalışmaya devam eder. Limitler önceden duyurularak değiştirilebilir.</p>
 
-  <h2>4. Kabul edilemez kullanım</h2>
+  <h2 id="kabul-edilemez-kullanim">4. Kabul edilemez kullanım</h2>
   <p>Platformda şunları çalıştıramaz ve yayınlayamazsın:</p>
   <ul>
     <li>yürürlükteki mevzuata aykırı içerik, başkalarının fikri haklarını ihlal eden içerik;</li>
@@ -27,19 +65,20 @@
     <li>limitleri aşmak için birden çok hesap ya da ekip açmak gibi kötüye kullanım.</li>
   </ul>
 
-  <h2>5. Askıya alma ve sonlandırma</h2>
+  <h2 id="askiya-alma-ve-sonlandirma">5. Askıya alma ve sonlandırma</h2>
   <p>Bu koşullara aykırı kullanım ya da platformun güvenliğini tehlikeye atan bir durum fark edildiğinde, platform yöneticileri bir ekibi ya da kullanıcıyı önceden haber vermeden askıya alabilir. Askıdaki ekibin uygulamaları sıfıra ölçeklenir; veriler hemen silinmez. Askıya alma hakkında bilgi almak için aşağıdaki adresten yazabilirsin.</p>
 
-  <h2>6. Verilerin ve içeriğin</h2>
+  <h2 id="verilerin-ve-icerigin">6. Verilerin ve içeriğin</h2>
   <p>Depoların, uygulamaların ve verilerin sana aittir. Platform, hizmeti sunmak için gereken ölçüde (derleme, çalıştırma, yedekleme, log tutma) bunları işler. Kişisel verilerin nasıl işlendiği <a href="/privacy">Gizlilik politikası</a>nda anlatılır.</p>
 
-  <h2>7. Hizmet seviyesi ve sorumluluk</h2>
+  <h2 id="hizmet-seviyesi-ve-sorumluluk">7. Hizmet seviyesi ve sorumluluk</h2>
   <p>Platform “olduğu gibi” sunulur; kesintisiz ya da hatasız çalışacağı garanti edilmez. Önemli veriler için kendi yedeklerini almanı öneririz. Yürürlükteki mevzuatın izin verdiği ölçüde, platformun kullanımından doğan dolaylı zararlardan sorumluluk kabul edilmez.</p>
 
-  <h2>8. Değişiklikler</h2>
+  <h2 id="degisiklikler">8. Değişiklikler</h2>
   <p>Bu koşullar güncellenebilir. Önemli değişiklikler platform üzerinden duyurulur; değişiklikten sonra platformu kullanmaya devam etmen güncel koşulları kabul ettiğin anlamına gelir.</p>
 
-  <h2>9. İletişim</h2>
+  <h2 id="iletisim">9. İletişim</h2>
   <p>{{with .Data.Contact}}Sorular ve bildirimler için: <a href="mailto:{{.}}">{{.}}</a>{{else}}Sorular ve bildirimler için platform yöneticisine başvur.{{end}}</p>
 </article>
+</div>
 {{end}}

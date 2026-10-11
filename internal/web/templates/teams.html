@@ -1,38 +1,77 @@
+{{define "head"}}<style>
+.team-list { list-style: none; margin: 0; padding: 0; }
+.team-list li { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.team-list li:last-child { border-bottom: 0; }
+.team-list .who { flex: 1; min-width: 200px; }
+.team-list .who a { font-weight: 600; color: var(--text); }
+.team-list .facts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.team-list .go { color: var(--muted); }
+.team-list li:hover .go { color: var(--text); }
+.hint { margin: 6px 0 0; }
+</style>{{end}}
 {{define "content"}}
 <div class="head"><div>
   <h1>Ekipler</h1>
-  <p class="sub">Projeler bir ekibe aittir: izleyici görür, üye deploy eder, sahip ekibi yönetir.</p>
-</div></div>
+  <p class="sub">Her proje bir ekibe aittir. Ekibe eklediğin kişiler rollerine göre projeleri görür, deploy eder ya da ekibi yönetir.</p>
+</div>
+<div class="actions"><a class="btn primary" href="#new-team">+ Yeni ekip</a></div>
+</div>
 
 <div class="card">
 {{with .Data.Teams}}
-  <table>
-    <thead><tr><th>Ekip</th><th class="hide-sm">Kısa ad</th><th>Rolün</th></tr></thead>
-    <tbody>
-    {{range .}}
-      <tr><td><a href="/teams/{{.Slug}}"><strong>{{.Name}}</strong></a></td>
-        <td class="hide-sm mono muted">{{.Slug}}</td><td><span class="tag">{{role .Role}}</span></td></tr>
-    {{end}}
-    </tbody>
-  </table>
+  <ul class="team-list" aria-label="Ekiplerin">
+  {{range .}}
+    <li>
+      <div class="who">
+        <a href="/teams/{{.Slug}}">{{.Name}}</a>
+        <div class="muted small"><span class="mono">{{.Slug}}</span> · {{.Members}} üye · {{.Apps}} proje</div>
+      </div>
+      <div class="facts">
+        {{if .Suspended}}<span class="badge s-failed">Askıda</span>{{end}}
+        {{with .Plan}}<span class="tag" title="Plan">{{.}}</span>{{end}}
+        <span class="tag" title="Bu ekipteki rolün">Rolün: {{role .Role}}</span>
+        <a class="go" href="/teams/{{.Slug}}" aria-label="{{.Name}} ekibini aç">→</a>
+      </div>
+    </li>
+  {{end}}
+  </ul>
 {{else}}
-  <div class="empty">Henüz bir ekibin yok. Yeni bir ekip oluştur ya da bir ekip sahibinden seni eklemesini iste.</div>
+  <div class="empty">
+    <p style="margin:0 0 4px"><strong>Henüz bir ekibin yok.</strong></p>
+    <p style="margin:0">Aşağıdan bir ekip oluştur ya da bir ekip sahibinden seni GitHub kullanıcı adınla eklemesini iste.</p>
+  </div>
 {{end}}
 </div>
 
-<details class="card section" style="margin-top:20px" {{if .Data.Form}}open{{end}}>
-  <summary>Yeni ekip</summary>
+<details class="card section" id="new-team" style="margin-top:20px" {{if or .Data.Form (not .Data.Teams)}}open{{end}}>
+  <summary>Yeni ekip oluştur</summary>
   <div class="body">
   <form method="post" action="/teams">
     <input type="hidden" name="csrf" value="{{.CSRF}}">
     <div class="row">
-      <div><label for="tname">Ad</label>
-        <input id="tname" name="name" value="{{.Data.Form.Name}}" placeholder="Frontend"></div>
-      <div><label for="slug">Kısa ad (adreste görünür)</label>
-        <input id="slug" name="slug" value="{{.Data.Form.Slug}}" placeholder="frontend" pattern="[a-z][a-z0-9-]{1,30}" required></div>
+      <div><label for="tname">Ekip adı</label>
+        <input id="tname" name="name" value="{{.Data.Form.Name}}" placeholder="Frontend" maxlength="100" autocomplete="off"></div>
+      <div><label for="slug">Kısa ad</label>
+        <input id="slug" name="slug" class="mono" value="{{.Data.Form.Slug}}" placeholder="frontend" pattern="[a-z][a-z0-9\-]{1,30}" required aria-describedby="slug-hint" autocomplete="off"></div>
       <div style="flex:0"><button class="primary" type="submit">Oluştur</button></div>
     </div>
+    <p class="muted small hint" id="slug-hint">Kısa ad adreslerde görünür (<span class="mono">/teams/frontend</span>): küçük harf, rakam ve '-'; harfle başlar. Ekibin sahibi sen olursun.</p>
   </form>
   </div>
 </details>
+<script nonce="{{.Nonce}}">
+// Fills the short name from the team name until the user edits it.
+(() => {
+  const name = document.getElementById("tname"), slug = document.getElementById("slug");
+  if (!name || !slug) return;
+  let touched = slug.value !== "";
+  slug.addEventListener("input", () => { touched = true; });
+  name.addEventListener("input", () => {
+    if (touched) return;
+    const map = {"ç":"c","ğ":"g","ı":"i","ö":"o","ş":"s","ü":"u"};
+    slug.value = name.value.toLowerCase().replace(/[çğıöşü]/g, c => map[c])
+      .replace(/[^a-z0-9]+/g, "-").replace(/^[^a-z]+/, "").replace(/-+$/, "").slice(0, 31);
+  });
+})();
+</script>
 {{end}}
