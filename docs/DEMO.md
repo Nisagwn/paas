@@ -52,6 +52,41 @@ k6 run -e URL=https://blog.<domain>/ -e RATE=50 -e DURATION=45s loadtest/app-tra
 gh pr close feature/dark-mode
 ```
 
+## Ek bölüm: süreçler, kademeli yayın, veritabanları (Faz 20–22, ~5 dakika)
+
+Ana akıştan sonra, zaman varsa. Hazırlık: `examples/worker-queue`'nun kopyası `worker-queue` adıyla import
+edilmiş ve bir production deploy'u var; `blog` uygulamasında yayın biçimi `canary`
+(`paas rollout settings blog --mode canary --steps 10,50,100 --step 2m`), production'a sürekli trafik
+(`k6 run loadtest/app-traffic.js`) gidiyor.
+
+| # | Gösterilen | Söylenen |
+|---|---|---|
+| 14 | `worker-queue` → "Süreçler": web, worker (1 kopya), `report` cron'u; `paas ps worker-queue` | "Tek imaj, üç tür süreç. `paas.yaml` repoda; Vercel'in sunucusuz modelinde olmayan kuyruk işleyici ve zamanlanmış iş aynı push akışında." |
+| 15 | `paas ps scale worker-queue worker=3`, ardından `paas cron run worker-queue report` ve `paas logs --runtime --process report worker-queue <deploy>` | "Ölçekleme ve elle çalıştırma; cron aynı anda iki kez çalışmaz." |
+| 16 | `worker-queue`'da eski deploy'a rollback; "Süreçler"de worker'ların eski nesle geçtiği | "Rollback yalnızca web'i değil, worker ve cron'ları da geri taşır; iki nesil aynı kuyruğu tüketmez." |
+| 17 | `blog`'a push; "Genel"de yayın paneli: %10 → %50 → %100, iki tarafın 5xx / p95'i | "Yeni production önce trafiğin küçük bir payını alıyor; karar metriklere göre." |
+| 18 | Bozuk (500 dönen) bir commit push'la; panelde "Canary geri alındı", nedeni ve GitHub'da `paas/deploy/rollout` status'u | "Metrikler bozulunca insan müdahalesi olmadan geri çekildi; kullanıcıların %90'ı hiç görmedi." |
+| 19 | `blog` → "Veritabanları": PostgreSQL ekle; hazır olunca deploy'un `DATABASE_URL` aldığı | "Tek tıkla veritabanı; şifre platformda şifreli, pod'lara Secret olarak gider." |
+| 20 | PR aç; deploy logunda `==> veritabanı kopyası: …`; "Veritabanları"nda branch kopyası (anonimleştirilmiş `users.email`) | "Her PR production verisinin kendi kopyasıyla test ediliyor; production'a dokunulmuyor. PR kapanınca kopya silinir." |
+
+```bash
+# 14–16 — süreçler
+paas ps worker-queue
+paas ps scale worker-queue worker=3
+paas cron run worker-queue report
+paas rollback worker-queue <eski-deploy-id>
+
+# 17–18 — kademeli yayın
+paas rollout status blog
+git commit -am "broken: 500" && git push   # yayın kendiliğinden geri alınır
+
+# 19–20 — veritabanı ve preview kopyası
+paas addons add blog postgres --preview-mode copy
+paas addons set blog db --anonymize "users.email: email"
+git switch -c feature/db && git commit --allow-empty -m "db preview" && git push -u origin HEAD && gh pr create --fill
+paas addons branches blog db
+```
+
 ## Video için notlar
 
 - Çözünürlük 1920×1080, tarayıcı yakınlaştırması %125, terminal yazı tipi büyük.
