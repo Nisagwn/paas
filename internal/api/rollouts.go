@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/rollout"
 	"github.com/nisagwn/paas/internal/store"
 )
@@ -238,6 +239,9 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ro, err := RolloutAction(r.Context(), s.Store, s.Router, app, action, principal(r).Login)
+	if err == nil || errors.Is(err, ErrRouteSync) {
+		s.productionChanged(r, notify.RolloutProductionTarget(ro), notify.ReasonRollout)
+	}
 	switch {
 	case errors.Is(err, ErrRouteSync):
 		s.Log.Error("rollout action: route sync", "app", app.Name, "err", err)

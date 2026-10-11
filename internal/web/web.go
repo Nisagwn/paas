@@ -29,10 +29,12 @@ import (
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/plans"
 	"github.com/nisagwn/paas/internal/protect"
 	"github.com/nisagwn/paas/internal/ratelimit"
 	"github.com/nisagwn/paas/internal/store"
+	"github.com/nisagwn/paas/internal/terminal"
 )
 
 //go:embed templates/*.html
@@ -77,6 +79,13 @@ type Server struct {
 	// Faz 25 (comments.go): mirrors comment threads to pull requests; nil
 	// keeps them in paas only.
 	Comments api.CommentSync
+	// Faz 27 (terminal.go): browser terminal; nil (PAAS_TERMINAL=false or
+	// the dry-run deployer) removes its routes and buttons.
+	Terminal *terminal.Service
+
+	// Faz 26 (notifications.go): the team's Bildirimler page and
+	// production change events; nil stores channels but sends nothing.
+	Notifications *notify.Service
 
 	// Faz 23 (plans.go), all optional: plan enforcement (nil: no limits),
 	// rate limits, scaling suspended teams to zero, the legal pages.
@@ -189,6 +198,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 25: review page and preview comments (comments.go).
 	s.commentRoutes(mux)
+	s.terminalRoutes(mux) // Faz 27 (terminal.go)
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.limitSignIn(s.githubStart))
 	mux.HandleFunc("GET /auth/github/callback", s.limitSignIn(s.githubCallback))
@@ -197,6 +207,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /teams/{slug}", s.authed(s.teamPage))
 	mux.Handle("POST /teams/{slug}/members", s.authed(s.setMember))
 	mux.Handle("POST /teams/{slug}/members/remove", s.authed(s.removeMember))
+	s.notificationRoutes(mux) // Faz 26: /teams/{slug}/notifications
 	mux.Handle("GET /tokens", s.authed(s.tokensPage))
 	mux.Handle("POST /tokens", s.authed(s.createToken))
 	mux.Handle("POST /tokens/revoke", s.authed(s.revokeToken))
@@ -591,5 +602,6 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 			"URL":         naming.URL(s.Scheme, d.Host(s.Domain)),
 			"RuntimeLogs": s.RuntimeLogs,
 			"Processes":   s.processNames(r.Context(), d), // Faz 20: runtime log selector
+			"Terminal":    s.terminalAllowed(r, app, d),   // Faz 27
 		}, "")
 }

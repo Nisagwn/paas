@@ -30,6 +30,12 @@ rules:
   - apiGroups: [""]
     resources: [pods, pods/log, events]
     verbs: [get, list, watch]
+  # Browser terminal (Faz 27): a shell in an app pod. The WebSocket exec
+  # protocol uses GET, SPDY uses POST (create). Off with PAAS_TERMINAL=false;
+  # drop this rule too to make that a cluster-side guarantee.
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [get, create]
   - apiGroups: [apps]
     resources: [deployments]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -45,7 +51,7 @@ rules:
   # Managed databases (Faz 22): each add-on is a StatefulSet with standalone
   # PersistentVolumeClaims (data, backups); copies, drops, rotations,
   # backups and restores are Jobs (above) whose results are read from their
-  # pods' termination messages (pods: get/list above). No pods/exec.
+  # pods' termination messages (pods: get/list above). (pods/exec only for the browser terminal, Faz 27.)
   - apiGroups: [apps]
     resources: [statefulsets]
     verbs: [get, list, watch, create, update, patch, delete]

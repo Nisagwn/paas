@@ -25,22 +25,23 @@ func activatorNamespace(s config.Scale) string {
 }
 
 // startScaler runs the idle check and the activator (Faz 11). It returns
-// the activator's server, or nil when scale to zero is off.
+// the activator's server and the scaler (Faz 27: the terminal wakes
+// deployments through it), or nils when scale to zero is off.
 func startScaler(ctx context.Context, cfg config.Config, st *store.Store, applier routing.Applier,
-	log *slog.Logger, wg *sync.WaitGroup, errCh chan<- error) (*http.Server, error) {
+	log *slog.Logger, wg *sync.WaitGroup, errCh chan<- error) (*http.Server, *scale.Scaler, error) {
 	k, ok := applier.(*deploy.Kubernetes)
 	if !ok || !cfg.Scale.Enabled() {
 		if cfg.Scale.Disabled != "" {
 			log.Warn("scale to zero disabled", "reason", cfg.Scale.Disabled)
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	sc := &scale.Scaler{Cluster: k, Counter: k, Store: st, IdleAfter: cfg.Scale.After,
 		Interval: cfg.Scale.Interval, Log: log}
 	act := &scale.Activator{Scaler: sc, Cluster: k, Upstream: cfg.Scale.ActivatorUpstream,
 		Timeout: cfg.RolloutTimeout + 30*time.Second, Log: log}
 	if err := act.Init(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	srv := &http.Server{Addr: cfg.Scale.ActivatorAddr, Handler: act, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -55,5 +56,5 @@ func startScaler(ctx context.Context, cfg config.Config, st *store.Store, applie
 		defer wg.Done()
 		sc.Run(ctx)
 	}()
-	return srv, nil
+	return srv, sc, nil
 }

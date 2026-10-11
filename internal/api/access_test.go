@@ -127,6 +127,8 @@ func TestAuthorizationMatrix(t *testing.T) {
 	}
 	cpath := fmt.Sprintf("/api/comments/%d", thread.ID)
 	comment := want{"anonymous": 401, "carol": 201, "bob": 201, "alice": 201, "dave": 404, "admin": 201}
+	nc := f.notificationChannel("ops")
+	ncPath := fmt.Sprintf("/api/teams/web/notifications/%d", nc.ID)
 	cases := []struct {
 		method, path string
 		body         func(who string) any
@@ -253,6 +255,25 @@ func TestAuthorizationMatrix(t *testing.T) {
 		{"GET", "/api/admin/users/suspended", nil, platform, nil},
 		{"POST", "/api/admin/users/erin/suspend", nil, platform, nil},
 		{"POST", "/api/admin/users/erin/unsuspend", nil, platform, nil},
+		// Faz 26 notifications: reading channels and the delivery log is
+		// viewer; creating, changing, deleting and test messages are member.
+		{"GET", "/api/teams/web/notifications", nil, read, nil},
+		{"POST", "/api/teams/web/notifications", func(w string) any {
+			return map[string]string{"name": "n-" + w, "kind": "slack", "url": "https://hooks.slack.com/services/T/B/x"}
+		}, want{"anonymous": 401, "carol": 403, "bob": 201, "alice": 201, "dave": 404, "admin": 201}, nil},
+		{"GET", ncPath, nil, read, nil},
+		{"PUT", ncPath, func(string) any { return map[string]bool{"enabled": true} }, write, nil},
+		{"POST", ncPath + "/test", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 202, "alice": 202, "dave": 404, "admin": 202}, nil},
+		{"GET", ncPath + "/deliveries", nil, read, nil},
+		{"DELETE", "/api/teams/web/notifications/999999", nil,
+			want{"anonymous": 401, "carol": 403, "bob": 404, "alice": 404, "dave": 404, "admin": 404}, nil},
+		{"GET", "/api/teams/ops/notifications", nil,
+			want{"anonymous": 401, "carol": 404, "bob": 404, "alice": 404, "dave": 200, "admin": 200}, nil},
+		{"GET", "/api/notifications/events", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
+		{"GET", "/api/me/notifications", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
+		{"PUT", "/api/me/notifications", func(w string) any { return map[string]string{"email": w + "@example.com"} },
+			want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 400}, nil},
 		// Endpoints without a team in the path: any authenticated caller.
 		{"GET", "/api/apps", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},
 		{"GET", "/api/me", nil, want{"anonymous": 401, "carol": 200, "bob": 200, "alice": 200, "dave": 200, "admin": 200}, nil},

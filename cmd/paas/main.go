@@ -191,8 +191,16 @@ func run(log *slog.Logger) error {
 	setupPlans(pub, cfg, st, applier, authn, ghLogin, apiSrv, ui, w, log)
 
 	var wg sync.WaitGroup
+	// Faz 26: notifications (email, Slack, Discord, webhooks). Deployment
+	// and rollout events go through the worker's notifier chain.
+	notifications, err := startNotifications(ctx, cfg, st, log, &wg)
+	if err != nil {
+		return err
+	}
+	w.Notifier = deploymentNotifier(notifications, st, log, w.Notifier)
+	apiSrv.Notifications, ui.Notifications, verifier.Notify = notifications, notifications, notifications
 	// Faz 22: managed databases; deployments wait for their copies.
-	dbs, err := startAddons(ctx, st, applier, log, &wg)
+	dbs, err := startAddons(ctx, st, applier, log, &wg, notifications)
 	if err != nil {
 		return err
 	}
@@ -241,8 +249,12 @@ func run(log *slog.Logger) error {
 
 	// Faz 11: scale idle deployments to zero; the activator wakes them.
 	errCh := make(chan error, 2)
-	activatorSrv, err := startScaler(ctx, cfg, st, applier, log, &wg, errCh)
+	activatorSrv, scaler, err := startScaler(ctx, cfg, st, applier, log, &wg, errCh)
 	if err != nil {
+		return err
+	}
+	// Faz 27: browser terminal (terminal.go); set before serving.
+	if ui.Terminal, err = newTerminal(cfg, st, applier, scaler, log); err != nil {
 		return err
 	}
 	go func() {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -103,6 +104,7 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 	if res.Alias != nil {
 		alias := *res.Alias
 		s.Log.Info("promote", "app", app.Name, "deployment", src.ID, "mode", "alias")
+		s.productionChanged(r, src.ID, notify.ReasonPromote)
 		if s.Router != nil {
 			if err := s.Router.SyncApp(r.Context(), app.Name); err != nil {
 				s.Log.Error("promote: route sync", "app", app.Name, "err", err)

@@ -117,6 +117,12 @@ web arayüzü · worker, cron ve WebSocket sunucuları (`paas.yaml`) · otomatik
   dakikası, build zaman aşımı, günlük deploy, alan adı, veritabanı, kopya / cron, namespace kotası), adil build kuyruğu,
   IP ve kullanıcı başına hız sınırları, en düşük GitHub hesap yaşı, ekip / kullanıcı askıya alma, Kullanım ve Yönetim
   sayfaları, kullanım koşulları ve KVKK'ya uygun gizlilik politikası ([ayrıntılar](#planlar-ve-limitler-faz-23))
+- [x] Faz 27: tarayıcıdan terminal: çalışan deploy'un pod'unda xterm.js ile kabuk (WebSocket, standart kütüphaneyle RFC 6455;
+  client-go `remotecommand` ile TTY'li exec), süreç / pod seçimi, kabuksuz imajlar için açık mesaj, 10 dk boşta / 60 dk azami süre,
+  kullanıcı başına oturum sınırı, her oturum denetim kaydında ([ayrıntılar](#tarayıcıdan-terminal-faz-27))
+- [x] Faz 26: bildirimler: ekip başına e-posta (SMTP + STARTTLS), Slack, Discord ve imzalı webhook kanalları; deploy, production
+  değişikliği, otomatik geri alma, veritabanı ve alan adı olayları outbox üzerinden tekrar denemeli, hız sınırlı gönderilir,
+  kullanıcı başına e-posta tercihleri ([ayrıntılar](#bildirimler-faz-26))
 - [ ] AWS'de kurulum ve ölçümlerin hedef sunucuda tekrarı (bkz. [rapor §9](docs/REPORT.md#9-sınırlar-ve-açık-konular))
 
 ### Deploy nasıl çalışır
@@ -1268,6 +1274,104 @@ Kimlik doğrulama Faz 15'teki kurulum token'larıyla yapılır. İstek GitHub'ı
 yazana yansımaz. Kullanıcı metni HTML'siz alıntılanır (sahte işaret yazılamaz); yalnızca geçerli anmalar
 GitHub'da `@` olarak kalır, diğer `@kelime`ler ve yazar adları bildirim göndermez.
 
+### Bildirimler (Faz 26)
+
+Her ekip, projelerinde olan biteni kendi kanallarına alır. Ekip sayfasındaki **Bildirimler** düğmesi
+(`/teams/<ekip>/notifications`) kanalları, son gönderimlerini, **Test gönder** düğmesini ve kendi e-posta
+tercihlerini gösterir. viewer okur; member kanal ekler, değiştirir, siler ve test mesajı gönderir.
+
+**Kanal türleri**
+
+| Tür | Nereye | Biçim |
+|---|---|---|
+| `email` | Elle yazılan adresler (en fazla 20) ve / veya e-posta adresini tercihlerine kaydetmiş ekip üyeleri | Türkçe düz metin (UTF-8, quoted-printable), `Message-ID` teslimat anahtarından türer |
+| `slack` | Slack incoming webhook URL'si | Blok mesajı, durum rengine boyanmış kenar çubuğu, "Deploy'u aç" düğmesi |
+| `discord` | Discord webhook URL'si | Renkli embed, alanlar; `@everyone` gibi anmalar kapalı |
+| `webhook` | Herhangi bir HTTPS adresi | İmzalı JSON (`X-Paas-Signature`) |
+
+Kanal tüm projeleri ya da seçilen projeleri izler ve olayların bir alt kümesine abone olur. Webhook URL'leri ve imza
+anahtarları env anahtarlığıyla (Faz 10, AES-256-GCM, kanal kimliğine bağlı) şifreli saklanır, `paas-envkey` rotasyonu
+onları da yeniden şifreler; API ve arayüz URL'nin yalnızca `https://host/…` kısmını gösterir. Webhook kanalının imza
+anahtarı (`whsec_…`) yalnızca oluşturulurken (ya da "İmza anahtarını yenile" ile) bir kez gösterilir.
+
+**Olaylar**
+
+| Olay | Ne zaman | Varsayılan |
+|---|---|---|
+| `deployment.ready` | Deploy hazır | kapalı (yoğun ekiplerde çok sık) |
+| `deployment.failed` | Deploy başarısız (hatanın ilk satırıyla) | açık |
+| `deployment.canceled` | Deploy iptal edildi (Faz 17) | açık |
+| `production.changed` | Rollback, promote, canary'nin tamamlanması, elle sonuçlandırılan yayın | açık |
+| `rollout.rolled_back` | Kademeli yayın metrikler bozulduğu için kendiliğinden geri alındı ya da durdu (Faz 21) | açık |
+| `addon.failed` | Veritabanı hazırlanamadı, branch kopyası / yedek / geri yükleme başarısız (Faz 22) | açık |
+| `domain.failed` | Yönlendirilen alan adının DNS'i bozuldu ya da yeni alan adı bir gün sonra hâlâ doğrulanmadı (Faz 12) | açık |
+| `domain.certificate_expiring` | Sertifikanın bitmesine 14 günden az kaldı ve cert-manager yenileyemedi | açık |
+| `limit.reached` | Bir limite ulaşıldı (`notify.Limit` + `Emitter.Emit`; plan ve limitler bunu kullanacak) | açık |
+
+Üreticiler yalnızca `notify.Emitter` arayüzünü görür (`Emit(ctx, Event)`); `cmd/paas` tek bir `notify.Service`'i
+worker'a, rollout denetleyicisine, eklenti denetleyicisine, alan adı doğrulayıcısına, API'ye ve arayüze verir.
+Deploy olayları worker'ın mevcut bildirim yolundan gelir: `notify.Chain` olay üreticisini GitHub bildiricisinin yanına
+zincirler, worker'daki çağrı noktaları değişmez.
+
+**Teslimat.** `Emit` olayı `(ekip, tür, anahtar)` başına bir kez saklar ve eşleşen her kanal için outbox'a bir satır
+yazar (aynı olayı iki kopya ya da yeniden denenen bir adım üretse de tek mesaj gider). Arka plandaki gönderici satırları
+`FOR UPDATE SKIP LOCKED` ile kiralar, Postgres `LISTEN/NOTIFY` ile hemen uyanır, başarısız denemeleri üstel bekleme
+(30 sn, 1 dk, 2 dk … en fazla 1 sa; 429'da `Retry-After`) ile tekrarlar ve `PAAS_NOTIFY_MAX_ATTEMPTS` denemeden sonra
+vazgeçer. 4xx yanıtlar ve 5xx SMTP yanıtları kalıcı hatadır. Kiralaması dolan (gönderirken çöken) satır yeniden alınır:
+teslimat en az bir kez yapılır, alıcılar `X-Paas-Delivery` / `Idempotency-Key` ile tekrarı ayıklar. Kanal başına dakikada
+`PAAS_NOTIFY_RATE_LIMIT` mesaj gönderilir, fazlası sırasını bekler. Webhook istekleri yönlendirme izlemez ve DNS
+çözümlemesinden sonra özel / yerel adreslere (küme içi, bulut metadata servisi) bağlanmaz. Gönderim günlüğü 30 gün tutulur.
+
+**E-posta tercihleri.** Her kullanıcı adresini, e-postayı tümden kapatmayı ve almak istemediği olayları seçer; tercihler
+adres bir kanalda elle yazılmış olsa da uygulanır. Test mesajları tercihlere bakmaz. SMTP bağlantısı STARTTLS olmadan
+e-posta göndermez (465 için `PAAS_SMTP_SECURITY=tls`).
+
+**Webhook imzası.** Gövde `WebhookBody` JSON'udur (`id`, `type`, `created_at`, `team`, `app`, `deployment_id`, `severity`,
+`title`, `text`, `url`, `fields`, `data`). Alıcı şunu doğrular:
+
+```
+X-Paas-Timestamp: 1791561600
+X-Paas-Signature: sha256=hex(HMAC-SHA256(whsec_…, "<X-Paas-Timestamp>.<gövde>"))
+X-Paas-Event: deployment.failed
+X-Paas-Delivery: <teslimat anahtarı>
+```
+
+Karşılaştırma sabit sürede yapılmalı, eski zaman damgaları reddedilmeli (`notify.VerifySignature` örnek uygulamadır).
+
+**Ayarlar**
+
+| Değişken | Varsayılan | Anlamı |
+|---|---|---|
+| `PAAS_SMTP_HOST`, `PAAS_SMTP_PORT` | — , 587 | SMTP sunucusu; boşsa e-posta kanalı açılamaz |
+| `PAAS_SMTP_USER`, `PAAS_SMTP_PASSWORD` | — | AUTH PLAIN (yalnızca TLS üstünde) |
+| `PAAS_SMTP_FROM` | — | Gönderen adresi (`PAAS_SMTP_HOST` ile zorunlu) |
+| `PAAS_SMTP_SECURITY` | `starttls` | `starttls`, `tls` (465) ya da `none` (yalnızca AUTH'suz geliştirme sunucusu) |
+| `PAAS_PUBLIC_URL` | — | Mesajlardaki deploy ve ayar bağlantılarının kökü |
+| `PAAS_NOTIFY_INTERVAL` | `5s` | `LISTEN` dışında outbox'a bakma aralığı |
+| `PAAS_NOTIFY_MAX_ATTEMPTS` | `8` | Teslimat başına deneme (1–20) |
+| `PAAS_NOTIFY_RATE_LIMIT` | `30` | Kanal başına dakikada mesaj (0 sınırsız) |
+| `PAAS_NOTIFY_ALLOW_PRIVATE` | `false` | `true`: `http://` ve özel adreslere izin (yalnızca geliştirme) |
+
+**API**
+
+```bash
+# Kanallar (viewer okur, member değiştirir)
+curl -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications
+curl -X POST -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications \
+  -d '{"name":"#deploys","kind":"slack","url":"https://hooks.slack.com/services/…","events":["deployment.failed","production.changed"],"apps":["blog"]}'
+curl -X POST -H "Authorization: Bearer $TOKEN" $PAAS/api/teams/web/notifications \
+  -d '{"name":"ci","kind":"webhook","url":"https://ci.example.com/paas"}'
+# {"id":2,…,"signing_secret":"whsec_…"}   (bir kez gösterilir)
+curl -X PUT  … /api/teams/web/notifications/2 -d '{"enabled":false}'          # boş url saklananı korur
+curl -X PUT  … /api/teams/web/notifications/2 -d '{"rotate_secret":true}'
+curl -X POST … /api/teams/web/notifications/2/test                             # 200 gönderildi, 502 hata, 202 kuyrukta
+curl         … /api/teams/web/notifications/2/deliveries?limit=50
+curl -X DELETE … /api/teams/web/notifications/2
+# Olay türleri ve kendi e-posta tercihlerin
+curl … /api/notifications/events
+curl -X PUT … /api/me/notifications -d '{"email":"ben@example.com","email_enabled":true,"muted_events":["deployment.ready"]}'
+```
+
 ### CLI (Faz 18)
 
 `paas`, platformun komut satırı istemcisidir (`vercel` CLI'ı örnek alındı). Yalnızca HTTP API'sini kullanır,
@@ -1389,6 +1493,51 @@ crons:
 - **Ortam:** her süreç aynı env Secret'ını ve platform değişkenlerini alır, ayrıca `PAAS_PROCESS=<ad>` (web'de `web`).
 
 Örnekler: [`examples/websocket-chat`](examples/websocket-chat) ve [`examples/worker-queue`](examples/worker-queue).
+
+### Tarayıcıdan terminal (Faz 27)
+
+Çalışan bir deploy'un pod'unda, tarayıcıdan gerçek bir kabuk: `kubectl exec -it` kurulumu, kubeconfig ya da küme erişimi
+gerekmez. Deploy listesinde ve deploy sayfasında hazır deploy'ların yanında **Terminal** düğmesi (yalnızca member ve owner) →
+`/apps/{app}/deployments/{id}/terminal`.
+
+- **Nasıl çalışır:** sayfa [xterm.js](https://xtermjs.org)'i unpkg'den sabit sürüm ve SRI bütünlük özetiyle yükler
+  (`@xterm/xterm@5.5.0`, `@xterm/addon-fit@0.10.0`); CSP yalnızca bu sayfada `style-src`'ye unpkg'i ve `connect-src`'ye
+  aynı hostun `ws://` / `wss://` adresini ekler. Tarayıcı aynı adrese WebSocket açar (`Upgrade: websocket`); sunucu tarafı
+  standart kütüphaneyle yazılmış RFC 6455 uygulamasıdır (`internal/wsock`: el sıkışma, parçalı ve maskeli çerçeveler,
+  ping / pong, kapanış kodları). Kontrol düzlemi pod'a client-go'nun `remotecommand`'ı ile TTY'li `exec` açar (önce WebSocket,
+  desteklemeyen API sunucularında SPDY), tuş vuruşlarını ve pencere boyutunu iletir. Kabuk `/bin/sh`'dir; imajda `bash` varsa o açılır.
+- **Süreç / pod seçimi:** varsayılan, web sürecinin en yeni hazır pod'udur. Birden çok pod varsa (birden çok kopya, Faz 20
+  worker'ları, çalışan bir cron) sayfadaki seçiciden biri açılır; yalnızca o deploy'un pod'ları seçilebilir. Web'siz bir
+  uygulamada ilk worker açılır.
+- **Kabuksuz imajlar:** paas'ın Go imajları gibi distroless / scratch imajlarda `/bin/sh` yoktur; oturum sessizce düşmez,
+  "Bu imajda kabuk yok" mesajı gösterilir (kapanış kodu 4004).
+- **Güvenlik:**
+  - Yalnızca tarayıcı oturumu (bearer token'la açılmaz), ekipte member+ rolü (viewer 403, başka ekip 404).
+  - WebSocket'in `Origin`'i bu host olmalı (yoksa 403: siteler arası WebSocket ele geçirmeye karşı); CSRF token'ı ilk mesajda
+    (`{"type":"auth","csrf":"…"}`, URL'de ve loglarda görünmez) ya da `?csrf=` ile gelir. Token doğrulanmadan pod'a tek bayt gitmez.
+  - **10 dakika** işlem yapılmazsa (tuş ya da pencere boyutu) ve her durumda **60 dakika** sonra oturum kapanır; kullanıcı başına
+    aynı anda en fazla **3** oturum.
+  - Emekliye ayrılmış, henüz hazır olmayan ve uyuyan deploy'larda terminal açılmaz (WebSocket 409). Uyuyan deploy'un sayfası
+    "Uyandır ve terminali aç" düğmesini gösterir (Faz 11 ölçekleyicisiyle uyandırır; açık bir oturum deploy'u uyanık tutar);
+    sıfıra ölçekleme kapalıysa siteyi açınca uyanacağını söyler.
+  - Her oturum denetim kaydına yazılır (`audit_log`, migration 020): kim, uygulama, deploy, süreç, pod, başlangıç, bitiş, çıkış kodu
+    ve kapanma nedeni (`exit`, `idle`, `max_duration`, `client_closed`, `no_shell`, `error`, `shutdown`). **Tuş vuruşları ve çıktı
+    kaydedilmez.** Kayıtlar projenin Genel sekmesinde "Terminal oturumları" altında üyelere listelenir.
+  - Kümede `pods/exec` (`get`, `create`) yetkisi gerekir (`infra/k8s/30-control-plane-rbac.yaml`).
+- **Ayarlar:**
+
+| Değişken | Anlamı |
+|---|---|
+| `PAAS_TERMINAL` | `false` terminali tamamen kapatır: rotalar 404, düğmeler görünmez (varsayılan açık; Kubernetes deployer'ı gerekir) |
+| `PAAS_TERMINAL_IDLE_TIMEOUT` | girdi olmadan kapanma süresi (varsayılan `10m`) |
+| `PAAS_TERMINAL_MAX_DURATION` | azami oturum süresi (varsayılan `60m`) |
+| `PAAS_TERMINAL_MAX_SESSIONS` | kullanıcı başına eşzamanlı oturum (varsayılan `3`) |
+
+- **Protokol** (tarayıcı ↔ kontrol düzlemi, tek WebSocket): ikili çerçeveler tuş vuruşları / terminal çıktısı; metin çerçeveleri
+  JSON: tarayıcıdan `auth`, `resize` (`cols`, `rows`); sunucudan `ready` (pod, süreç, süre sınırları), `exit` (`code`),
+  `closed` ve `error` (Türkçe `message`). Kapanış kodları: 1000 kabuk çıktı, 4000 işlem yok, 4001 azami süre, 4003 doğrulama,
+  4004 kabuk yok, 4009 çalışan pod yok, 4029 oturum sınırı, 1001 sunucu kapanıyor.
+- **Bağlantı koparsa** sayfadaki "Yeniden bağlan" yeni bir oturum açar (eski kabuk kapanmıştır; kayıt ayrı satırdır).
 
 ## Yerel geliştirme
 
@@ -1579,6 +1728,8 @@ internal/github/      GitHub REST istemcisi: commit status, PR yorumu
 internal/auth/        web oturumu (imzalı çerez) ve CSRF
 internal/cli/         CLI komutları: yapılandırma, API istemcisi, SSE okuyucu, tablolar
 internal/web/         web arayüzü (html/template + htmx)
+internal/wsock/       standart kütüphaneyle WebSocket (RFC 6455): el sıkışma, çerçeveler, ping / pong, kapanış
+internal/terminal/    tarayıcı terminali (Faz 27): oturum, süre sınırları, oturum sınırı, denetim kaydı
 internal/naming/      DNS ve Kubernetes için güvenli isimler
 internal/secret/      env değerleri için AES-256-GCM, anahtar halkası ve rotasyon
 internal/testdb/      testler için temiz veritabanı

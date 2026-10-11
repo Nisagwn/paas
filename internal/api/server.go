@@ -15,6 +15,7 @@ import (
 
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/plans"
 	"github.com/nisagwn/paas/internal/ratelimit"
 	"github.com/nisagwn/paas/internal/store"
@@ -93,6 +94,9 @@ type Server struct {
 	Limits    *ratelimit.Set
 	Refusals  RefusalReporter
 	Suspender Suspender
+	// Faz 26 (notifications.go): channels, test messages and production
+	// change events; nil stores channels but sends nothing.
+	Notifications *notify.Service
 }
 
 func (s *Server) Handler() http.Handler {
@@ -188,6 +192,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/teams/{slug}", s.getTeam)
 	api.HandleFunc("PUT /api/teams/{slug}/members/{login}", s.setMember)
 	api.HandleFunc("DELETE /api/teams/{slug}/members/{login}", s.removeMember)
+	// Faz 26: notification channels (notifications.go; roles checked there).
+	s.notificationRoutes(api)
 	api.HandleFunc("GET /api/tokens", s.listTokens)
 	api.HandleFunc("POST /api/tokens", s.createToken)
 	api.HandleFunc("DELETE /api/tokens/{id}", s.revokeToken)
@@ -442,6 +448,7 @@ func (s *Server) rollback(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 	default:
 		s.Log.Info("rollback", "app", app.Name, "deployment", req.DeploymentID)
+		s.productionChanged(r, req.DeploymentID, notify.ReasonRollback)
 		// The alias already points at the old deployment in the database, so
 		// a failed sync is retried by the reconcile loop; report it anyway.
 		if s.Router != nil {

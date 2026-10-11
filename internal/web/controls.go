@@ -9,6 +9,7 @@ import (
 	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/build"
+	"github.com/nisagwn/paas/internal/notify"
 	"github.com/nisagwn/paas/internal/store"
 )
 
@@ -80,6 +81,7 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.Alias != nil {
 		s.Log.Info("promote", "app", app.Name, "deployment", src.ID, "mode", "alias", "via", "web")
+		s.productionChanged(r, src.ID, notify.ReasonPromote)
 		if !s.syncRoutes(w, r, app, "Production'a taşıma") {
 			return
 		}

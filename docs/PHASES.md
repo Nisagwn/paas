@@ -268,5 +268,34 @@ queued → building → deploying → ready
 - Deploy listesi ve proje sayfasında hazır deploy'lar için "İncele" bağlantısı ve açık yorum rozeti
 - **Çıktı:** bir PR'ın preview'i ekipçe sayfa üzerinde yorumlanıyor ve yorumlar PR'da görünüyor
 
+### Faz 27 — Tarayıcıdan terminal (migration 020) ✅ (birim, veritabanı ve sahte exec testleri; k3d'de gerçek pod'larda `internal/wsock` → oturum → `remotecommand` zinciri doğrulandı: web ve worker pod'unda kabuk, pencere boyutu 123×45, çıkış kodu 3; kabuksuz bir pod'da "Bu imajda kabuk yok" / 4004. Web katmanı (oturum, rol, Origin, CSRF) httptest ile; tarayıcıyla uçtan uca deneme yapılmadı)
+- `GET /apps/{name}/deployments/{id}/terminal`: sayfa (xterm.js 5.5.0 + fit eklentisi, unpkg'den sabit sürüm ve SRI; sayfaya özel CSP:
+  `style-src` unpkg, `connect-src` aynı hostun `ws://` / `wss://` adresi) ya da `Upgrade: websocket` ile oturum.
+  `POST …/wake` uyuyan deploy'u Faz 11 ölçekleyicisiyle uyandırır
+- `internal/wsock`: bağımlılıksız RFC 6455 (sunucu el sıkışması ve test / kontrol için istemci, metin / ikili mesajlar, parçalı mesajların
+  birleştirilmesi, araya giren ping'e pong, maskeleme zorunluluğu, kapanış kodlarının doğrulanması, UTF-8 ve boyut sınırı → 1002 / 1007 / 1009)
+- Kubernetes: client-go `remotecommand` (WebSocket exec protokolü, olmazsa SPDY), TTY, pencere boyutu kuyruğu; web pod'ları ve Faz 20
+  süreç pod'ları (`paas/process-of`) listelenir, varsayılan web sürecinin en yeni hazır pod'u. `/bin/sh` yoksa "Bu imajda kabuk yok".
+  RBAC'e `pods/exec` (`get`, `create`) eklendi
+- Güvenlik: yalnızca tarayıcı oturumu, member+ (viewer 403, başka ekip 404), `Origin` zorunlu ve aynı host, CSRF ilk mesajda ya da `?csrf=`;
+  10 dk boşta / 60 dk azami süre, kullanıcı başına 3 eşzamanlı oturum, emekli / hazır olmayan / uyuyan deploy'da 409;
+  `PAAS_TERMINAL=false` her şeyi kapatır
+- Denetim kaydı `audit_log`: kim, uygulama, deploy, süreç, pod, başlangıç / bitiş, çıkış kodu, kapanma nedeni; tuş vuruşları kaydedilmez.
+  Projenin Genel sekmesinde üyelere "Terminal oturumları"
+- Bağımlılık: yeni doğrudan modül yok; `remotecommand` client-go'nun kendi dolaylı bağımlılıklarını getirdi
+  (`github.com/gorilla/websocket`, `github.com/moby/spdystream`, `github.com/mxk/go-flowrate`; tarayıcı tarafında kullanılmıyor)
+- **Çıktı:** bir uygulamayı canlıda incelemek (ortam, dosyalar, ağ, tek seferlik komut) için küme erişimi gerekmiyor; kimin ne zaman
+  hangi pod'a girdiği kayıt altında
+
+### Faz 26 — Bildirimler (migration 019) ✅ (birim ve veritabanı testleri; Slack / Discord / webhook httptest sunucularına, e-posta STARTTLS konuşan sahte SMTP sunucusuna karşı denendi; gerçek Slack çalışma alanında ve SMTP sağlayıcısında deneme bekliyor)
+- Ekip başına kanallar (`notification_channels`, isteğe bağlı proje süzgeci `notification_channel_apps`): `email` (net/smtp, STARTTLS zorunlu, `PAAS_SMTP_*`), `slack` ve `discord` (incoming webhook), `webhook` (HMAC-SHA256 imzalı JSON, `X-Paas-Signature: sha256=…` + `X-Paas-Timestamp`, anahtar bir kez gösterilir). URL ve anahtarlar env anahtarlığıyla şifreli (kanal kimliğine bağlı AES-256-GCM), `paas-envkey` rotasyonu ve açılış kontrolü onları da kapsar
+- Olaylar: `deployment.ready|failed|canceled`, `production.changed` (rollback, promote, canary tamamlandı, elle sonuçlandırılan yayın), `rollout.rolled_back` (Faz 21 otomatik geri alma / durdurma), `addon.failed` (Faz 22: hazırlama, kopya, yedek, geri yükleme), `domain.failed` ve `domain.certificate_expiring` (Faz 12; cert-manager `status.notAfter`), `limit.reached` (genel `notify.Limit` + `Emitter.Emit`, Faz 23 için). Kanal olayların alt kümesine abone olur; kullanıcı başına e-posta tercihleri (adres, tümden kapatma, istenmeyen olaylar)
+- Üreticiler yalnızca `notify.Emitter` arayüzünü (`Emit(ctx, Event)`) görür; `cmd/paas` aynı `notify.Service`'i worker'a (GitHub bildiricisiyle `notify.Chain`), rollout denetleyicisine, eklenti denetleyicisine, alan adı doğrulayıcısına, API'ye ve arayüze verir
+- Teslimat: olay `(ekip, tür, anahtar)` başına bir kez saklanır, eşleşen her kanala bir outbox satırı (`notification_deliveries`, olay + kanal başına kararlı idempotency anahtarı). Gönderici `FOR UPDATE SKIP LOCKED` ile kiralar, `LISTEN notification_outbox` ile uyanır, üstel bekleme ile tekrar dener (429'da `Retry-After`), kalıcı hataları (4xx, SMTP 5xx) ayırır, süresi dolan kiraları geri alır (en az bir kez), kanal başına dakikalık hız sınırı uygular; 30 günlük günlük
+- Türkçe şablonlar: kısa başlık + metin + alanlar, `PAAS_PUBLIC_URL` ile deploy sayfasına bağlantı; Slack blokları renkli kenar çubuğuyla, Discord embed'leri durum rengiyle (anmalar kapalı), e-posta düz metin (`List-Unsubscribe` ayar sayfasına)
+- Güvenlik: webhook istemcisi yönlendirme izlemez, DNS çözümlemesinden sonra özel / yerel adreslere bağlanmaz (SSRF), hata mesajlarına URL yazılmaz
+- API `GET/POST /api/teams/{slug}/notifications`, `GET/PUT/DELETE …/{id}`, `POST …/{id}/test`, `GET …/{id}/deliveries`, `GET /api/notifications/events`, `GET/PUT /api/me/notifications` (viewer okur, member yönetir); arayüzde ekip sayfasından "Bildirimler" ve "Test gönder"
+- **Çıktı:** ekip, başarısız deploy'u, production değişikliğini ve otomatik geri almayı Slack / Discord / e-posta / kendi sistemlerinde anında görüyor
+
 ## Sonraki aşamalar
 Faturalandırma, çok düğümlü küme (eklenti diskleri için ağ depolaması ya da S3 uyumlu yedek hedefi), Postgres için okuma kopyaları.
