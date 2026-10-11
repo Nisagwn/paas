@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -85,11 +86,16 @@ func (s *Server) promote(w http.ResponseWriter, r *http.Request) {
 		if !s.syncRoutes(w, r, app, "Production'a taşıma") {
 			return
 		}
-		redirect(w, r, "/apps/"+app.Name+"/deployments?ok=promoted-alias")
+		flash := "promoted-alias"
+		if r.PostFormValue("from") == "deployment" {
+			flash = "promoted-here"
+		}
+		redirect(w, r, backTo(r, app, src.ID, flash))
 		return
 	}
 	s.Log.Info("promote", "app", app.Name, "source", src.ID, "deployment", res.Deployment.ID, "mode", "deployment", "via", "web")
-	redirect(w, r, "/apps/"+app.Name+"/deployments?ok=promoted")
+	// The new deployment's page shows its build live.
+	redirect(w, r, fmt.Sprintf("/deployments/%d?ok=promoted-new", res.Deployment.ID))
 }
 
 func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +116,7 @@ func (s *Server) redeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Log.Info("redeploy", "app", app.Name, "source", src.ID, "deployment", d.ID, "reuses_image", d.Image != "", "via", "web")
-	redirect(w, r, "/apps/"+app.Name+"/deployments?ok=redeploy")
+	redirect(w, r, fmt.Sprintf("/deployments/%d?ok=redeploy-new", d.ID))
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +137,10 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 	if d.Status == store.StatusCanceled {
 		flash = "canceled"
 	}
-	redirect(w, r, "/apps/"+app.Name+"/deployments?ok="+flash)
+	if r.PostFormValue("from") == "deployment" {
+		flash = map[string]string{"cancel": "cancel-pending", "canceled": "canceled-here"}[flash]
+	}
+	redirect(w, r, backTo(r, app, d.ID, flash))
 }
 
 // ---- build settings ----

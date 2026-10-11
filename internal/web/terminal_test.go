@@ -204,10 +204,12 @@ func TestTerminalPageAndButtons(t *testing.T) {
 		_, b, _ = ts.viewer.get(p)
 		mustNotContain(t, "viewer "+p, b, `href="`+path+`"`)
 	}
-	_, b, _ := ts.owner.get("/apps/blog")
-	mustContain(t, "overview", b, "Terminal oturumları", "Henüz terminal oturumu açılmadı")
-	_, b, _ = ts.viewer.get("/apps/blog")
-	mustNotContain(t, "viewer overview", b, "Terminal oturumları")
+	_, b, _ := ts.owner.get("/apps/blog/settings")
+	mustContain(t, "settings", b, "Terminal oturumları", "Henüz terminal oturumu açılmadı")
+	_, b, _ = ts.owner.get("/apps/blog")
+	mustContain(t, "overview", b, `href="/apps/blog/settings#terminal"`)
+	_, b, _ = ts.viewer.get("/apps/blog/settings")
+	mustNotContain(t, "viewer settings", b, "Terminal oturumları")
 
 	if code, _, _ := ts.viewer.get(path); code != http.StatusForbidden {
 		t.Errorf("viewer page: %d, want 403", code)
@@ -271,8 +273,8 @@ func TestTerminalSessionAndAudit(t *testing.T) {
 		*rows[0].ExitCode != 0 || rows[0].EndReason != terminal.ReasonExit || *rows[0].DeploymentID != ts.ready.ID {
 		t.Fatalf("audit rows %+v", rows)
 	}
-	_, b, _ := ts.owner.get("/apps/blog")
-	mustContain(t, "overview", b, "Terminal oturumları", "@alice", "d-0000000-abc", "çıkış kodu 0")
+	_, b, _ := ts.owner.get("/apps/blog/settings")
+	mustContain(t, "settings", b, "Terminal oturumları", "@alice", "d-0000000-abc", "çıkış kodu 0")
 
 	// The worker pod can be chosen explicitly; a pod of another deployment cannot.
 	c3, _, err := ts.dial(ts.owner, path+"?pod=d-0000000-w-worker-xyz", "self")

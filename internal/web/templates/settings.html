@@ -1,55 +1,148 @@
+{{define "head"}}
+{{template "ux-css"}}
+<style>
+/* Ayarlar: section nav, sections, env editor, danger zone. */
+.set-grid { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; margin-top: 24px; align-items: start; }
+.set-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.set-nav a { padding: 6px 10px; border-radius: 8px; color: var(--muted); }
+.set-nav a:hover { color: var(--text); background: var(--surface); text-decoration: none; }
+.set-nav a.on { color: var(--text); background: var(--surface); font-weight: 600; box-shadow: inset 2px 0 0 var(--text); }
+.set-nav a.danger-link { color: var(--err); }
+.set-nav .sep { border-top: 1px solid var(--border); margin: 6px 10px; }
+.set-sec { scroll-margin-top: 16px; margin: 0 0 40px; }
+.set-sec > h2 { margin: 0 0 4px; font-size: 18px; }
+.set-sec > .sub { margin: 0 0 12px; }
+.help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+.field-help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+textarea { font: inherit; font-family: var(--mono); font-size: 13px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); width: 100%; resize: vertical; }
+textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.pw { display: flex; gap: 6px; }
+.pw input { flex: 1; min-width: 0; }
+.env-table { margin-bottom: 12px; }
+.env-bulk { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.env-bulk > summary { font-weight: 600; font-size: 14px; }
+.env-bulk form { margin-top: 10px; }
+.danger-zone { border-color: var(--err); }
+.danger-zone .dz-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 16px; }
+.danger-zone .dz-row + .dz-row { border-top: 1px solid var(--border); }
+.danger-zone .dz-row > div { flex: 1; min-width: 220px; }
+.danger-zone p { margin: 4px 0 0; }
+.set-sec > h2.danger-h { color: var(--err); }
+@media (max-width: 720px) {
+  .set-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 12px; }
+  .set-nav { position: sticky; top: 0; z-index: 4; flex-direction: row; overflow-x: auto; background: var(--bg);
+    padding: 8px 0; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .set-nav .sep { display: none; }
+  .set-nav a.on { box-shadow: inset 0 -2px 0 var(--text); }
+  .set-sec { scroll-margin-top: 64px; }
+}
+</style>
+{{end}}
+
 {{define "content"}}
 {{template "apphead" .}}
-{{$a := .Data.App}}{{$csrf := .CSRF}}{{$s := .Data.Settings}}
-{{if not .Data.CanWrite}}<p class="sub small" style="margin-top:20px">Ayarları görüntülüyorsun; değiştirmek için ekipte üye rolü gerekir.</p>{{end}}
+{{$a := .Data.App}}{{$csrf := .CSRF}}{{$s := .Data.Settings}}{{$w := .Data.CanWrite}}
+{{if not $w}}<p class="sub small" style="margin-top:20px">Ayarları görüntülüyorsun; değiştirmek için ekipte üye rolü gerekir.</p>{{end}}
 
-<details class="card section" id="build" open>
-  <summary>Build ayarları <span class="muted">· boş alan algılananı kullanır</span></summary>
-  <div class="body">
+<div class="set-grid">
+<nav class="set-nav" aria-label="Ayar bölümleri">
+  <a href="#general">Genel</a>
+  <a href="#build">Build</a>
+  <a href="#env">Ortam değişkenleri</a>
+  <a href="#custom-domains">Alan adları</a>
+  <a href="#hooks">Deploy hook'ları</a>
+  <a href="#protection">Koruma</a>
+  <a href="#rollout">Yayın</a>
+  <a href="#processes">Süreçler</a>
+  {{if and $w .Data.Terminal}}<a href="#terminal">Terminal</a>{{end}}
+  <span class="sep" aria-hidden="true"></span>
+  <a href="/apps/{{$a.Name}}/databases">Veritabanları →</a>
+  <a href="/teams/{{.Data.Team.Slug}}/notifications">Bildirimler →</a>
+  <span class="sep" aria-hidden="true"></span>
+  <a class="danger-link" href="#danger">Tehlikeli bölge</a>
+</nav>
+
+<div>
+<section class="set-sec" id="general" aria-labelledby="general-h">
+  <h2 id="general-h">Genel</h2>
+  <p class="sub small">Projenin kimliği: adı, bağlı reposu ve canlıya çıkan branch. Bunlar proje oluşturulurken belirlenir.</p>
+  <div class="card pad grid kv">
+    <div><div class="k">Proje adı</div><span class="mono">{{$a.Name}}</span></div>
+    <div><div class="k">Repo</div><a class="mono" href="https://github.com/{{$a.Repo}}" target="_blank" rel="noopener">{{$a.Repo}} ↗</a></div>
+    <div><div class="k">Canlı branch</div><span class="tag">{{$a.ProductionBranch}}</span></div>
+    <div><div class="k">Ekip</div><a href="/teams/{{.Data.Team.Slug}}">{{.Data.Team.Name}}</a></div>
+    <div><div class="k">Oluşturuldu</div><span title="{{time $a.CreatedAt}}">{{ago $a.CreatedAt}}</span></div>
+    <div style="grid-column:1/-1"><div class="k">Canlı adres</div><span class="mono small">{{.Data.ProductionURL}}</span>
+      <button type="button" class="small copy js-only" data-copy="{{.Data.ProductionURL}}" aria-label="Canlı adresi kopyala">Kopyala</button></div>
+    <div style="grid-column:1/-1"><div class="k">Uyku modu</div><span class="small">Sunucuda açıksa, bir süre istek almayan deploy'lar uyutulur ve ilk istekte uyanır; listede “Uykuda” etiketiyle görünürler. Bu ayar platform genelindedir.</span></div>
+  </div>
+</section>
+
+<section class="set-sec" id="build" aria-labelledby="build-h">
+  <h2 id="build-h">Build ayarları</h2>
+  <p class="sub small">Kodun nasıl kurulup çalıştırılacağı. Boş bıraktığın alanlar framework'e göre otomatik algılanır; değişiklikler bir sonraki deploy'da geçerli olur.</p>
+  <div class="card pad">
   <form method="post" action="/apps/{{$a.Name}}/settings">
     <input type="hidden" name="csrf" value="{{$csrf}}">
-    <fieldset {{if not .Data.CanWrite}}disabled{{end}}>
+    <fieldset {{if not $w}}disabled{{end}}>
+    <legend class="vh">Build ayarları</legend>
     <div class="row">
       <div><label for="set-framework">Framework</label>
         <select id="set-framework" name="framework" style="width:100%">
           <option value="">Otomatik algıla ({{with .Data.Detected}}{{.}}{{else}}henüz algılanmadı{{end}})</option>
           {{range .Data.Frameworks}}<option value="{{.ID}}"{{if eq .ID $s.Framework}} selected{{end}}>{{.Name}}</option>{{end}}
         </select></div>
-      <div><label for="set-root">Kök dizin</label><input id="set-root" name="root_directory" value="{{$s.RootDirectory}}" placeholder="./ (repo kökü)"></div>
+      <div><label for="set-root">Kök dizin</label><input id="set-root" name="root_directory" value="{{$s.RootDirectory}}" placeholder="./ (repo kökü)" aria-describedby="help-root">
+        <p class="field-help" id="help-root">Uygulama bir alt klasördeyse, ör. <span class="mono">apps/web</span>.</p></div>
     </div>
     <div class="row" style="margin-top:12px">
-      <div><label for="set-install">Install komutu</label><input id="set-install" class="mono" name="install_command" value="{{$s.InstallCommand}}" placeholder="algılanan, ör. npm ci"></div>
-      <div><label for="set-build">Build komutu</label><input id="set-build" class="mono" name="build_command" value="{{$s.BuildCommand}}" placeholder="algılanan, ör. npm run build"></div>
+      <div><label for="set-install">Install komutu</label><input id="set-install" class="mono" name="install_command" value="{{$s.InstallCommand}}" placeholder="algılanan, ör. npm ci" aria-describedby="help-install">
+        <p class="field-help" id="help-install">Bağımlılıkları kurar.</p></div>
+      <div><label for="set-build">Build komutu</label><input id="set-build" class="mono" name="build_command" value="{{$s.BuildCommand}}" placeholder="algılanan, ör. npm run build" aria-describedby="help-build">
+        <p class="field-help" id="help-build">Üretim çıktısını oluşturur; hata verirse deploy durur.</p></div>
     </div>
     <div class="row" style="margin-top:12px">
-      <div><label for="set-start">Start komutu</label><input id="set-start" class="mono" name="start_command" value="{{$s.StartCommand}}" placeholder="algılanan, ör. npm start"></div>
-      <div><label for="set-output">Çıktı dizini</label><input id="set-output" name="output_directory" value="{{$s.OutputDirectory}}" placeholder="algılanan, ör. dist"></div>
-      <div style="max-width:180px"><label for="set-node">Node sürümü</label><input id="set-node" name="node_version" value="{{$s.NodeVersion}}" placeholder="22"></div>
+      <div><label for="set-start">Start komutu</label><input id="set-start" class="mono" name="start_command" value="{{$s.StartCommand}}" placeholder="algılanan, ör. npm start" aria-describedby="help-start">
+        <p class="field-help" id="help-start">Uygulama <span class="mono">PORT</span> değişkenindeki portu dinlemeli.</p></div>
+      <div><label for="set-output">Çıktı dizini</label><input id="set-output" name="output_directory" value="{{$s.OutputDirectory}}" placeholder="algılanan, ör. dist" aria-describedby="help-output">
+        <p class="field-help" id="help-output">Statik siteler için yayınlanan klasör.</p></div>
+      <div style="max-width:180px"><label for="set-node">Node sürümü</label><input id="set-node" name="node_version" value="{{$s.NodeVersion}}" placeholder="22" aria-describedby="help-node">
+        <p class="field-help" id="help-node">"22", "20.18" ya da "lts".</p></div>
     </div>
-    {{if .Data.CanWrite}}<div style="margin-top:12px"><button class="primary" type="submit">Kaydet</button></div>{{end}}
+    {{if $w}}<div style="margin-top:16px"><button class="primary" type="submit">Build ayarlarını kaydet</button></div>{{end}}
     </fieldset>
   </form>
-  <p class="muted small" style="margin-bottom:0">Komutlar tek satır olmalı. Ayarlar bir sonraki deploy'da geçerli olur{{with $s.UpdatedAt}}; son değişiklik {{ago .}}{{end}}.</p>
+  <p class="muted small" style="margin-bottom:0">Komutlar tek satır olmalı{{with $s.UpdatedAt}}; son değişiklik {{ago .}}{{end}}.</p>
   </div>
-</details>
+</section>
 
-<details class="card section" id="env" open>
-  <summary>Ortam değişkenleri <span class="muted">· {{len .Data.EnvKeys}} değişken</span></summary>
-  <div class="body">{{template "env" .}}</div>
-</details>
+<section class="set-sec" id="env" aria-labelledby="env-h">
+  <h2 id="env-h">Ortam değişkenleri <span class="muted small" style="font-weight:400">· {{len .Data.EnvKeys}} değişken</span></h2>
+  <p class="sub small">API anahtarları, veritabanı adresleri gibi gizli değerler; build ve çalışma sırasında uygulamana verilir. Production ve önizlemeler için ayrı değer verebilirsin.</p>
+  {{template "env" .}}
+</section>
 
-<details class="card section" id="hooks" {{if or .Data.Hooks .Data.NewHookURL}}open{{end}}>
-  <summary>Deploy hook'ları <span class="muted">· bir URL ile branch'i deploy et</span></summary>
-  <div class="body">
-  {{if .Data.CanWrite}}
+<section class="set-sec" id="custom-domains" aria-labelledby="domains-h">
+  <h2 id="domains-h">Alan adları</h2>
+  <p class="sub small">Kendi alan adını bağla; doğrulandığında canlı sürümü gösterir ve HTTPS sertifikası otomatik alınır.</p>
+  {{template "domains" .}}
+</section>
+
+<section class="set-sec" id="hooks" aria-labelledby="hooks-h">
+  <h2 id="hooks-h">Deploy hook'ları</h2>
+  <p class="sub small">Gizli bir URL'ye istek atarak bir branch'i deploy et; CMS'te içerik değişince yeniden yayınlamak için kullanılır.</p>
+  <div class="card pad">
+  {{if $w}}
     {{with .Data.NewHookURL}}
     <div class="flash ok" role="status">Deploy hook'u oluşturuldu. Bu URL yalnızca şimdi gösterilir; bir yere kaydet:
       <div class="secret mono">{{.}}</div>
+      <button type="button" class="small copy js-only" data-copy="{{.}}">URL'yi kopyala</button>
       <span class="small">Tetiklemek için: <code>curl -X POST {{.}}</code></span></div>
     {{end}}
     {{with .Data.Hooks}}
     <table style="margin-bottom:12px">
-      <thead><tr><th>Ad</th><th>Branch</th><th class="hide-sm">Token</th><th class="hide-sm">Son tetikleme</th><th></th></tr></thead>
+      <thead><tr><th>Ad</th><th>Branch</th><th class="hide-sm">Token</th><th class="hide-sm">Son tetikleme</th><th><span class="vh">Eylemler</span></th></tr></thead>
       <tbody>
       {{range .}}
         <tr>
@@ -58,10 +151,10 @@
           <td class="hide-sm mono small">{{.Prefix}}…</td>
           <td class="hide-sm muted small">{{with .LastTriggeredAt}}{{ago .}}{{else}}hiç{{end}}</td>
           <td style="text-align:right">
-            <form class="inline" method="post" action="/apps/{{$a.Name}}/hooks/delete" data-confirm="{{.Name}} hook'u silinsin mi? URL'si artık çalışmaz.">
+            <form class="inline" method="post" action="/apps/{{$a.Name}}/hooks/delete" data-confirm="{{.Name}} hook'u silinsin mi? URL'si hemen çalışmaz olur ve geri alınamaz.">
               <input type="hidden" name="csrf" value="{{$csrf}}">
               <input type="hidden" name="id" value="{{.ID}}">
-              <button class="small danger" type="submit">Sil</button>
+              <button class="small danger" type="submit" aria-label="{{.Name}} hook'unu sil">Sil</button>
             </form>
           </td>
         </tr>
@@ -69,7 +162,7 @@
       </tbody>
     </table>
     {{else}}
-    <p class="muted" style="margin-top:0">Henüz deploy hook'u yok.</p>
+    <p class="muted" style="margin-top:0">Henüz deploy hook'u yok. Ad ve branch yazıp oluştur; URL bir kez gösterilir.</p>
     {{end}}
     <form method="post" action="/apps/{{$a.Name}}/hooks">
       <input type="hidden" name="csrf" value="{{$csrf}}">
@@ -85,25 +178,110 @@
     <p class="muted" style="margin:0">Deploy hook'ları gizli URL'lerdir; görmek ve yönetmek için ekipte üye rolü gerekir.</p>
   {{end}}
   </div>
-</details>
-
-<details class="card section" id="custom-domains" {{if .Data.Domains}}open{{end}}>
-  <summary>Alan adları <span class="muted">· kendi alan adını bağla</span></summary>
-  <div class="body">{{template "domains" .}}</div>
-</details>
+</section>
 
 {{template "protection" .}}
 
-<details class="card section" id="sleep">
-  <summary>Uyku modu <span class="muted">· platform ayarı</span></summary>
-  <div class="body">
-    <p class="muted small" style="margin:0">Uyku modu sunucuda açıksa, bir süre istek almayan deploy'lar uyutulur ve ilk istekte uyanır; listede “Uykuda” etiketiyle görünürler.</p>
-  </div>
-</details>
+<section class="set-sec" id="rollout" aria-labelledby="rollout-h">
+  <h2 id="rollout-h">Yayın</h2>
+  <p class="sub small">Yeni production deploy'u anında, izlenerek ya da trafiği adım adım alarak yayına girer; metrikler bozulursa otomatik geri alınır.</p>
+  {{template "rollout" .}}
+</section>
 
+<section class="set-sec" id="processes" aria-labelledby="processes-h">
+  <h2 id="processes-h">Süreçler</h2>
+  <p class="sub small">Web sunucusunun yanında çalışan arka plan süreçleri (kuyruk işleyici, bot, WebSocket sunucusu) ve zamanlanmış işler.</p>
+  <div hx-get="/apps/{{$a.Name}}/processes" hx-trigger="load" hx-swap="outerHTML">
+    <div class="card pad muted small">Süreçler yükleniyor…</div>
+  </div>
+</section>
+
+{{if and $w .Data.Terminal}}
+<section class="set-sec" id="terminal" aria-labelledby="terminal-h">
+  <h2 id="terminal-h">Terminal oturumları</h2>
+  <p class="sub small">Çalışan bir deploy'da açılan her kabuk oturumu burada kayıt altına alınır. Oturum açmak için deploy sayfasındaki “Terminal” düğmesini kullan.</p>
+  <div class="card">
+  {{with .Data.TerminalSessions}}
+    <table>
+      <thead><tr><th>Kim</th><th>Deploy</th><th class="hide-sm">Pod</th><th>Başladı</th><th>Bitti</th><th>Sonuç</th></tr></thead>
+      <tbody>
+      {{range .}}
+        <tr>
+          <td>{{if eq .Actor "admin"}}admin{{else}}@{{.Actor}}{{end}}</td>
+          <td>{{with .DeploymentID}}<a class="mono" href="/deployments/{{.}}">{{end}}{{if .CommitSHA}}{{short .CommitSHA}}{{else}}silindi{{end}}{{if .DeploymentID}}</a>{{end}}</td>
+          <td class="hide-sm small"><span class="tag">{{.Process}}</span> <span class="mono">{{.Pod}}</span></td>
+          <td class="small" title="{{time .StartedAt}}">{{ago .StartedAt}}</td>
+          <td class="small">{{with .EndedAt}}<span title="{{time .}}">{{ago .}}</span>{{else}}<span class="tag">açık</span>{{end}}</td>
+          <td class="small">{{if .ExitCode}}çıkış kodu {{.ExitCode}}
+            {{else if eq .EndReason "idle"}}işlem yapılmadı, kapatıldı
+            {{else if eq .EndReason "max_duration"}}azami süre doldu
+            {{else if eq .EndReason "client_closed"}}tarayıcı kapattı
+            {{else if eq .EndReason "no_shell"}}imajda kabuk yok
+            {{else if eq .EndReason "shutdown"}}sunucu yeniden başladı
+            {{else if eq .EndReason "error"}}bağlantı hatası
+            {{else}}<span class="muted">—</span>{{end}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  {{else}}
+    <div class="empty">Henüz terminal oturumu açılmadı. Hazır bir deploy'un sayfasındaki “Terminal” düğmesiyle pod'da kabuk açabilirsin; her oturum burada listelenir.</div>
+  {{end}}
+  </div>
+</section>
+{{end}}
+
+<section class="set-sec" id="danger" aria-labelledby="danger-h">
+  <h2 id="danger-h" class="danger-h">Tehlikeli bölge</h2>
+  <p class="sub small">Buradaki işlemler geri alınamaz. Ne silineceğini okuyup öyle onayla.</p>
+  <div class="card danger-zone">
+    <div class="dz-row">
+      <div><strong>Alan adlarını kaldır</strong>
+        <p class="small muted">Bağlı alan adları artık projeyi göstermez; ziyaretçiler hata görür. Her alan adı Alan adları bölümünde ayrı ayrı silinir.</p></div>
+      <a class="btn danger" href="#custom-domains">Alan adlarına git</a>
+    </div>
+    <div class="dz-row">
+      <div><strong>Veritabanını sil</strong>
+        <p class="small muted">Veritabanı, verileri ve tüm yedekleri kalıcı olarak silinir. Silme, Veritabanları sekmesinde veritabanının adını yazarak onaylanır.</p></div>
+      <a class="btn danger" href="/apps/{{$a.Name}}/databases">Veritabanlarına git</a>
+    </div>
+    <div class="dz-row">
+      <div><strong>Projeyi sil</strong>
+        <p class="small muted" id="why-delete">Projeyi, tüm deploy'larını, adreslerini ve ayarlarını kaldırır. Arayüzden proje silme henüz yok: önce alan adlarını ve veritabanlarını kaldır, sonra projenin silinmesi için platform yöneticisine yaz.</p></div>
+      <button type="button" class="danger" disabled aria-describedby="why-delete" title="Arayüzden proje silme henüz yok">Projeyi sil</button>
+    </div>
+  </div>
+</section>
+</div>
+</div>
+
+{{template "ux-js" .}}
 <script nonce="{{.Nonce}}">
-// Plain forms ask before destructive posts (htmx forms use hx-confirm).
-document.querySelectorAll("form[data-confirm]").forEach((f) =>
-  f.addEventListener("submit", (e) => { if (!confirm(f.dataset.confirm)) e.preventDefault(); }));
+(() => {
+  // Show / hide a secret input.
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-reveal]");
+    if (!b) return;
+    const input = document.getElementById(b.dataset.reveal);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    b.textContent = show ? "Gizle" : "Göster";
+    b.setAttribute("aria-pressed", String(show));
+    b.setAttribute("aria-label", show ? "Değeri gizle" : "Değeri göster");
+  });
+  // The section nav marks the section being read.
+  const links = [...document.querySelectorAll('.set-nav a[href^="#"]')];
+  const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+  if (!("IntersectionObserver" in window)) return;
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      links.forEach((a) => { a.classList.remove("on"); a.removeAttribute("aria-current"); });
+      const a = byId.get(en.target.id);
+      if (a) { a.classList.add("on"); a.setAttribute("aria-current", "location"); }
+    });
+  }, {rootMargin: "-10% 0px -75% 0px"});
+  document.querySelectorAll(".set-sec[id]").forEach((s) => io.observe(s));
+})();
 </script>
 {{end}}

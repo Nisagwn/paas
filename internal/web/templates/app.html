@@ -1,84 +1,173 @@
+{{define "head"}}
+{{template "ux-css"}}
+<style>
+/* Genel: production hero, previews and the advanced entry points. */
+.attn { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; margin: 20px 0 0;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.attn.attn-failed { border-color: var(--err); background: var(--err-bg); }
+.attn.attn-run { border-color: var(--run); background: var(--run-bg); }
+.attn .txt { flex: 1; min-width: 220px; }
+.attn .txt .small { display: block; }
+.hp { margin-top: 20px; padding: 20px; display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.hp-info { flex: 1; min-width: 260px; }
+.hp-label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hp-label h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.hp-label a.badge:hover { text-decoration: none; }
+.hp-url { margin: 10px 0 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.hp-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 0; }
+.hp-meta dt { font-size: 12px; color: var(--muted); }
+.hp-meta dd { margin: 2px 0 0; min-width: 0; overflow-wrap: anywhere; }
+.hp-meta .wide { grid-column: 1 / -1; }
+.hp-actions { display: flex; flex-direction: column; gap: 8px; min-width: 220px; }
+.hp-actions .btn, .hp-actions button { width: 100%; text-align: center; }
+.hp-actions form { margin: 0; }
+.hp-actions .why { font-size: 12px; color: var(--muted); margin: -4px 0 0; text-align: center; }
+.hp-empty { margin-top: 20px; }
+.hp-empty h2 { margin: 0 0 8px; font-size: 18px; color: var(--text); }
+.adv { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.adv a.card { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; color: var(--text); }
+.adv a.card:hover { border-color: var(--muted); text-decoration: none; }
+.adv a.card .st { font-size: 13px; color: var(--accent); margin-top: 6px; }
+@media (max-width: 720px) {
+  .hp { padding: 16px; }
+  .hp-actions { min-width: 0; width: 100%; }
+}
+</style>
+{{end}}
+
 {{define "content"}}
 {{template "apphead" .}}
-{{$a := .Data.App}}
+{{$a := .Data.App}}{{$o := .Data.O}}{{$csrf := .CSRF}}{{$w := .Data.CanWrite}}
 
-{{with .Data.Production}}
-<h2>Production</h2>
-<div class="card pad grid kv">
-  <div><div class="k">Deploy</div><a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a> <span class="muted small">#{{.ID}}</span></div>
-  <div><div class="k">Branch</div><span class="tag">{{.Branch}}</span></div>
-  <div><div class="k">Framework</div>{{with .Framework}}{{.}}{{else}}<span class="muted">—</span>{{end}}</div>
-  <div><div class="k">Yayına alındı</div><span title="{{time .CreatedAt}}">{{ago .CreatedAt}}</span>{{if and .Origin (ne .Origin "git")}} · {{origin .Origin}}{{end}}</div>
-  <div style="grid-column:1/-1"><div class="k">Commit</div>{{firstLine .CommitMessage}}</div>
+<div id="ov-live" {{if .Data.Active}}hx-get="/apps/{{$a.Name}}" hx-trigger="every 5s" hx-select="#ov-live" hx-swap="outerHTML"{{end}}>
+{{with $o.Attention}}
+<div class="attn {{if eq .Status "failed"}}attn-failed{{else}}attn-run{{end}}" role="status">
+  <span class="badge s-{{.Status}}">{{status .Status}}</span>
+  <div class="txt">
+    <strong>{{if eq .Status "failed"}}Son deploy başarısız oldu{{else}}Yeni bir deploy sürüyor{{end}}</strong>
+    <span class="small"><span class="mono">{{short .CommitSHA}}</span> · {{.Branch}} · {{firstLine .CommitMessage}}</span>
+    {{if and (eq .Status "failed") $.Data.HasProduction}}<span class="small muted">Canlı site etkilenmedi; aşağıdaki sürüm yayında.</span>{{end}}
+  </div>
+  <a class="btn small" href="/deployments/{{.ID}}">{{if eq .Status "failed"}}Nedenini ve çözümü gör →{{else}}Canlı izle →{{end}}</a>
 </div>
 {{end}}
 
-<h2 id="processes">Süreçler</h2>
-<p class="sub small">Web sunucusunun yanında arka plan süreçleri (kuyruk işleyici, bot, WebSocket sunucusu) ve zamanlanmış işler.</p>
-<div hx-get="/apps/{{$a.Name}}/processes" hx-trigger="load" hx-swap="outerHTML">
-  <div class="card pad muted small">Süreçler yükleniyor…</div>
+{{with .Data.Production}}
+<section class="card hp" aria-labelledby="prod-h">
+  <div class="hp-info">
+    <div class="hp-label">
+      <h2 id="prod-h">Production</h2>
+      <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
+      {{if $o.Health}}<a class="badge h-{{$o.Health}}" href="/apps/{{$a.Name}}/analytics" title="Son 15 dakikadaki 5xx oranına göre; ayrıntılar Analitik'te">{{health $o.Health}}{{if $o.HealthReqs}} · {{num $o.HealthReqs}} istek{{end}}</a>{{end}}
+      {{if and (eq .Status "ready") .SleepingSince}}<span class="tag" title="İlk istekte uyanır">Uykuda</span>{{end}}
+    </div>
+    <div class="hp-url">
+      <a class="prod-url" href="{{$.Data.ProductionURL}}" target="_blank" rel="noopener">{{$.Data.ProductionURL}}</a>
+      <button type="button" class="small copy js-only" data-copy="{{$.Data.ProductionURL}}" aria-label="Canlı adresi kopyala">Kopyala</button>
+    </div>
+    <dl class="hp-meta">
+      <div class="wide"><dt>Commit</dt><dd><a class="mono" href="/deployments/{{.ID}}">{{short .CommitSHA}}</a> {{firstLine .CommitMessage}}</dd></div>
+      <div><dt>Branch</dt><dd><span class="tag">{{.Branch}}</span></dd></div>
+      <div><dt>Yayına alındı</dt><dd><span title="{{time .CreatedAt}}">{{ago .CreatedAt}}</span>{{if and .Origin (ne .Origin "git")}} · {{origin .Origin}}{{end}}</dd></div>
+      {{with .Framework}}<div><dt>Framework</dt><dd>{{.}}</dd></div>{{end}}
+      <div><dt>Alan adları</dt><dd>{{range $i, $d := $o.LiveDomains}}{{if $i}}, {{end}}<a href="{{$d.URL}}" target="_blank" rel="noopener">{{$d.Hostname}}</a>{{else}}<a href="/apps/{{$a.Name}}/settings#custom-domains">Alan adı bağla →</a>{{end}}</dd></div>
+    </dl>
+  </div>
+  <div class="hp-actions" role="group" aria-label="Production eylemleri">
+    <a class="btn primary big" href="{{$.Data.ProductionURL}}" target="_blank" rel="noopener">Siteyi aç ↗</a>
+    {{with $o.RedeployReason}}
+    <button type="button" disabled title="{{.}}" aria-describedby="why-redeploy">Yeniden deploy et</button>
+    <p class="why" id="why-redeploy">{{.}}</p>
+    {{else}}
+    <form method="post" action="/apps/{{$a.Name}}/redeploy"
+      hx-post="/apps/{{$a.Name}}/redeploy" hx-target="main" hx-select="main" hx-swap="outerHTML">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="deployment_id" value="{{.ID}}">
+      <input type="hidden" name="from" value="app">
+      <button type="submit">Yeniden deploy et</button>
+    </form>
+    {{end}}
+    {{with $o.Rollback}}
+    <form method="post" action="/apps/{{$a.Name}}/rollback"
+      hx-post="/apps/{{$a.Name}}/rollback" hx-target="main" hx-select="main" hx-swap="outerHTML"
+      hx-confirm="Canlı site önceki sürüme ({{short .CommitSHA}}: {{firstLine .CommitMessage}}) dönsün mü?">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="deployment_id" value="{{.ID}}">
+      <input type="hidden" name="from" value="app">
+      <button type="submit" aria-describedby="why-rollback">Geri al</button>
+    </form>
+    <p class="why" id="why-rollback">Önceki sürüme döner: <span class="mono">{{short .CommitSHA}}</span> · {{ago .CreatedAt}}</p>
+    {{else}}
+    <button type="button" disabled title="{{$o.RollbackReason}}" aria-describedby="{{if eq $o.RollbackReason $o.RedeployReason}}why-redeploy{{else}}why-rollback{{end}}">Geri al</button>
+    {{if ne $o.RollbackReason $o.RedeployReason}}<p class="why" id="why-rollback">{{$o.RollbackReason}}</p>{{end}}
+    {{end}}
+  </div>
+</section>
+{{else}}
+<section class="card hp-empty empty" aria-labelledby="prod-h">
+  <h2 id="prod-h">Henüz yayında değil</h2>
+  {{with $o.Attention}}
+  <p style="margin:0 auto 16px;max-width:520px">İlk deploy {{if eq .Status "failed"}}başarısız oldu. Nedenini ve nasıl düzelteceğini deploy sayfasında görebilirsin.{{else}}sürüyor; hazır olunca canlı adres burada görünür.{{end}}</p>
+  <a class="btn primary" href="/deployments/{{.ID}}">{{if eq .Status "failed"}}Deploy'u incele →{{else}}Canlı izle →{{end}}</a>
+  {{else}}
+  <p style="margin:0 auto;max-width:520px"><span class="mono">{{$a.Repo}}</span> reposunun <span class="tag">{{$a.ProductionBranch}}</span> branch'ine push ettiğinde ilk production deploy'u başlar; canlı adres <span class="mono">{{.Data.ProductionURL}}</span> olur.</p>
+  {{end}}
+</section>
+{{end}}
 </div>
 
-<h2 id="rollout">Yayın</h2>
-<p class="sub small">Yeni production deploy'u anında, izlenerek ya da trafiği adım adım alarak yayına girer; metrikler bozulursa otomatik geri alınır.</p>
+{{if .Data.Rollout.Active}}
+<div class="sec-head"><h2 id="rollout">Süren yayın</h2>
+  <div class="actions"><a class="small" href="/apps/{{$a.Name}}/settings#rollout">Yayın ayarları →</a></div></div>
 {{template "rollout" .}}
+{{end}}
 
-<h2>Adresler</h2>
+<div class="sec-head"><h2>Önizlemeler</h2>
+  <div class="actions"><a class="small" href="/apps/{{$a.Name}}/deployments?env=preview">Tüm önizleme deploy'ları →</a></div></div>
 <div class="card">
-  {{with .Data.Aliases}}
+  {{with $o.Previews}}
   <table>
+    <thead><tr><th>Branch</th><th>Adres</th><th class="hide-sm">Deploy</th><th><span class="vh">Eylemler</span></th></tr></thead>
     <tbody>
     {{range .}}
       <tr>
-        <td><span class="tag {{if eq .Kind "production"}}prod{{end}}">{{kind .Kind}}</span></td>
-        <td><a href="{{.URL}}" target="_blank" rel="noopener">{{.Hostname}}</a></td>
-        <td class="hide-sm muted small">branch {{.Branch}}</td>
-        <td class="small">→ <a class="mono" href="/deployments/{{.DeploymentID}}">{{if .SHA}}{{short .SHA}}{{else}}#{{.DeploymentID}}{{end}}</a>
+        <td><span class="tag">{{.Branch}}</span></td>
+        <td class="trunc"><a href="{{.URL}}" target="_blank" rel="noopener">{{.Hostname}} ↗</a></td>
+        <td class="hide-sm small"><a class="mono" href="/deployments/{{.DeploymentID}}">{{if .SHA}}{{short .SHA}}{{else}}#{{.DeploymentID}}{{end}}</a>
           <span class="muted">· {{ago .UpdatedAt}}</span></td>
+        <td style="text-align:right"><a class="small" href="/deployments/{{.DeploymentID}}/review">İncele</a></td>
       </tr>
     {{end}}
     </tbody>
   </table>
   {{else}}
-  <div class="empty">Adresler ilk başarılı deploy'dan sonra görünür.</div>
+  <div class="empty"><span class="tag">{{$a.ProductionBranch}}</span> dışındaki bir branch'e push ettiğinde o branch'in önizleme adresi burada görünür; ekibinle paylaşıp yorum toplayabilirsin.</div>
   {{end}}
 </div>
 
-<div class="head" style="align-items:baseline;margin-top:32px">
-  <h2 style="margin:0 0 12px">Son deploy'lar</h2>
-  <div class="actions"><a class="small" href="/apps/{{$a.Name}}/deployments">Tümü ve deploy kontrolleri →</a></div>
-</div>
+<div class="sec-head"><h2>Son deploy'lar</h2>
+  <div class="actions"><a class="small" href="/apps/{{$a.Name}}/deployments">Tüm deploy'lar →</a></div></div>
 {{template "recent" .}}
 
-{{if and .Data.CanWrite (or .Data.Terminal .Data.TerminalSessions)}}
-<h2 id="terminal-sessions">Terminal oturumları</h2>
-<div class="card">
-{{with .Data.TerminalSessions}}
-  <table>
-    <thead><tr><th>Kim</th><th>Deploy</th><th class="hide-sm">Pod</th><th>Başladı</th><th>Bitti</th><th>Sonuç</th></tr></thead>
-    <tbody>
-    {{range .}}
-      <tr>
-        <td>{{if eq .Actor "admin"}}admin{{else}}@{{.Actor}}{{end}}</td>
-        <td>{{with .DeploymentID}}<a class="mono" href="/deployments/{{.}}">{{end}}{{if .CommitSHA}}{{short .CommitSHA}}{{else}}silindi{{end}}{{if .DeploymentID}}</a>{{end}}</td>
-        <td class="hide-sm small"><span class="tag">{{.Process}}</span> <span class="mono">{{.Pod}}</span></td>
-        <td class="small" title="{{time .StartedAt}}">{{ago .StartedAt}}</td>
-        <td class="small">{{with .EndedAt}}<span title="{{time .}}">{{ago .}}</span>{{else}}<span class="tag">açık</span>{{end}}</td>
-        <td class="small">{{if .ExitCode}}çıkış kodu {{.ExitCode}}
-          {{else if eq .EndReason "idle"}}işlem yapılmadı, kapatıldı
-          {{else if eq .EndReason "max_duration"}}azami süre doldu
-          {{else if eq .EndReason "client_closed"}}tarayıcı kapattı
-          {{else if eq .EndReason "no_shell"}}imajda kabuk yok
-          {{else if eq .EndReason "shutdown"}}sunucu yeniden başladı
-          {{else if eq .EndReason "error"}}bağlantı hatası
-          {{else}}<span class="muted">—</span>{{end}}</td>
-      </tr>
-    {{end}}
-    </tbody>
-  </table>
-{{else}}
-  <div class="empty">Henüz terminal oturumu açılmadı. Çalışan bir deploy'un yanındaki "Terminal" düğmesiyle pod'da kabuk açabilirsin; her oturum burada listelenir.</div>
-{{end}}
+<div class="sec-head"><h2>Gelişmiş</h2><span class="muted small">Çoğu proje bunlara ihtiyaç duymaz; gerektiğinde buradan aç.</span></div>
+<div class="adv">
+  <a class="card" href="/apps/{{$a.Name}}/settings#processes">
+    <strong>Süreçler</strong><span class="muted small">Arka plan süreçleri ve zamanlanmış işler</span>
+    <span class="st">Durumu ve kopya sayısını gör →</span></a>
+  <a class="card" href="/apps/{{$a.Name}}/settings#rollout">
+    <strong>Yayın biçimi</strong><span class="muted small">Kademeli yayın ve otomatik geri alma</span>
+    <span class="st">Şu an: {{rolloutMode .Data.Rollout.Settings.Mode}} →</span></a>
+  <a class="card" href="/apps/{{$a.Name}}/databases">
+    <strong>Veritabanları</strong><span class="muted small">Yönetilen Postgres ve Redis</span>
+    <span class="st">{{if $o.AddonCount}}{{$o.AddonCount}} veritabanı →{{else}}Veritabanı ekle →{{end}}</span></a>
+  <a class="card" href="/apps/{{$a.Name}}/settings#protection">
+    <strong>Koruma</strong><span class="muted small">Önizlemeleri şifre ya da ekip girişiyle koru</span>
+    <span class="st">Ayarla →</span></a>
+  {{if and $w .Data.Terminal}}
+  <a class="card" href="/apps/{{$a.Name}}/settings#terminal">
+    <strong>Terminal</strong><span class="muted small">Çalışan pod'da kabuk ve oturum kaydı</span>
+    <span class="st">{{with .Data.TerminalSessions}}{{len .}} oturum kaydı →{{else}}Oturum kaydı →{{end}}</span></a>
+  {{end}}
 </div>
-{{end}}
+{{template "ux-js" .}}
 {{end}}

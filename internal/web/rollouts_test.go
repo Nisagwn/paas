@@ -31,7 +31,11 @@ func TestRolloutPanel(t *testing.T) {
 		return d
 	}
 	ready(1)
-	if _, body, _ := u.get("/apps/blog"); !strings.Contains(body, "Şu an süren bir yayın yok") || !strings.Contains(body, "Anında") {
+	// The idle panel lives in Ayarlar; Genel only links to it.
+	if _, body, _ := u.get("/apps/blog/settings"); !strings.Contains(body, "Şu an süren bir yayın yok") || !strings.Contains(body, "Anında") {
+		t.Fatalf("idle panel:\n%s", body)
+	}
+	if _, body, _ := u.get("/apps/blog"); strings.Contains(body, "Şu an süren bir yayın yok") || !strings.Contains(body, `href="/apps/blog/settings#rollout"`) {
 		t.Fatalf("idle panel:\n%s", body)
 	}
 
@@ -73,8 +77,11 @@ func TestRolloutPanel(t *testing.T) {
 		t.Fatalf("rollback: %d", code)
 	}
 	_, body, _ = u.get("/apps/blog")
-	if !strings.Contains(body, "Canary geri alındı") || !strings.Contains(body, "Şu an süren bir yayın yok") {
+	if !strings.Contains(body, "Canary geri alındı") {
 		t.Fatalf("rolled back canary not marked:\n%s", body)
+	}
+	if _, body, _ = u.get("/apps/blog/settings"); !strings.Contains(body, "Şu an süren bir yayın yok") {
+		t.Fatalf("settings after rollback:\n%s", body)
 	}
 	if code, _, _ := u.post("/apps/blog/rollout/promote", url.Values{"csrf": {csrf}}, "self"); code != http.StatusNotFound {
 		t.Fatalf("no active rollout: %d", code)

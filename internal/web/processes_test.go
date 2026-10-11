@@ -73,8 +73,11 @@ func TestProcessesSection(t *testing.T) {
 	})
 	st.MarkReady(ctx, d, []store.AliasSpec{{Hostname: "blog.paas.test", Kind: store.AliasProduction, Branch: "main"}})
 
-	if _, body, _ := u.get("/apps/blog"); !strings.Contains(body, `hx-get="/apps/blog/processes"`) || !strings.Contains(body, "Süreçler") {
-		t.Fatalf("app page has no processes section:\n%s", body)
+	if _, body, _ := u.get("/apps/blog/settings"); !strings.Contains(body, `hx-get="/apps/blog/processes"`) || !strings.Contains(body, "Süreçler") {
+		t.Fatalf("settings page has no processes section:\n%s", body)
+	}
+	if _, body, _ := u.get("/apps/blog"); !strings.Contains(body, `href="/apps/blog/settings#processes"`) {
+		t.Fatalf("app page has no link to the processes section:\n%s", body)
 	}
 	code, body, _ := u.get("/apps/blog/processes")
 	for _, want := range []string{"queue", "Arka plan", "node queue.js", "2/2", "Çalışıyor", "cleanup", "*/15 * * * *",

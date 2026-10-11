@@ -3,10 +3,10 @@
 
 {{define "protection"}}
 {{$a := .Data.App}}{{$csrf := .CSRF}}{{$p := .Data.Protection}}{{$w := .Data.CanWrite}}
-<details class="card section" id="protection" {{if or $p.Enabled $p.NewShareURL $p.NewBypass}}open{{end}}>
-  <summary>Koruma <span class="muted">· {{protectMode $p.Mode}}{{if $p.Enabled}}, {{protectScope $p.Scope}}{{end}}</span></summary>
-  <div class="body">
-  <p class="muted small" style="margin-top:0">Korunan adresler, açılmadan önce giriş ister. Deploy adresleri ve önizleme adresleri her zaman kapsamdadır; canlı adres ve alan adları yalnızca “Tüm adresler” seçiliyken korunur.</p>
+<section class="set-sec" id="protection" aria-labelledby="protection-h">
+  <h2 id="protection-h">Koruma <span class="muted small" style="font-weight:400">· {{protectMode $p.Mode}}{{if $p.Enabled}}, {{protectScope $p.Scope}}{{end}}</span></h2>
+  <p class="sub small">Korunan adresler açılmadan önce giriş ya da şifre ister. Deploy ve önizleme adresleri her zaman kapsamdadır; canlı adres ve alan adları yalnızca “Tüm adresler” seçiliyken korunur.</p>
+  <div class="card pad">
   <form method="post" action="/apps/{{$a.Name}}/protection">
     <input type="hidden" name="csrf" value="{{$csrf}}">
     <fieldset {{if not $w}}disabled{{end}}>
@@ -26,12 +26,13 @@
         <input id="prot-password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="256"
           placeholder="{{if $p.PasswordSet}}••••••••{{else}}en az 8 karakter{{end}}"></div>
     </div>
-    {{if $w}}<div style="margin-top:12px"><button class="primary" type="submit">Kaydet</button></div>{{end}}
+    {{if $w}}<div style="margin-top:12px"><button class="primary" type="submit">Korumayı kaydet</button></div>{{end}}
     </fieldset>
   </form>
   <p class="muted small">Ekip üyeleri şifre korumasında da şifresiz girer. Modu ya da şifreyi değiştirmek tüm ziyaretçilerin oturumunu kapatır.</p>
 
-  <h3 style="margin:20px 0 8px;font-size:15px">Paylaşım bağlantıları</h3>
+  <h3 class="group" style="margin-top:24px">Paylaşım bağlantıları</h3>
+  <p class="muted small" style="margin-top:0">Hesabı olmayan birine (ör. müşteriye) korumalı adresleri süreli olarak açar.</p>
   {{with $p.NewShareURL}}
   <div class="flash ok" role="status">Paylaşım bağlantısı oluşturuldu. Bu bağlantı yalnızca şimdi gösterilir; bir yere kaydet:
     <div class="secret mono">{{.}}</div>
@@ -81,7 +82,7 @@
   </form>
   {{end}}
 
-  <h3 style="margin:20px 0 8px;font-size:15px">Otomasyon anahtarı</h3>
+  <h3 class="group" style="margin-top:24px">Otomasyon anahtarı</h3>
   {{if $w}}
     {{with $p.NewBypass}}
     <div class="flash ok" role="status">Yeni anahtar oluşturuldu; eskisi artık çalışmaz. Bu anahtar yalnızca şimdi gösterilir:
@@ -104,5 +105,5 @@
     <p class="muted" style="margin:0">Otomasyon anahtarı gizlidir; yönetmek için ekipte üye rolü gerekir.</p>
   {{end}}
   </div>
-</details>
+</section>
 {{end}}

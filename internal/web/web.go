@@ -198,7 +198,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /deployments/{id}", s.authed(s.deploymentPage))
 	// Faz 25: review page and preview comments (comments.go).
 	s.commentRoutes(mux)
-	s.terminalRoutes(mux) // Faz 27 (terminal.go)
+	s.terminalRoutes(mux)  // Faz 27 (terminal.go)
+	s.projectUXRoutes(mux) // project and deployment screens (project_ux.go)
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.limitSignIn(s.githubStart))
 	mux.HandleFunc("GET /auth/github/callback", s.limitSignIn(s.githubCallback))
@@ -603,5 +604,6 @@ func (s *Server) deploymentPage(w http.ResponseWriter, r *http.Request) {
 			"RuntimeLogs": s.RuntimeLogs,
 			"Processes":   s.processNames(r.Context(), d), // Faz 20: runtime log selector
 			"Terminal":    s.terminalAllowed(r, app, d),   // Faz 27
+			"X":           s.deploymentUX(r, app, d, s.terminalAllowed(r, app, d)),
 		}, "")
 }

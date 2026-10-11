@@ -139,7 +139,9 @@ func TestDeployControls(t *testing.T) {
 	const tab = "/apps/blog/deployments"
 	_, body, _ := f.owner.get(tab)
 	mustContain(t, "owner deployments", body, "Production'a taşı", "Yeniden deploy et", "Önbelleği kullanma", "İptal et",
-		"Next.js", ">Önizleme<", ">Production<", "https://0000000-blog.paas.test")
+		">Önizleme<", ">Production<", "https://0000000-blog.paas.test")
+	_, body, _ = f.owner.get("/apps/blog")
+	mustContain(t, "overview hero", body, "Next.js", "Siteyi aç ↗", "Yeniden deploy et", "Geri al")
 	_, body, _ = f.viewer.get(tab)
 	mustNotContain(t, "viewer deployments", body, "Production'a taşı", "Yeniden deploy et", "İptal et", "Bu sürüme dön")
 
@@ -163,10 +165,10 @@ func TestDeployControls(t *testing.T) {
 
 	// Promote the preview: a production copy (generation 1) with the image.
 	code, _, h := post("/apps/blog/promote", d2)
-	if code != http.StatusSeeOther || h.Get("Location") != tab+"?ok=promoted" {
+	deps, _ := st.ListDeployments(ctx, f.app.ID, 50)
+	if code != http.StatusSeeOther || h.Get("Location") != fmt.Sprintf("/deployments/%d?ok=promoted-new", deps[0].ID) {
 		t.Fatalf("promote: %d %s", code, h.Get("Location"))
 	}
-	deps, _ := st.ListDeployments(ctx, f.app.ID, 50)
 	p := deps[0]
 	if p.Origin != store.OriginPromote || p.Target != store.EnvProduction || p.Generation != 1 || p.Image != "registry.test/blog@sha256:bbb" {
 		t.Fatalf("promoted copy: %+v", p)
@@ -179,10 +181,11 @@ func TestDeployControls(t *testing.T) {
 	}
 
 	// Redeploy without cache rebuilds; with cache it reuses the image.
-	if code, _, h := post("/apps/blog/redeploy", d1, "no_cache", "1"); code != http.StatusSeeOther || h.Get("Location") != tab+"?ok=redeploy" {
+	code, _, h = post("/apps/blog/redeploy", d1, "no_cache", "1")
+	deps, _ = st.ListDeployments(ctx, f.app.ID, 50)
+	if code != http.StatusSeeOther || h.Get("Location") != fmt.Sprintf("/deployments/%d?ok=redeploy-new", deps[0].ID) {
 		t.Fatalf("redeploy: %d %s", code, h.Get("Location"))
 	}
-	deps, _ = st.ListDeployments(ctx, f.app.ID, 50)
 	if r := deps[0]; r.Origin != store.OriginRedeploy || r.Image != "" || r.Target != store.EnvProduction || r.Generation != 1 {
 		t.Fatalf("redeploy without cache: %+v", r)
 	}

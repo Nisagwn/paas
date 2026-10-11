@@ -1,98 +1,250 @@
+{{define "head"}}
+{{template "ux-css"}}
+<style>
+/* Deploy detayı: actions, step timeline, failure box, log toolbar. */
+.dp-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 0; }
+.dp-title h1 { overflow-wrap: anywhere; }
+.dp-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0 0; }
+.dp-actions form { display: inline-flex; gap: 8px; align-items: center; margin: 0; }
+.dp-actions .check { margin: 0; }
+.dp-note { margin: 8px 0 0; }
+.tl { list-style: none; margin: 20px 0 0; padding: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tl li { display: flex; gap: 10px; align-items: flex-start; position: relative; min-width: 0; }
+.tl .dot { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 1px; }
+.tl .lbl { font-weight: 600; }
+.tl .meta { font-size: 12px; color: var(--muted); }
+.tl .done .dot { border-color: var(--ok); background: var(--ok-bg); color: var(--ok); }
+.tl .current .dot { border-color: var(--run); background: var(--run-bg); color: var(--run); animation: pulse 1s ease-in-out infinite; }
+.tl .current .lbl { color: var(--run); }
+.tl .failed .dot { border-color: var(--err); background: var(--err-bg); color: var(--err); }
+.tl .failed .lbl { color: var(--err); }
+.tl .skipped .dot { border-style: dashed; }
+.tl .pending .lbl, .tl .skipped .lbl { color: var(--muted); }
+.tl .done .dot::before { content: "✓"; }
+.tl .failed .dot::before { content: "✕"; }
+.tl .skipped .dot::before { content: "–"; }
+.fail { margin: 16px 0 0; padding: 16px; border: 1px solid var(--err); background: var(--err-bg); border-radius: var(--radius); }
+.fail.fail-canceled { border-color: var(--border); background: var(--idle-bg); }
+.fail h2 { margin: 0 0 6px; color: var(--err); }
+.fail.fail-canceled h2 { color: var(--text); }
+.fail p { margin: 6px 0; }
+.fail .first { background: var(--code-bg); color: var(--code-text); border-radius: 8px; padding: 8px 10px; margin: 8px 0;
+  font: 12.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; }
+.fail .links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.fail details { margin-top: 10px; }
+.fail details code { display: block; margin-top: 6px; word-break: break-all; }
+.dp-kv { margin: 16px 0 0; }
+.dp-kv .wide { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.log-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 28px 0 8px; }
+.log-bar h2 { margin: 0; }
+.log-bar .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.log-bar .check { margin: 0; }
+#log, #rt-log { position: relative; }
+#log .bad.first { outline: 1px solid currentColor; outline-offset: 2px; border-radius: 2px; }
+@media (max-width: 720px) {
+  .tl { grid-template-columns: 1fr 1fr; }
+  .log { height: 50vh; }
+}
+</style>
+{{end}}
+
 {{define "content"}}
-{{$d := .Data.D}}
-<div class="head">
-  <div>
-    <p class="sub" style="margin:0"><a href="/">Projeler</a> / <a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a> /</p>
-    <h1><span class="mono">{{short $d.CommitSHA}}</span> <span id="status" class="badge s-{{$d.Status}}">{{status $d.Status}}</span>
-      {{if and (eq $d.Status "ready") $d.SleepingSince}}<span class="tag" title="Uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}</h1>
-    <p class="sub">{{firstLine $d.CommitMessage}}</p>
-  </div>
-  <div class="actions">
-    {{if eq $d.Status "ready"}}<a class="btn" href="/deployments/{{$d.ID}}/review">İncele</a>{{end}}
-    {{if .Data.Terminal}}<a class="btn" href="/apps/{{$d.AppName}}/deployments/{{$d.ID}}/terminal">Terminal</a>{{end}}
-    <a id="visit" class="btn primary" href="{{.Data.URL}}" target="_blank" rel="noopener" {{if ne $d.Status "ready"}}hidden{{end}}>Siteyi aç ↗</a>
+{{$d := .Data.D}}{{$x := .Data.X}}{{$csrf := .CSRF}}
+<p class="sub small crumbs"><a href="/">Projeler</a><span class="sep" aria-hidden="true">/</span><a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a><span class="sep" aria-hidden="true">/</span><a href="/apps/{{$d.AppName}}/deployments">Deploy'lar</a><span class="sep" aria-hidden="true">/</span>#{{$d.ID}}</p>
+<div class="dp-title">
+  <h1>{{with firstLine $d.CommitMessage}}{{.}}{{else}}Deploy #{{$d.ID}}{{end}}</h1>
+  <div class="dp-sub">
+    <span id="status" class="badge s-{{$d.Status}}">{{status $d.Status}}</span>
+    {{if $x.Live}}<span class="tag prod" title="Canlı adres bu deploy'u gösteriyor">Canlı</span>{{end}}
+    {{with $d.Target}}<span class="tag env-{{.}}">{{target .}}</span>{{end}}
+    <span class="tag">{{$d.Branch}}</span>
+    <span class="mono small">{{short $d.CommitSHA}}</span>
+    <span class="muted small"><span title="{{time $d.CreatedAt}}">{{ago $d.CreatedAt}}</span>{{if and $d.Origin (ne $d.Origin "git")}} · {{origin $d.Origin}}{{with $x.Source}} (<a href="/deployments/{{.}}">#{{.}}</a>){{end}}{{end}}</span>
+    {{if and (eq $d.Status "ready") $d.SleepingSince}}<span class="tag" title="Uyutuldu; ilk istekte uyanır">Uykuda</span>{{end}}
+    {{if and $d.CancelRequestedAt (active $d.Status)}}<span class="tag warn">İptal isteniyor</span>{{end}}
   </div>
 </div>
 
-<div class="card pad grid kv" style="margin-bottom:20px">
-  <div><div class="k">Deploy</div>#{{$d.ID}}</div>
+<div class="dp-actions" role="group" aria-label="Deploy eylemleri">
+  {{range $i, $act := $x.Actions}}
+    {{if $act.Reason}}
+    <button type="button"{{with $act.Class}} class="{{.}}"{{end}} disabled title="{{$act.Reason}}">{{$act.Label}}<span class="vh"> (kapalı: {{$act.Reason}})</span></button>
+    {{else if $act.Href}}
+    <a class="btn {{$act.Class}}" href="{{$act.Href}}"{{if $act.External}} target="_blank" rel="noopener"{{end}}>{{$act.Label}}</a>
+    {{else}}
+    <form method="post" action="{{$act.Post}}"
+      hx-post="{{$act.Post}}" hx-target="main" hx-select="main" hx-swap="outerHTML"{{with $act.Confirm}} hx-confirm="{{.}}"{{end}}>
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <input type="hidden" name="deployment_id" value="{{$d.ID}}">
+      <input type="hidden" name="from" value="deployment">
+      <button type="submit"{{with $act.Class}} class="{{.}}"{{end}}>{{$act.Label}}</button>
+      {{if $act.NoCache}}<label class="check small" title="İşaretlersen imaj yeniden kullanılmaz, commit baştan build edilir"><input type="checkbox" name="no_cache" value="1"> Önbelleği kullanma</label>{{end}}
+    </form>
+    {{end}}
+  {{end}}
+</div>
+{{if not $x.CanWrite}}<p class="muted small dp-note">Yeniden deploy, taşıma ve geri alma için ekipte üye rolü gerekir; kapalı düğmelerin üzerine gelince nedeni görünür.</p>{{end}}
+
+<ol class="card tl" id="timeline" aria-label="Deploy adımları">
+  {{range $x.Steps}}
+  <li class="{{.State}}" data-step="{{.Key}}">
+    <span class="dot" aria-hidden="true"></span>
+    <div style="min-width:0"><div class="lbl">{{.Label}}</div>
+      <div class="meta"><span class="st">{{.StateLabel}}</span>{{with .Duration}} · {{.}}{{end}}{{with .Note}} · {{.}}{{end}}</div></div>
+  </li>
+  {{end}}
+</ol>
+
+{{with $x.Failure}}
+<section class="fail fail-{{.Kind}}" aria-labelledby="fail-h">
+  <h2 id="fail-h">{{.Title}}</h2>
+  <p>{{.Cause}}</p>
+  <p><strong>Ne yapmalısın:</strong> {{.Next}}</p>
+  {{with $x.FirstErr}}<p class="small" style="margin-bottom:0">Log'daki ilk hata satırı:</p><div class="first">{{.}}</div>{{end}}
+  <div class="links">
+    {{if $x.FirstErr}}<a class="btn small js-only" href="#log" data-jump="error">Log'da ilk hataya git ↓</a>{{end}}
+    {{range .Links}}<a class="btn small" href="{{.URL}}">{{.Label}} →</a>{{end}}
+  </div>
+  {{with .Raw}}<details class="small"><summary>Teknik hata mesajı</summary><code>{{.}}</code></details>{{end}}
+</section>
+{{end}}
+
+<div class="card pad grid kv dp-kv">
+  <div><div class="k">Ortam</div>{{with $d.Target}}{{target .}}{{else}}—{{end}}</div>
   <div><div class="k">Branch</div><span class="tag">{{$d.Branch}}</span></div>
-  <div><div class="k">Commit</div><span class="mono small">{{$d.CommitSHA}}</span></div>
-  <div><div class="k">Başladı</div><span title="{{time $d.CreatedAt}}">{{ago $d.CreatedAt}}</span>{{with duration $d}} · {{.}} sürdü{{end}}</div>
-  <div style="grid-column:1/-1"><div class="k">Adres</div><a href="{{.Data.URL}}" target="_blank" rel="noopener">{{.Data.URL}}</a></div>
-  {{with $d.Image}}<div style="grid-column:1/-1"><div class="k">İmaj</div><span class="mono small">{{.}}</span></div>{{end}}
+  <div><div class="k">Başladı</div><span title="{{time $d.CreatedAt}}">{{ago $d.CreatedAt}}</span></div>
+  <div><div class="k">Toplam süre</div>{{with $x.TotalTime}}{{.}}{{else}}<span class="muted">sürüyor</span>{{end}}</div>
+  {{with $d.Framework}}<div><div class="k">Framework</div>{{.}}</div>{{end}}
+  <div class="wide"><div class="k">Commit</div><span class="mono small">{{$d.CommitSHA}}</span>
+    <button type="button" class="small copy js-only" data-copy="{{$d.CommitSHA}}" aria-label="Commit SHA'sını kopyala">Kopyala</button></div>
+  <div class="wide"><div class="k">Deploy adresi</div>{{if eq $d.Status "ready"}}<a href="{{.Data.URL}}" target="_blank" rel="noopener">{{.Data.URL}} ↗</a>{{else}}<span class="mono small">{{.Data.URL}}</span> <span class="muted small">· deploy hazır olunca açılır</span>{{end}}</div>
+  {{with $d.Image}}<div class="wide"><div class="k">İmaj</div><span class="mono small">{{.}}</span></div>{{end}}
 </div>
 
-<div id="error" class="flash err" role="alert" {{if not $d.Error}}hidden{{end}}>{{$d.Error}}</div>
-
-<div class="head" style="align-items:center;margin-bottom:8px">
-  <h2 style="margin:0">Build log'u</h2>
-  <span id="live" class="live"></span>
+<div class="log-bar">
+  <h2 id="log-h">Build log'u</h2>
+  <span id="live" class="live" aria-live="polite"></span>
+  <div class="actions js-only">
+    <label class="check small" for="follow"><input type="checkbox" id="follow" checked> Takip et</label>
+    <button type="button" class="small" id="to-error" disabled title="Log'da henüz hata satırı yok">İlk hataya git</button>
+    <button type="button" class="small" id="to-end">Sona git</button>
+  </div>
 </div>
-<div id="log" class="log" data-src="/api/deployments/{{$d.ID}}/logs/stream" aria-live="polite"></div>
+<div id="log" class="log" tabindex="0" role="log" aria-labelledby="log-h" data-src="/api/deployments/{{$d.ID}}/logs/stream" data-active="{{if active $d.Status}}1{{end}}"></div>
+<noscript><p class="muted small">Log canlı akışla gelir; görmek için tarayıcında JavaScript'i aç.</p></noscript>
 
 {{if .Data.RuntimeLogs}}
-<div class="head" id="runtime" style="align-items:center;margin:28px 0 8px">
-  <h2 style="margin:0">Çalışma log'u</h2>
+<div class="log-bar" id="runtime">
+  <h2 id="rt-h">Çalışma log'u</h2>
   <span id="rt-live" class="live"></span>
   <div class="actions">
     {{with .Data.Processes}}
-    <select id="rt-process" aria-label="Süreç" style="font:inherit;padding:6px 8px;border-radius:8px">
+    <label class="vh" for="rt-process">Süreç</label>
+    <select id="rt-process">
       {{range .}}<option value="{{.}}">{{.}}</option>{{end}}
     </select>
     {{end}}
     <button id="rt-toggle" type="button">Canlı izle</button>
   </div>
 </div>
-<div id="rt-log" class="log" style="height:40vh"
+<div id="rt-log" class="log" style="height:40vh" tabindex="0" role="log" aria-labelledby="rt-h"
   data-src="/api/apps/{{$d.AppName}}/deployments/{{$d.ID}}/runtime-logs?follow=1&tail=200"></div>
 {{end}}
 
+{{template "ux-js" .}}
 <script nonce="{{.Nonce}}">
 (() => {
-  // Appends a line and keeps the view pinned to the bottom unless the
-  // reader scrolled up.
-  function append(box, text) {
-    const pinned = box.scrollTop + box.clientHeight >= box.scrollHeight - 24;
+  const errRe = /^(error|fatal)\b|\berror:|npm err!|exit (code|status):? [1-9]|^#\d+ error/i;
+  const log = document.getElementById("log");
+  const live = document.getElementById("live");
+  const badge = document.getElementById("status");
+  const follow = document.getElementById("follow");
+  const toError = document.getElementById("to-error");
+  let firstError = null;
+  let auto = false; // true while the page itself scrolls
+
+  const atBottom = (box) => box.scrollTop + box.clientHeight >= box.scrollHeight - 24;
+  const toBottom = (box) => { auto = true; box.scrollTop = box.scrollHeight; requestAnimationFrame(() => { auto = false; }); };
+
+  function line(box, text, followIt) {
     const div = document.createElement("div");
     div.textContent = text;
     if (text.startsWith("==>")) div.className = "step";
-    else if (/^(ERROR|WARNING)|error:/i.test(text)) div.className = "bad";
+    else if (errRe.test(text)) div.className = "bad";
     box.append(div);
-    if (pinned) box.scrollTop = box.scrollHeight;
+    if (followIt) toBottom(box);
+    return div;
   }
   function meta(box, text) {
     const div = document.createElement("div");
     div.className = "meta";
     div.textContent = text;
     box.append(div);
-    box.scrollTop = box.scrollHeight;
+    if (box !== log || follow.checked) toBottom(box);
+  }
+  function jumpToError() {
+    if (!firstError) return;
+    follow.checked = false;
+    auto = true;
+    log.scrollTop = Math.max(0, firstError.offsetTop - 40);
+    requestAnimationFrame(() => { auto = false; });
+    log.focus({preventScroll: true});
+    log.scrollIntoView({block: "nearest", behavior: "smooth"});
   }
 
-  const log = document.getElementById("log");
-  const live = document.getElementById("live");
-  const badge = document.getElementById("status");
+  // Scrolling up stops following; scrolling back to the end resumes it.
+  log.addEventListener("scroll", () => { if (!auto) follow.checked = atBottom(log); });
+  follow.addEventListener("change", () => { if (follow.checked) toBottom(log); });
+  document.getElementById("to-end").addEventListener("click", () => { follow.checked = true; toBottom(log); });
+  toError.addEventListener("click", jumpToError);
+  document.querySelectorAll('[data-jump="error"]').forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); jumpToError(); }));
+
   const labels = {queued: "Sırada", building: "Kuruluyor", deploying: "Yayına alınıyor", ready: "Hazır", failed: "Başarısız", retired: "Emekli", canceled: "İptal edildi"};
   const label = (s) => labels[s] || s;
+  // The timeline follows the status until the deployment finishes; then the
+  // page reloads, so actions, durations and the explanation come from the server.
+  const order = ["queued", "build", "deploy"];
+  const current = {queued: "queued", building: "build", deploying: "deploy"};
+  const stateText = {done: "tamamlandı", current: "sürüyor", pending: "bekliyor"};
+  function timeline(status) {
+    const cur = current[status];
+    if (!cur) return;
+    const at = order.indexOf(cur);
+    order.forEach((key, i) => {
+      const li = document.querySelector('#timeline [data-step="' + key + '"]');
+      if (!li) return;
+      const st = i < at ? "done" : i === at ? "current" : "pending";
+      if (li.className === st) return;
+      li.className = st;
+      li.querySelector(".st").textContent = stateText[st];
+    });
+  }
+
   // EventSource resumes with Last-Event-ID after a dropped connection, so
   // no line is shown twice or skipped.
   const es = new EventSource(log.dataset.src);
   live.textContent = "● bağlı";
-  es.onmessage = (e) => append(log, e.data);
+  es.onmessage = (e) => {
+    const div = line(log, e.data, follow.checked);
+    if (!firstError && div.className === "bad") {
+      firstError = div;
+      div.classList.add("first");
+      div.id = "first-error";
+      toError.disabled = false;
+      toError.title = "";
+    }
+  };
   es.addEventListener("status", (e) => {
     const s = JSON.parse(e.data);
     badge.textContent = label(s.status);
     badge.className = "badge s-" + s.status;
+    timeline(s.status);
     if (!s.final) return;
     es.close();
     live.textContent = "bitti";
     meta(log, "— deploy: " + label(s.status) + " —");
-    if (s.status === "ready") document.getElementById("visit").hidden = false;
-    if (s.error) {
-      const box = document.getElementById("error");
-      box.textContent = s.error;
-      box.hidden = false;
-    }
+    if (log.dataset.active) setTimeout(() => location.reload(), 800);
   });
   es.onerror = () => { if (es.readyState !== EventSource.CLOSED) live.textContent = "yeniden bağlanıyor…"; };
   es.onopen = () => { live.textContent = "● bağlı"; };
@@ -120,7 +272,7 @@
     rt = new EventSource(rtSrc());
     rtBtn.textContent = "Durdur";
     rtLive.textContent = "● bağlı";
-    rt.onmessage = (e) => append(rtLog, e.data);
+    rt.onmessage = (e) => line(rtLog, e.data, atBottom(rtLog));
     rt.addEventListener("end", (e) => {
       rt.close(); rt = null;
       meta(rtLog, e.data ? "— " + e.data + " —" : "— akış bitti —");
