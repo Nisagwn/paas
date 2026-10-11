@@ -184,6 +184,8 @@ func TestTerminalPageAndButtons(t *testing.T) {
 	}
 	nonce := csp[strings.Index(csp, "'nonce-")+7:]
 	nonce = nonce[:strings.Index(nonce, "'")]
+	// html/template escapes "+" in attributes; the browser decodes it back.
+	nonce = strings.ReplaceAll(nonce, "+", "&#43;")
 	mustContain(t, "terminal page", string(body),
 		`src="https://unpkg.com/@xterm/xterm@5.5.0/lib/xterm.js" integrity="sha384-`,
 		`src="https://unpkg.com/@xterm/addon-fit@0.10.0/lib/addon-fit.js" integrity="sha384-`,
