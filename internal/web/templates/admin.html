@@ -1,8 +1,5 @@
 {{define "head"}}<style>
-.meter { height: 6px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin-top: 4px; }
-.meter > span { display: block; height: 100%; background: var(--ok); }
-.meter.warn > span { background: var(--warn); }
-.meter.full > span { background: var(--err); }
+.meter { height: 6px; margin: 4px 0 0; }
 .admin-stats { margin-bottom: 16px; }
 .admin-stats a.stat { color: var(--text); display: block; }
 .admin-stats a.stat:hover { border-color: var(--muted); text-decoration: none; }
@@ -24,9 +21,7 @@
 .at details { margin-top: 8px; font-size: 13px; }
 .at details > summary { color: var(--muted); }
 .at details .cols { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-top: 10px; }
-textarea { font: inherit; font-family: var(--mono); font-size: 13px; width: 100%; padding: 8px 10px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text); }
-textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { font-family: var(--mono); font-size: 13px; }
 @media (max-width: 720px) {
   .at-main, .at details .cols { grid-template-columns: 1fr; }
 }

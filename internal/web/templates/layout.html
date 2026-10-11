@@ -6,7 +6,6 @@
 <meta name="color-scheme" content="light dark">
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
 <title>{{.Title}} · paas</title>
-{{block "head" .}}{{end}}
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 13H1z' fill='%23111'/%3E%3C/svg%3E">
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous" nonce="{{.Nonce}}"></script>
 <style>
@@ -16,6 +15,7 @@
   --ok: #0f7b3d; --ok-bg: #e6f6ec; --err: #c62828; --err-bg: #fdecec;
   --run: #0a5bd6; --run-bg: #e8f0fe; --idle: #666; --idle-bg: #f0f0f0;
   --warn: #9a5b00; --warn-bg: #fff4e0; --chart-req: #2f6fde; --chart-err: #d03b3b; --grid: #ececec;
+  --hover: #f4f4f5; --shadow: 0 6px 20px rgba(0,0,0,.08);
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -25,19 +25,21 @@
     --ok: #4ade80; --ok-bg: #0f2a1a; --err: #f87171; --err-bg: #2c1212;
     --run: #7aa7ff; --run-bg: #12203a; --idle: #a0a0a0; --idle-bg: #1f1f22;
     --warn: #f5b454; --warn-bg: #2c2110; --chart-req: #4f86f0; --chart-err: #e04f4f; --grid: #232327;
+    --hover: #1c1c1f; --shadow: 0 6px 24px rgba(0,0,0,.5);
   }
 }
 * { box-sizing: border-box; }
+html { scroll-padding-top: 72px; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
-header.top { display: flex; align-items: center; gap: 16px; padding: 12px 24px;
-  border-bottom: 1px solid var(--border); background: var(--surface); }
-.brand { font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+header.top { display: flex; align-items: center; gap: 12px; padding: 10px 24px; min-height: 56px;
+  border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 30; }
+.brand { font-weight: 700; color: var(--text); letter-spacing: -.01em; white-space: nowrap; }
 .brand:hover { text-decoration: none; }
-header.top nav { margin-left: auto; display: flex; gap: 16px; align-items: center; }
 main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+main:focus { outline: none; }
 h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.02em; }
 h2 { font-size: 16px; margin: 32px 0 12px; }
 .sub { color: var(--muted); margin: 0 0 16px; }
@@ -68,11 +70,14 @@ tr:last-child td { border-bottom: 0; }
 @keyframes pulse { 50% { opacity: .25; } }
 button, .btn { font: inherit; font-size: 14px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+.btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 button:hover, .btn:hover { border-color: var(--muted); text-decoration: none; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-button.danger { color: var(--err); }
+button.danger, .btn.danger { color: var(--err); }
 button.link { border: 0; background: none; padding: 0; color: var(--muted); }
-button.small { padding: 3px 10px; font-size: 13px; }
+button.small, .btn.small { padding: 3px 10px; font-size: 13px; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+form[aria-busy="true"] button:disabled { cursor: progress; }
 input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); width: 100%; }
 select { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
@@ -112,7 +117,8 @@ details.section > .body > .card.pad { padding: 0; }
 .hero h1 { font-size: 28px; margin-bottom: 8px; }
 .hero p { color: var(--muted); margin: 0 auto 24px; max-width: 460px; }
 .projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
-.project { padding: 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+ul.projects { list-style: none; margin: 0; padding: 0; }
+.project { padding: 18px; display: flex; flex-direction: column; gap: 4px; min-width: 0; position: relative; }
 .project:hover { border-color: var(--muted); }
 .project .name { font-size: 16px; font-weight: 700; color: var(--text); }
 .project .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -124,12 +130,6 @@ details.section > .body > .card.pad { padding: 0; }
 .repo-row form { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .repo-row details { font-size: 13px; }
 .repo-row details .row { margin-top: 8px; text-align: left; }
-.user-menu { position: relative; }
-.user-menu > summary { list-style: none; color: var(--muted); font-size: 14px; }
-.user-menu > summary::-webkit-details-marker { display: none; }
-.user-menu .menu { position: absolute; right: 0; top: 28px; background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px 12px; min-width: 140px; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
-header.top nav a.cta { color: var(--text); font-weight: 600; }
 form.inline { display: inline; }
 /* Faz 16–19 screens: app tabs, deploy controls, environments, analytics. */
 .s-canceled { background: var(--idle-bg); color: var(--idle); }
@@ -176,50 +176,365 @@ svg.chart .grid { stroke: var(--grid); stroke-width: 1; }
 svg.chart .axis { stroke: var(--border); stroke-width: 1; }
 svg.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
-@media (max-width: 720px) { .hide-sm { display: none; } th, td { padding: 8px; } }
+/* Gezinme ve ilk kullanım: header, menus, helpers, dashboard, import flow. */
+.sr-only, .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 14px; border-radius: 8px;
+  background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.skip:focus { top: 8px; }
+a:focus-visible, button:focus-visible, .btn:focus-visible, summary:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+html:not(.js) .js-only, html:not(.js) .copy { display: none !important; }
+.top-sep { color: var(--border); font-size: 20px; font-weight: 300; }
+.top-team { color: var(--text); font-weight: 600; font-size: 14px; white-space: nowrap; }
+nav.primary { display: flex; gap: 2px; align-items: center; margin-left: 8px; }
+nav.primary a { padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+nav.primary a:hover { color: var(--text); background: var(--hover); text-decoration: none; }
+nav.primary a.on { color: var(--text); font-weight: 600; background: var(--hover); }
+.top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+details.dropdown { position: relative; }
+details.dropdown > summary { list-style: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px;
+  border-radius: 8px; border: 1px solid transparent; color: var(--text); font-size: 14px; white-space: nowrap; }
+details.dropdown > summary::-webkit-details-marker { display: none; }
+details.dropdown > summary:hover, details.dropdown[open] > summary { border-color: var(--border); background: var(--hover); }
+details.dropdown .menu { position: absolute; left: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px; min-width: 220px; z-index: 40; box-shadow: var(--shadow); }
+details.dropdown .menu.menu-right, .user-menu .menu { left: auto; right: 0; }
+.menu a, .menu button.link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 6px;
+  color: var(--text); font-size: 14px; text-align: left; }
+.menu a:hover, .menu button.link:hover { background: var(--hover); text-decoration: none; }
+.menu a[aria-current] { font-weight: 600; }
+.menu .check { display: inline-block; width: 14px; color: var(--accent); }
+.menu .menu-head { margin: 0; padding: 6px 10px 8px; font-size: 13px; color: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 0; }
+.menu form { margin: 0; }
+.avatar { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; flex: none;
+  background: var(--text); color: var(--bg); font-size: 12px; font-weight: 700; }
+.avatar.square { border-radius: 8px; width: 32px; height: 32px; font-size: 14px; background: var(--idle-bg); color: var(--text);
+  border: 1px solid var(--border); }
+button.copy { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; flex: none;
+  border-radius: 6px; color: var(--muted); background: var(--surface); }
+button.copy:hover { color: var(--text); }
+button.copy.done { color: var(--ok); border-color: var(--ok); }
+kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);
+  border-bottom-width: 2px; color: var(--muted); background: var(--surface); }
+time[data-ago] { white-space: nowrap; }
+nav.crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; padding: 0; font-size: 13px; color: var(--muted); }
+nav.crumbs li { display: inline-flex; gap: 6px; min-width: 0; }
+nav.crumbs li + li::before { content: "/"; color: var(--border); }
+nav.crumbs a { color: var(--muted); }
+nav.crumbs a:hover { color: var(--text); }
+nav.crumbs [aria-current] { color: var(--text); font-weight: 600; }
+.filterbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.filterbar .search { position: relative; flex: 1; min-width: 220px; margin: 0; }
+.filterbar .search input { padding-right: 36px; background: var(--surface); }
+.filterbar .search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); }
+.filterbar .count { white-space: nowrap; }
+.project a.stretch::after { content: ""; position: absolute; inset: 0; border-radius: var(--radius); }
+.project a:not(.stretch), .project button, .project time { position: relative; z-index: 1; }
+.project .p-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project .p-head > div { min-width: 0; flex: 1; }
+.project .p-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin-top: 6px; }
+.project .p-line .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.project .p-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+ol.steps { list-style: none; display: flex; align-items: center; gap: 8px; padding: 0; margin: 0 0 24px; }
+ol.steps li { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; white-space: nowrap; }
+ol.steps li:not(:last-child)::after { content: ""; width: 32px; height: 1px; background: var(--border); }
+ol.steps li.on { color: var(--text); font-weight: 600; }
+ol.steps a { color: inherit; }
+.steps .n, .checklist .n { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; flex: none;
+  border: 1px solid var(--border); font-size: 12px; font-weight: 600; background: var(--surface); color: var(--muted); }
+.steps .on .n, .checklist .current .n { background: var(--text); border-color: var(--text); color: var(--bg); }
+.steps .done .n, .checklist .done .n { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+ol.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.checklist li:first-child { border-top: 0; }
+.checklist li.current { box-shadow: inset 3px 0 0 var(--accent); }
+.checklist li.done strong, .checklist li.skip strong { color: var(--muted); }
+.checklist .grow { flex: 1; min-width: 200px; }
+.checklist .grow p { margin: 2px 0 0; }
+.checklist .btn { align-self: center; }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 10px 16px; margin: 0; }
+dl.facts dt { color: var(--muted); font-size: 13px; padding-top: 1px; }
+dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.flash .help { margin: 6px 0 0; color: var(--text); font-size: 13px; }
+.flash .help a { font-weight: 600; }
+.error-page { max-width: 560px; margin: 48px auto; padding: 40px 32px; text-align: center; }
+.error-page .code { font: 700 56px/1 var(--mono); color: var(--muted); margin: 0 0 12px; letter-spacing: -.04em; }
+.error-page .actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+.auth-card { max-width: 400px; margin: 48px auto; padding: 32px; }
+.auth-card .btn.block, .auth-card button.block { width: 100%; justify-content: center; }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin: 20px 0;
+  text-transform: uppercase; letter-spacing: .04em; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+footer.site { text-align: center; padding: 0 16px 32px; }
+/* Ekip, hesap ve yönetim ekranlarından global'e taşınanlar. */
+textarea { font: inherit; width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); }
+textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.flash.warn { background: var(--warn-bg); color: var(--warn); }
+.meter { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; margin: 8px 0 6px; }
+.meter > span { display: block; height: 100%; background: var(--ok); border-radius: 999px; }
+.meter.warn > span { background: var(--warn); }
+.meter.full > span { background: var(--err); }
+.copy-row { display: flex; gap: 8px; align-items: stretch; }
+.copy-row input { font-family: var(--mono); font-size: 13px; margin: 0; }
+.copy-row button { white-space: nowrap; }
+.sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 32px 0 12px; }
+.sec-head h2 { margin: 0; }
+.sec-head .muted { font-size: 13px; }
+.sec-head .actions { margin-left: auto; display: flex; gap: 8px; }
+nav.tabs.tabs-spaced { margin-bottom: 16px; }
+@media (max-width: 720px) {
+  .hide-sm { display: none; } th, td { padding: 8px; }
+  header.top { flex-wrap: wrap; padding: 8px 16px 0; gap: 8px; min-height: 0; }
+  header.top > .brand, header.top > .top-sep, header.top > .switcher, header.top > .top-team, header.top > .top-actions { margin-bottom: 8px; }
+  nav.primary { order: 10; width: calc(100% + 32px); margin: 0 -16px; padding: 4px 12px; overflow-x: auto;
+    border-top: 1px solid var(--border); }
+  main { padding: 16px 16px 48px; }
+  .hero { padding: 40px 16px; }
+  .projects { grid-template-columns: 1fr; }
+  ol.steps li:not(.on) .label { display: none; }
+  ol.steps li:not(:last-child)::after { width: 16px; }
+  dl.facts { grid-template-columns: 1fr; gap: 2px; }
+  dl.facts dd { margin-bottom: 8px; }
+  .error-page { margin: 24px auto; padding: 32px 16px; }
+  .auth-card { margin: 24px auto; padding: 24px 16px; }
+  .trunc { max-width: 200px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before { animation: none !important; transition: none !important; }
+}
 </style>
+{{block "head" .}}{{end}}
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{.CSRF}}"}'>
+<a class="skip" href="#main">İçeriğe geç</a>
 <header class="top">
-  <a class="brand" href="/">▲ paas</a>
-  {{if .LoggedIn}}
-  <nav>
-    <a href="/">Projeler</a>
-    <a class="cta" href="/import">+ Yeni proje</a>
-    <a href="/teams">Ekipler</a>
-    <a href="/tokens">Token'lar</a>
-    <a href="/usage">Kullanım</a>
-    {{if .PlatformAdmin}}<a href="/admin">Yönetim</a>{{end}}
-    <details class="user-menu">
-      <summary>{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}} ▾</summary>
-      <div class="menu">
-        <form class="inline" method="post" action="/logout">
+  <a class="brand" href="/" aria-label="paas · Projeler"><span aria-hidden="true">▲</span> paas</a>
+  {{if .LoggedIn}}{{$n := .Nav}}
+  {{if gt (len $n.Teams) 1}}
+  <span class="top-sep" aria-hidden="true">/</span>
+  <details class="dropdown switcher">
+    <summary><span class="sr-only">Ekip seç:</span> {{with $n.Team}}{{.Name}}{{else}}Tüm ekipler{{end}} <span aria-hidden="true">▾</span></summary>
+    <div class="menu">
+      <p class="menu-head">Ekip seç</p>
+      <a href="/?team="{{if not $n.Team}} aria-current="true"{{end}}><span class="check" aria-hidden="true">{{if not $n.Team}}✓{{end}}</span>Tüm ekipler</a>
+      {{range $n.Teams}}{{$on := and $n.Team (eq $n.Team.Slug .Slug)}}
+      <a href="/?team={{.Slug}}"{{if $on}} aria-current="true"{{end}}><span class="check" aria-hidden="true">{{if $on}}✓{{end}}</span>{{.Name}} <span class="muted small">{{role .Role}}</span></a>
+      {{end}}
+      <hr>
+      <a href="/teams"><span class="check" aria-hidden="true"></span>Ekipleri yönet →</a>
+    </div>
+  </details>
+  {{else}}{{range $n.Teams}}
+  <span class="top-sep" aria-hidden="true">/</span>
+  <a class="top-team" href="/teams/{{.Slug}}">{{.Name}}</a>
+  {{end}}{{end}}
+  <nav class="primary" aria-label="Ana menü">
+    <a href="/"{{if eq $n.Section "projects"}} class="on" aria-current="page"{{end}}>Projeler</a>
+    <a href="/teams"{{if eq $n.Section "teams"}} class="on" aria-current="page"{{end}}>Ekipler</a>
+    <a href="/usage"{{if eq $n.Section "usage"}} class="on" aria-current="page"{{end}}>Kullanım</a>
+    {{if .PlatformAdmin}}<a href="/admin"{{if eq $n.Section "admin"}} class="on" aria-current="page"{{end}}>Yönetim</a>{{end}}
+  </nav>
+  <div class="top-actions">
+    <a class="btn primary small" href="/import"><span aria-hidden="true">+</span> Yeni proje</a>
+    <details class="dropdown user-menu">
+      <summary><span class="sr-only">Hesap menüsü:</span><span class="avatar" aria-hidden="true">{{$n.Initial}}</span><span class="hide-sm">{{if .Me.Admin}}admin{{else}}@{{.Me.Login}}{{end}}</span> <span aria-hidden="true">▾</span></summary>
+      <div class="menu menu-right">
+        <p class="menu-head">{{if .Me.Admin}}<strong>Admin</strong><br>API token ile giriş{{else}}<strong>{{with .Me.Name}}{{.}}{{else}}{{$.Me.Login}}{{end}}</strong><br>@{{.Me.Login}}{{end}}</p>
+        <hr>
+        {{if not .Me.Admin}}<a href="https://github.com/{{.Me.Login}}" target="_blank" rel="noopener">GitHub profilin ↗</a>{{end}}
+        <a href="/tokens"{{if eq $n.Section "tokens"}} aria-current="page"{{end}}>Token'lar</a>
+        <a href="/teams">Ekipler</a>
+        <a href="/usage">Kullanım ve plan</a>
+        {{if .PlatformAdmin}}<a href="/admin">Yönetim</a>{{end}}
+        <hr>
+        <form method="post" action="/logout" data-no-busy>
           <input type="hidden" name="csrf" value="{{.CSRF}}">
           <button class="link" type="submit">Çıkış yap</button>
         </form>
       </div>
     </details>
-  </nav>
+  </div>
+  {{else if ne .Page "login"}}
+  <div class="top-actions"><a class="btn small" href="/login">Giriş yap</a></div>
   {{end}}
 </header>
-<main>
+<main id="main" tabindex="-1">
+  {{block "flash" .}}
   {{if .Flash}}<div class="flash ok" role="status">{{.Flash}}</div>{{end}}
   {{if .Error}}<div class="flash err" role="alert">{{.Error}}</div>{{end}}
+  {{end}}
   {{template "content" .}}
 </main>
-<footer class="site muted small" style="text-align:center;padding:0 16px 32px">
+<footer class="site muted small">
   <a href="/terms">Kullanım koşulları</a> · <a href="/privacy">Gizlilik politikası</a>
 </footer>
+<div class="sr-only" aria-live="polite" id="announce"></div>
 <script nonce="{{.Nonce}}">
-// A link to #section opens the collapsed section it points at.
+// Progressive enhancement only: every page works without this script.
 (() => {
-  const open = () => {
+  document.documentElement.classList.add("js");
+  // Copy buttons of .copy-row start hidden (useless without JS).
+  document.querySelectorAll("[data-copy-from][hidden]").forEach((b) => { b.hidden = false; });
+  document.addEventListener("focusin", (e) => { if (e.target.matches(".copy-row input[readonly]")) e.target.select(); });
+
+  // A link to #section opens the collapsed section it points at.
+  const openHash = () => {
     const el = location.hash && document.getElementById(location.hash.slice(1));
     const d = el && (el.tagName === "DETAILS" ? el : el.closest("details"));
     if (d) d.open = true;
   };
-  open();
-  window.addEventListener("hashchange", open);
+  openHash();
+  window.addEventListener("hashchange", openHash);
+
+  const announce = (msg) => { const a = document.getElementById("announce"); if (a) a.textContent = msg; };
+
+  // Copy buttons: <button class="copy" data-copy="text"> (template function "copy").
+  const copyText = async (text) => {
+    try { await navigator.clipboard.writeText(text); return true; } catch (_) {}
+    const t = document.createElement("textarea");
+    t.value = text; t.setAttribute("readonly", ""); t.className = "sr-only";
+    document.body.appendChild(t); t.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (_) {}
+    t.remove();
+    return ok;
+  };
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-copy], [data-copy-from]");
+    if (b) {
+      e.preventDefault();
+      const src = b.dataset.copyFrom && document.querySelector(b.dataset.copyFrom);
+      if (src && src.select) src.select();
+      const ok = await copyText(src ? src.value : b.dataset.copy);
+      b.classList.toggle("done", ok);
+      announce(ok ? "Kopyalandı." : "Kopyalanamadı; metni elle seç.");
+      const text = !b.querySelector("svg") && b.textContent;
+      if (ok && text) b.textContent = "Kopyalandı ✓";
+      setTimeout(() => { b.classList.remove("done"); if (ok && text) b.textContent = text; }, 1500);
+      return;
+    }
+    const back = e.target.closest("[data-back]");
+    if (back) {
+      e.preventDefault();
+      if (history.length > 1) history.back(); else location.href = "/";
+      return;
+    }
+    // An outside click closes open dropdowns.
+    document.querySelectorAll("details.dropdown[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
+  });
+
+  // Relative times: <time datetime data-ago> (template function "when").
+  const rel = (t) => {
+    const s = (Date.now() - t) / 1000;
+    if (s < 60) return "az önce";
+    if (s < 3600) return Math.floor(s / 60) + " dk önce";
+    if (s < 172800) return Math.floor(s / 3600) + " sa önce";
+    return Math.floor(s / 86400) + " gün önce";
+  };
+  const tick = () => document.querySelectorAll("time[data-ago]").forEach((el) => {
+    const t = Date.parse(el.getAttribute("datetime"));
+    if (!isNaN(t)) el.textContent = rel(t);
+  });
+  setInterval(tick, 30000);
+
+  // Live filter: <input data-filter="#list"> hides the [data-filter-text]
+  // items of #list that do not match, and [data-filter-group] blocks left
+  // empty; #list-empty shows when nothing matches.
+  const lower = (s) => s.toLocaleLowerCase("tr");
+  const filter = (input) => {
+    const list = document.querySelector(input.dataset.filter);
+    if (!list) return;
+    const q = lower(input.value.trim());
+    let shown = 0;
+    list.querySelectorAll("[data-filter-text]").forEach((el) => {
+      const hit = !q || lower(el.dataset.filterText).includes(q);
+      el.hidden = !hit;
+      if (hit) shown++;
+    });
+    list.querySelectorAll("[data-filter-group]").forEach((g) => {
+      g.hidden = !g.querySelector("[data-filter-text]:not([hidden])");
+    });
+    const empty = document.querySelector(input.dataset.filter + "-empty");
+    if (empty) empty.hidden = shown > 0;
+  };
+  // Mirror an input into elements: <input data-mirror="#out" data-mirror-empty="…">.
+  document.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.matches("[data-filter]")) filter(t);
+    if (t.dataset && t.dataset.mirror) {
+      document.querySelectorAll(t.dataset.mirror).forEach((el) => {
+        el.textContent = t.value.trim() || t.dataset.mirrorEmpty || "";
+      });
+    }
+  });
+  document.addEventListener("htmx:afterSwap", () => {
+    document.querySelectorAll("[data-filter]").forEach(filter);
+    tick();
+  });
+
+  // Keyboard: "/" focuses the page's search box ([data-search]); Escape
+  // closes open dropdowns.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      document.querySelectorAll("details.dropdown[open]").forEach((d) => {
+        d.open = false;
+        d.querySelector("summary").focus();
+      });
+      return;
+    }
+    if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+    const t = e.target;
+    if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+    const box = document.querySelector("[data-search]");
+    if (box) { e.preventDefault(); box.focus(); box.select(); }
+  });
+
+  // Busy submit buttons: a POST form disables its buttons and appends "…"
+  // to the pressed one until the response arrives. data-no-busy opts out.
+  const isHtmx = (f) => window.htmx && f.matches("[hx-post],[hx-put],[hx-patch],[hx-delete]");
+  const busy = (form, sub, on) => {
+    if (on) form.setAttribute("aria-busy", "true"); else form.removeAttribute("aria-busy");
+    form.querySelectorAll("button").forEach((b) => {
+      if (b.type !== "submit") return;
+      if (on) { b.dataset.wasDisabled = b.disabled ? "1" : ""; b.disabled = true; }
+      else if (!b.dataset.wasDisabled) b.disabled = false;
+    });
+    if (!sub) return;
+    if (on) { sub.dataset.label = sub.textContent; sub.textContent = sub.textContent.trim() + "…"; }
+    else if (sub.dataset.label !== undefined) { sub.textContent = sub.dataset.label; delete sub.dataset.label; }
+  };
+  const formOf = (e) => {
+    const el = e.detail && e.detail.elt;
+    const f = el && (el.tagName === "FORM" ? el : el.closest && el.closest("form"));
+    return f && f.method === "post" && !f.hasAttribute("data-no-busy") ? f : null;
+  };
+  document.addEventListener("submit", (e) => {
+    const f = e.target;
+    if (e.defaultPrevented || f.method !== "post" || f.hasAttribute("data-no-busy") || isHtmx(f)) return;
+    const sub = e.submitter && e.submitter.tagName === "BUTTON" ? e.submitter : null;
+    // Wait until the browser has collected the form data: disabled
+    // buttons would drop their name=value.
+    setTimeout(() => busy(f, sub, true), 0);
+  });
+  document.addEventListener("htmx:beforeRequest", (e) => {
+    const f = formOf(e);
+    if (!f) return;
+    const a = document.activeElement;
+    f._busySub = a && a.form === f && a.tagName === "BUTTON" ? a : null;
+    busy(f, f._busySub, true);
+  });
+  document.addEventListener("htmx:afterRequest", (e) => {
+    const f = formOf(e);
+    if (f && f.hasAttribute("aria-busy")) busy(f, f._busySub, false);
+  });
+  // Back/forward cache: a restored page must not keep disabled buttons.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    document.querySelectorAll("form[aria-busy]").forEach((f) => busy(f, f.querySelector("button[data-label]"), false));
+  });
 })();
 </script>
 </body>

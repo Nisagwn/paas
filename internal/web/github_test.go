@@ -78,8 +78,13 @@ func TestGitHubAppClaim(t *testing.T) {
 		t.Fatalf("installation: %+v %v", in, err)
 	}
 	if code, body, _ := u.get("/import?ok=github"); code != 200 || !strings.Contains(body, "acme/Web") ||
-		!strings.Contains(body, "GitHub bağlandı") || !strings.Contains(body, `value="web"`) {
+		!strings.Contains(body, "GitHub bağlandı") || !strings.Contains(body, `href="/import?repo=acme%2fWeb&amp;team=default"`) {
 		t.Fatalf("import page after claim: %d\n%s", code, body)
+	}
+	// Step 3 shows the settings before anything is created.
+	if code, body, _ := u.get("/import?repo=acme/Web&team=default"); code != 200 || !strings.Contains(body, `value="web"`) ||
+		!strings.Contains(body, "Ne olacak?") || !strings.Contains(body, `aria-current="step"`) {
+		t.Fatalf("configure step: %d\n%s", code, body)
 	}
 
 	// Import through the form: CSRF and Origin are checked like every form.

@@ -1,58 +1,102 @@
 {{define "content"}}
-{{with .Data.Apps}}
-<div class="head" style="margin-bottom:20px">
-  <div><h1>Projeler</h1></div>
-  <div class="actions"><a class="btn primary" href="/import">Yeni proje</a></div>
+{{$d := .Data}}
+{{with $d.Onboarding}}
+{{if not $d.Total}}
+<div class="hero" style="padding:40px 16px 24px">
+  <h1>paas'a hoş geldin</h1>
+  <p>GitHub'daki bir repoyu bağla; her push otomatik olarak build edilir ve yayına alınır. Üç adımda canlıdasın.</p>
+</div>
+{{end}}
+<section class="card" aria-labelledby="ob-title" style="margin-bottom:24px">
+  <div class="head pad" style="align-items:center;padding-bottom:0">
+    <div>
+      <h2 id="ob-title" style="margin:0">İlk adımlar</h2>
+      <p class="muted small" style="margin:2px 0 0">{{.Done}}/{{len .Steps}} tamamlandı</p>
+    </div>
+  </div>
+  <ol class="checklist" style="margin-top:8px">
+  {{range $i, $s := .Steps}}
+    <li class="{{$s.State}}"{{if eq $s.State "current"}} aria-current="step"{{end}}>
+      <span class="n" aria-hidden="true">{{if eq $s.State "done"}}✓{{else if eq $s.State "skip"}}–{{else}}{{add1 $i}}{{end}}</span>
+      <div class="grow">
+        <strong>{{$s.Title}}</strong>{{if eq $s.State "done"}} <span class="sr-only">(tamamlandı)</span>{{end}}
+        <p class="muted small">{{$s.Text}}</p>
+      </div>
+      {{if and (eq $s.State "current") $s.Href}}<a class="btn primary" href="{{$s.Href}}">{{$s.Action}} →</a>
+      {{else if and (eq $s.State "todo") $s.Href}}<a class="btn" href="{{$s.Href}}">{{$s.Action}}</a>{{end}}
+    </li>
+  {{end}}
+  </ol>
+</section>
+{{end}}
+
+{{if $d.Total}}
+<div class="head" style="margin-bottom:16px;align-items:center">
+  <div>
+    <h1>Projeler</h1>
+    <p class="sub" style="margin:0">{{with $d.Team}}{{.Name}} ekibinin projeleri{{else}}{{if $d.MultiTeam}}Tüm ekiplerinin projeleri{{else}}Tüm projelerin{{end}}{{end}} · son deploy'a göre sıralı</p>
+  </div>
 </div>
 
-<div class="projects">
-{{range .}}
-  <div class="card project">
-    <a class="name" href="/apps/{{.Name}}">{{.Name}}</a>
-    <a class="url small" href="{{.ProductionURL}}" target="_blank" rel="noopener">{{.ProductionURL}} ↗</a>
-    <span class="mono small muted">{{.Repo}}</span>
-    <div class="meta">
-    {{with .Latest}}
-      <a href="/deployments/{{.ID}}"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
-      <span class="muted small">{{ago .CreatedAt}} · {{.Branch}}</span>
+<form class="filterbar" method="get" action="/" role="search">
+  <div class="search">
+    <label for="q" class="sr-only">Projelerde ara</label>
+    <input id="q" name="q" type="search" value="{{$d.Query}}" placeholder="Projelerde ara…" autocomplete="off"
+      data-search data-filter="#projects" aria-describedby="q-hint">
+    <kbd class="js-only hide-sm" id="q-hint" title="Aramaya geçmek için / tuşuna bas">/</kbd>
+  </div>
+  <span class="muted small count">{{$d.Total}} proje</span>
+</form>
+
+<div id="projects-live"{{if $d.Polling}} hx-get="/{{with $d.Query}}?q={{.}}{{end}}" hx-trigger="every 5s" hx-select="#projects-live" hx-swap="outerHTML"{{end}}>
+<ul class="projects" id="projects">
+{{range $d.Apps}}
+  <li class="card project" data-filter-text="{{.Name}} {{.Repo}} {{.TeamName}}">
+    <div class="p-head">
+      <span class="avatar square" aria-hidden="true">{{initialOf .Name}}</span>
+      <div>
+        <a class="name stretch" href="/apps/{{.Name}}">{{.Name}}</a>
+        <div class="muted small trunc" style="max-width:none">{{.Repo}}</div>
+      </div>
+      {{with .Framework}}<span class="tag">{{.}}</span>{{end}}
+    </div>
+
+    <div class="p-line">
+    {{if .Production}}
+      <span class="badge s-ready" title="Production yayında">Canlı</span>
+      <a class="grow small" href="{{.ProductionURL}}" target="_blank" rel="noopener">{{trimScheme .ProductionURL}} <span aria-hidden="true">↗</span><span class="sr-only">(yeni sekmede açılır)</span></a>
+      {{copy .ProductionURL "Canlı adresi kopyala"}}
     {{else}}
-      <span class="muted small">Henüz deploy yok</span>
+      <span class="badge" title="Henüz başarılı bir production deploy'u yok">Canlı değil</span>
+      <span class="grow muted small">{{if .Active}}İlk deploy sürüyor…{{else}}İlk başarılı deploy'dan sonra yayında{{end}}</span>
     {{end}}
     </div>
-  </div>
-{{end}}
-</div>
-{{else}}
-<div class="card hero">
-  <h1>Henüz projen yok</h1>
-  <p>GitHub'daki bir repoyu seç; her push otomatik olarak yayına alınır.</p>
-  <a class="btn primary big" href="/import">GitHub'dan proje ekle</a>
-</div>
-{{end}}
 
-{{if .Data.Teams}}
-<details class="card section" style="margin-top:32px" {{if .Data.Form.Open}}open{{end}}>
-  <summary>Gelişmiş: elle ekle</summary>
-  <div class="body">
-  <p class="muted small" style="margin-top:0">Repoyu GitHub bağlantısı olmadan ekler; deploy için repoya bir push webhook'u gerekir.</p>
-  <form method="post" action="/apps">
-    <input type="hidden" name="csrf" value="{{.CSRF}}">
-    <div class="row">
-      <div><label for="name">Proje adı</label>
-        <input id="name" name="name" value="{{.Data.Form.Name}}" placeholder="blog" pattern="[a-z][a-z0-9-]{1,30}" required></div>
-      <div><label for="repo">GitHub reposu</label>
-        <input id="repo" name="repo" value="{{.Data.Form.Repo}}" placeholder="sahip/repo" required></div>
-      <div><label for="branch">Canlı branch</label>
-        <input id="branch" name="production_branch" value="{{.Data.Form.Branch}}"></div>
-      {{$sel := .Data.Form.Team}}
-      <div><label for="team">Ekip</label>
-        <select id="team" name="team">
-        {{range .Data.Teams}}<option value="{{.Slug}}" {{if eq .Slug $sel}}selected{{end}}>{{.Name}}</option>{{end}}
-        </select></div>
-      <div style="flex:0"><button class="primary" type="submit">Oluştur</button></div>
+    <div class="p-foot small">
+    {{with .Latest}}
+      <div class="p-line" style="margin-top:0">
+        <a href="/deployments/{{.ID}}" title="Son deploy'u aç"><span class="badge s-{{.Status}}">{{status .Status}}</span></a>
+        <span class="grow" title="{{.CommitMessage}}">{{with firstLine .CommitMessage}}{{.}}{{else}}<span class="mono">{{short .CommitSHA}}</span>{{end}}</span>
+      </div>
+      <div class="muted" style="margin-top:4px">
+        <span class="mono">⎇ {{.Branch}}</span>{{if eq .Target "preview"}} <span class="tag env-preview">Önizleme</span>{{end}}
+        · {{when .CreatedAt}}
+      </div>
+    {{else}}
+      <p class="muted" style="margin:0">Henüz deploy yok. Başlatmak için <span class="mono">{{.ProductionBranch}}</span> branch'ine push et.</p>
+    {{end}}
+    {{if $d.MultiTeam}}<div class="muted" style="margin-top:4px">Ekip: {{.TeamName}}</div>{{end}}
     </div>
-  </form>
-  </div>
-</details>
+  </li>
+{{end}}
+</ul>
+<p class="card empty" id="projects-empty"{{if $d.Apps}} hidden{{end}}>Aramana uyan proje yok. <a href="/">Aramayı temizle</a></p>
+</div>
+{{else if not $d.Onboarding}}
+<div class="card hero">
+  <h1>Bu ekipte henüz proje yok</h1>
+  <p>GitHub'daki bir repoyu seç; her push otomatik olarak yayına alınır.</p>
+  {{if $d.CanCreate}}<a class="btn primary big" href="/import">Yeni proje</a>{{else}}<p class="small">Proje eklemek için ekipte üye rolü gerekir.</p>{{end}}
+</div>
 {{end}}
 {{end}}
