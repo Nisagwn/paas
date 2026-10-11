@@ -76,7 +76,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.danger, .btn.danger { color: var(--err); }
 button.link { border: 0; background: none; padding: 0; color: var(--muted); }
 button.small, .btn.small { padding: 3px 10px; font-size: 13px; }
-button:disabled { opacity: .6; cursor: not-allowed; }
+button:disabled, button:disabled:hover { opacity: .5; cursor: not-allowed; border-color: var(--border); }
 form[aria-busy="true"] button:disabled { cursor: progress; }
 input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); width: 100%; }
@@ -177,14 +177,18 @@ svg.chart .axis { stroke: var(--border); stroke-width: 1; }
 svg.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 svg.chart .empty-label { fill: var(--muted); font-size: 13px; }
 /* Gezinme ve ilk kullanım: header, menus, helpers, dashboard, import flow. */
-.sr-only, .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.sr-only, .sr, .vh { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .skip { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 14px; border-radius: 8px;
   background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .skip:focus { top: 8px; }
 a:focus-visible, button:focus-visible, .btn:focus-visible, summary:focus-visible, select:focus-visible,
 textarea:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-html:not(.js) .js-only, html:not(.js) .copy { display: none !important; }
+/* JS-only controls stay hidden until the layout script sets html.js; .no-js is the reverse. */
+.js-only { display: none !important; }
+html.js .js-only { display: inline-flex !important; }
+html.js .no-js { display: none !important; }
+html:not(.js) .copy { display: none !important; }
 .top-sep { color: var(--border); font-size: 20px; font-weight: 300; }
 .top-team { color: var(--text); font-weight: 600; font-size: 14px; white-space: nowrap; }
 nav.primary { display: flex; gap: 2px; align-items: center; margin-left: 8px; }
@@ -212,9 +216,10 @@ details.dropdown .menu.menu-right, .user-menu .menu { left: auto; right: 0; }
   background: var(--text); color: var(--bg); font-size: 12px; font-weight: 700; }
 .avatar.square { border-radius: 8px; width: 32px; height: 32px; font-size: 14px; background: var(--idle-bg); color: var(--text);
   border: 1px solid var(--border); }
-button.copy { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; flex: none;
+button.copy:not(.icon) { margin-left: 6px; vertical-align: middle; }
+button.copy.icon { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; flex: none; margin: 0;
   border-radius: 6px; color: var(--muted); background: var(--surface); }
-button.copy:hover { color: var(--text); }
+button.copy.icon:hover { color: var(--text); }
 button.copy.done { color: var(--ok); border-color: var(--ok); }
 kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border);
   border-bottom-width: 2px; color: var(--muted); background: var(--surface); }
@@ -285,6 +290,27 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .sec-head .muted { font-size: 13px; }
 .sec-head .actions { margin-left: auto; display: flex; gap: 8px; }
 nav.tabs.tabs-spaced { margin-bottom: 16px; }
+/* Proje ve deploy ekranları (eski "ux-css"): sticky flash, deploy rows, row menu. */
+main > .flash { position: sticky; top: 64px; z-index: 5; border: 1px solid currentColor; }
+table.deps td { vertical-align: top; }
+td.dr-status { width: 1%; white-space: nowrap; padding-right: 4px; }
+td.dr-status .tag { margin-top: 4px; }
+.dr-msg { color: var(--text); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px; }
+.dr-msg:hover { color: var(--accent); }
+.dr-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; color: var(--muted); }
+.dr-err { color: var(--err); margin-top: 4px; max-width: 520px; }
+td.dr-when { white-space: nowrap; width: 1%; color: var(--muted); }
+.dr-when-sm { display: none; }
+td.controls { width: 1%; }
+td.controls form.inline { margin-left: 4px; }
+details.dropdown.rowmenu { display: inline-block; margin-left: 4px; text-align: left; }
+details.dropdown.rowmenu > summary { padding: 3px 10px; border-color: var(--border); background: var(--surface); font-size: 13px; }
+details.dropdown.rowmenu[open] > summary { border-color: var(--muted); }
+.rowmenu .menu { min-width: 230px; white-space: normal; }
+.rowmenu .menu a { font-size: 13px; padding: 6px 8px; }
+.rowmenu .menu form { display: block; margin: 4px 0 0; padding: 8px 8px 4px; border-top: 1px solid var(--border); }
+.rowmenu .menu form button { width: 100%; margin-top: 6px; }
+.rowmenu .menu .note { padding: 6px 8px; font-size: 12px; color: var(--muted); }
 @media (max-width: 720px) {
   .hide-sm { display: none; } th, td { padding: 8px; }
   header.top { flex-wrap: wrap; padding: 8px 16px 0; gap: 8px; min-height: 0; }
@@ -301,6 +327,13 @@ nav.tabs.tabs-spaced { margin-bottom: 16px; }
   .error-page { margin: 24px auto; padding: 32px 16px; }
   .auth-card { margin: 24px auto; padding: 24px 16px; }
   .trunc { max-width: 200px; }
+  header.top { position: static; }
+  html { scroll-padding-top: 8px; }
+  main > .flash { top: 8px; }
+  .dr-when-sm { display: inline; }
+  .dr-msg, .dr-err { max-width: 62vw; }
+  td.controls { white-space: normal; }
+  td.controls form.inline { display: inline-block; margin: 0 0 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before { animation: none !important; transition: none !important; }
@@ -511,13 +544,18 @@ nav.tabs.tabs-spaced { margin-bottom: 16px; }
     const f = el && (el.tagName === "FORM" ? el : el.closest && el.closest("form"));
     return f && f.method === "post" && !f.hasAttribute("data-no-busy") ? f : null;
   };
+  // <form data-confirm="Soru?"> asks before a plain (non-htmx) submit.
+  document.addEventListener("submit", (e) => {
+    const f = e.target.closest("form[data-confirm]");
+    if (f && !confirm(f.dataset.confirm)) e.preventDefault();
+  });
   document.addEventListener("submit", (e) => {
     const f = e.target;
     if (e.defaultPrevented || f.method !== "post" || f.hasAttribute("data-no-busy") || isHtmx(f)) return;
     const sub = e.submitter && e.submitter.tagName === "BUTTON" ? e.submitter : null;
     // Wait until the browser has collected the form data: disabled
     // buttons would drop their name=value.
-    setTimeout(() => busy(f, sub, true), 0);
+    setTimeout(() => { if (!e.defaultPrevented) busy(f, sub, true); }, 0);
   });
   document.addEventListener("htmx:beforeRequest", (e) => {
     const f = formOf(e);

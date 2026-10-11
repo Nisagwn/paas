@@ -1,5 +1,4 @@
 {{define "head"}}
-{{template "ux-css"}}
 <style>
 /* Ayarlar: section nav, sections, env editor, danger zone. */
 .set-grid { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 32px; margin-top: 24px; align-items: start; }
@@ -14,9 +13,7 @@
 .set-sec > .sub { margin: 0 0 12px; }
 .help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
 .field-help { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
-textarea { font: inherit; font-family: var(--mono); font-size: 13px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--bg); color: var(--text); width: 100%; resize: vertical; }
-textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
 .pw { display: flex; gap: 6px; }
 .pw input { flex: 1; min-width: 0; }
 .env-table { margin-bottom: 12px; }
@@ -255,7 +252,6 @@ textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset:
 </div>
 </div>
 
-{{template "ux-js" .}}
 <script nonce="{{.Nonce}}">
 (() => {
   // Show / hide a secret input.

@@ -104,9 +104,9 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `details.dropdown` (`> summary`, `> .menu`, `.menu-right`, `.menu-head`, `.check`, `hr`) | Açılır menü (ekip seçici, hesap menüsü); dışarı tıklama ve Escape kapatır. `.user-menu` eski adıyla çalışır |
 | `.avatar`, `.avatar.square` | Baş harf rozeti: yuvarlak (kullanıcı) / köşeli (proje, repo). Görsel URL'si CSP yüzünden yüklenmez |
 | `nav.crumbs` | Konum çizgisi (Ekip / Proje / Deploy). Elle yazma, `{{crumbs …}}` fonksiyonunu kullan (§3.4) |
-| `button.copy` | Panoya kopyala butonu; `{{copy .URL}}` üretir. JS yoksa gizlidir, metin seçilebilir kalır |
-| `.js-only` | Yalnızca JS varken görünür (`html.js`); ör. `data-back` butonu, `kbd` ipucu |
-| `.sr-only` (eş ad `.sr`) | Görsel olarak gizli, ekran okuyucuya açık metin (ör. arama `label`'ı) |
+| `button.copy` (`data-copy`) / `button.copy.icon` | Panoya kopyala: metinli (`<button class="small copy js-only" data-copy="…">Kopyala</button>`) ya da ikonlu kare (`{{copy .URL}}` üretir). JS yoksa gizlidir, metin seçilebilir kalır |
+| `.js-only` / `.no-js` | Yalnızca JS varken (`html.js`, `inline-flex`) / yalnızca JS yokken görünür; ör. `data-back` butonu, `kbd` ipucu / filtre formunun "Filtrele" butonu |
+| `.sr-only` (eş adlar `.sr`, `.vh`) | Görsel olarak gizli, ekran okuyucuya açık metin (ör. arama `label`'ı, tablo eylem sütunu başlığı). Yeni kodda `.sr-only` yaz |
 | `.skip` | "İçeriğe geç" bağlantısı (layout'ta; `main#main`'e gider) |
 | `kbd` | Klavye kısayolu ipucu (ör. arama kutusunda `/`) |
 | `.filterbar` (`.search`, `.count`) | Liste üstü arama satırı: `input[type=search][data-search][data-filter="#liste"]` + sayaç. `?q=` ile JS'siz de filtrelenir |
@@ -124,6 +124,9 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `.sec-head` (`h2`, `.muted`, `.actions`) | Sayfa içi bölüm başlığı: başlık + açıklama solda, eylemler sağda |
 | `nav.tabs.tabs-spaced` | Altında 16px boşluklu sekmeler. Ekip sayfalarının sekmelerini elle yazma: `{{teamtabs $t.Slug "general"}}` (§3.4) |
 | `textarea` | Global temel stil (input ile aynı); sayfa yalnızca farkı yazar (ör. mono font) |
+| `main > .flash` | Flash mesajı yapışkandır (header altında; mobilde üstte), `#bölüm`'e atlayınca görünür kalır |
+| `table.deps` (`td.dr-status`, `.dr-msg`, `.dr-meta`, `.dr-err`, `td.dr-when`, `.dr-when-sm`) | Deploy satırları (`recent`, `deployments` parçaları): mesaj önde, SHA/branch/ortam altta; mobilde zaman satır içine iner |
+| `details.dropdown.rowmenu` (`.menu.menu-right`, `.note`, içinde `form`) | Tablo satırının "⋯" menüsü; `details.dropdown`'ın satır varyantı |
 
 ### 3.2 Şablon parçaları (`{{define}}` / `{{template}}`)
 
@@ -161,7 +164,7 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 | `short`, `firstLine` | Kısa SHA, commit mesajının ilk satırı |
 | `when` | `<time datetime title="tam zaman" data-ago>2 sa önce</time>`; `time.Time` ya da `*time.Time` alır (nil → `—`). Metin sayfada kendiliğinden güncellenir. Göreli zaman gösterirken `ago` yerine bunu kullan |
 | `crumbs` | `{{crumbs "Ekip" "/teams/web" "blog" "/apps/blog" "Deploy #12"}}` → `nav.crumbs`; son etiket (href'siz) geçerli sayfadır. Tüm şablon setlerinde (htmx parçaları dahil) çalışır |
-| `copy` | `{{copy .URL}}` ya da `{{copy .URL "Adresi kopyala"}}` → ikonlu `button.copy` |
+| `copy` | `{{copy .URL}}` ya da `{{copy .URL "Adresi kopyala"}}` → ikonlu `button.copy.icon` |
 | `framework` | Framework kimliği → görünen ad (`nextjs` → `Next.js`) |
 | `teamtabs` | `{{teamtabs .Slug "general"\|"notifications"\|"usage"}}` → ekip sayfası sekmeleri (Genel, Bildirimler, Plan ve kullanım) |
 | `join`, `add1`, `initialOf`, `trimScheme` | `strings.Join`; sayaç +1; baş harf; `https://` olmadan adres |
@@ -214,6 +217,8 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 - **Global yardımcı script** (`layout.html` sonunda, nonce'lu). Hepsi aşamalı iyileştirmedir; JS olmadan sayfa çalışır. Yeni sayfada aynı işi yapan ikinci script yazma, bu `data-` özniteliklerini kullan:
   - `data-copy="metin"` → tıklayınca panoya kopyalar (`{{copy …}}` üretir), ekran okuyucuya "Kopyalandı." der.
   - `data-copy-from="#input"` → input'un değerini kopyalar; metinli butonda 1,5 sn "Kopyalandı ✓" yazar. `hidden` ile başlat, script açar.
+  - `<form data-confirm="Soru?">` → JS'siz (htmx olmayan) formda göndermeden önce onay ister. htmx formunda `hx-confirm` kullan.
+  - Sayfaya özel `<script>` yalnızca o sayfaya özgü davranış için (ör. log akışı); kopyalama, onay, filtre, meşgul buton için yazma. Eski `ux-css` / `ux-js` parçaları kaldırıldı, hepsi `layout.html`'de.
   - `data-search` → `/` tuşu bu kutuya odaklanır (sayfada bir tane olsun).
   - `data-filter="#liste"` → `#liste` içindeki `[data-filter-text]` öğelerini canlı filtreler; boş kalan `[data-filter-group]` gizlenir; hiç sonuç yoksa `#liste-empty` görünür. Aynı form `GET ?q=` ile sunucuda da filtrelemeli.
   - `data-mirror="#hedef"` (+ `data-mirror-empty`) → input değerini hedef metne yansıtır (ör. proje adı → önizlenen adres).

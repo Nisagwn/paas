@@ -206,7 +206,7 @@ func copyButton(text string, label ...string) template.HTML {
 	if len(label) > 0 && label[0] != "" {
 		l = label[0]
 	}
-	return template.HTML(`<button type="button" class="copy" data-copy="` + html.EscapeString(text) +
+	return template.HTML(`<button type="button" class="copy icon" data-copy="` + html.EscapeString(text) +
 		`" aria-label="` + html.EscapeString(l) + `" title="` + html.EscapeString(l) + `">` + copyIcon + `</button>`)
 }
 
