@@ -142,7 +142,7 @@ form.inline { display: inline; }
 .h-degraded { background: var(--warn-bg); color: var(--warn); }
 .h-failing { background: var(--err-bg); color: var(--err); }
 .h-no_traffic { background: var(--idle-bg); color: var(--idle); }
-nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0 0; overflow-x: auto; }
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 nav.tabs a { padding: 8px 14px; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 nav.tabs a:hover { color: var(--text); text-decoration: none; }
 nav.tabs a.on { color: var(--text); border-bottom-color: var(--text); font-weight: 600; }
@@ -216,7 +216,7 @@ details.dropdown .menu.menu-right, .user-menu .menu { left: auto; right: 0; }
   background: var(--text); color: var(--bg); font-size: 12px; font-weight: 700; }
 .avatar.square { border-radius: 8px; width: 32px; height: 32px; font-size: 14px; background: var(--idle-bg); color: var(--text);
   border: 1px solid var(--border); }
-button.copy:not(.icon) { margin-left: 6px; vertical-align: middle; }
+button.copy:not(.icon) { margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 button.copy.icon { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; flex: none; margin: 0;
   border-radius: 6px; color: var(--muted); background: var(--surface); }
 button.copy.icon:hover { color: var(--text); }
