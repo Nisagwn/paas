@@ -1,85 +1,204 @@
+{{define "head"}}<style>
+.import-config { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; align-items: start; }
+.import-config form .field { margin-bottom: 16px; }
+.import-config form .field p { margin: 4px 0 0; }
+.repo-title { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; min-width: 0; flex-wrap: wrap; }
+.repo-title strong { overflow-wrap: anywhere; }
+.repo-row .action { margin-left: auto; padding-top: 2px; }
+#repos h3.group { padding: 12px 16px 0; margin: 0; }
+@media (max-width: 720px) { .import-config { grid-template-columns: 1fr; } }
+</style>{{end}}
+
 {{define "content"}}
 {{/* Install links are links, not forms: CSP form-action 'self' would block the redirect to github.com. */}}
-{{$install := and .Data.InstallEnabled .Data.Teams}}
-<div class="head">
-  <div>
-    <h1>GitHub'dan içe aktar</h1>
-    <p class="sub">Bir repo seç: proje oluşturulur ve {{if .Data.Deploys}}ilk deploy hemen başlar{{else}}ilk push'ta yayına alınır{{end}}.</p>
-  </div>
-</div>
+{{$d := .Data}}
+{{$install := and $d.InstallEnabled $d.Teams}}
+{{crumbs "Projeler" "/" "Yeni proje"}}
+<h1>Yeni proje</h1>
+<p class="sub">GitHub'daki bir repoyu seç: paas framework'ü algılar, build eder ve yayına alır. Sonraki her push otomatik deploy edilir.</p>
 
-{{if not .Data.Configured}}
+{{if $d.Configured}}
+<ol class="steps" aria-label="Adımlar">
+  <li class="{{if gt $d.Step 1}}done{{else}}on{{end}}"{{if eq $d.Step 1}} aria-current="step"{{end}}>
+    <span class="n" aria-hidden="true">{{if gt $d.Step 1}}✓{{else}}1{{end}}</span><span class="label">GitHub'ı bağla</span></li>
+  <li class="{{if gt $d.Step 2}}done{{else if eq $d.Step 2}}on{{end}}"{{if eq $d.Step 2}} aria-current="step"{{end}}>
+    <span class="n" aria-hidden="true">{{if gt $d.Step 2}}✓{{else}}2{{end}}</span><span class="label">{{if gt $d.Step 2}}<a href="/import">Repo seç</a>{{else}}Repo seç{{end}}</span></li>
+  <li class="{{if eq $d.Step 3}}on{{end}}"{{if eq $d.Step 3}} aria-current="step"{{end}}>
+    <span class="n" aria-hidden="true">3</span><span class="label">Yapılandır ve deploy et</span></li>
+</ol>
+{{end}}
+
+{{with $d.Error}}
+<div class="flash err" role="alert">{{.}}{{with $d.Help}}<p class="help">{{.Text}}{{if .Href}} <a href="{{.Href}}">{{.Label}} →</a>{{end}}</p>{{end}}</div>
+{{end}}
+
+{{if not $d.Configured}}
 <div class="card pad" style="margin-bottom:20px">
   <strong>GitHub bağlantısı ayarlı değil.</strong>
-  <p class="muted" style="margin-bottom:0">Projeyi <a href="/">Projeler</a> sayfasındaki “Gelişmiş: elle ekle” bölümünden ekleyebilirsin.</p>
+  <p class="muted" style="margin-bottom:0">Bu sunucuda GitHub App kurulmamış, bu yüzden repo listesi gösterilemiyor. Repoyu aşağıdaki formla elle ekleyebilirsin; deploy için repoya bir push webhook'u gerekir.</p>
 </div>
-{{else if not .Data.GitHubLogin}}
+{{else if not $d.GitHubLogin}}
 <div class="card pad" style="margin-bottom:20px">
   <strong>Repo eklemek için GitHub ile giriş açık olmalı.</strong>
-  <p class="muted small" style="margin-bottom:0">Sunucuda <code>PAAS_GITHUB_OAUTH_CLIENT_ID</code> ve <code>PAAS_GITHUB_OAUTH_CLIENT_SECRET</code> ayarlanıp GitHub ile giriş yapılmalı.</p>
+  <p class="muted small" style="margin-bottom:0">Sunucuda <code>PAAS_GITHUB_OAUTH_CLIENT_ID</code> ve <code>PAAS_GITHUB_OAUTH_CLIENT_SECRET</code> ayarlanıp GitHub ile giriş yapılmalı. O zamana kadar repoyu aşağıdan elle ekleyebilirsin.</p>
 </div>
-{{else if not .Data.Teams}}
+{{else if not $d.Teams}}
 <div class="card pad" style="margin-bottom:20px">
-  <p class="muted" style="margin:0">Ekiplerinde yalnızca izleyicisin; içe aktarmak için üye rolü gerekir.</p>
+  <strong>Ekiplerinde yalnızca izleyicisin.</strong>
+  <p class="muted" style="margin-bottom:0">İçe aktarmak için üye rolü gerekir. Ekip sahibinden rolünü değiştirmesini iste ya da <a href="/teams">kendi ekibini oluştur</a>.</p>
 </div>
 {{end}}
 
-{{if .Data.Configured}}
-<div id="repo-list" {{if not .Data.Groups}}hx-get="/import" hx-select="#repo-list" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
-{{if .Data.Groups}}
-  <h2>GitHub repoların</h2>
-  <div class="card">
-  {{range .Data.Groups}}{{range .Repos}}
-    <div class="repo-row">
+{{if $d.Config}}{{with $d.Config}}
+{{/* Step 3: configure and deploy. */}}
+<div class="import-config">
+  <form class="card pad" method="post" action="/import" aria-labelledby="cfg-title">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="repo" value="{{.Repo.FullName}}">
+    <div class="repo-title">
+      <span class="avatar square" aria-hidden="true">{{initialOf .Repo.FullName}}</span>
+      <div style="min-width:0;flex:1">
+        <h2 id="cfg-title" style="margin:0"><strong class="mono">{{.Repo.FullName}}</strong></h2>
+        <span class="muted small">{{.Repo.AccountLogin}} hesabından{{if .Repo.Private}} · <span class="tag">gizli</span>{{end}}</span>
+      </div>
+      <a class="small" href="/import">Başka repo seç</a>
+    </div>
+
+    <div class="field">
+      <label for="cfg-name">Proje adı</label>
+      <input id="cfg-name" name="name" value="{{.Name}}" pattern="[a-z][a-z0-9-]{1,30}" required autocomplete="off"
+        data-mirror=".host-name" data-mirror-empty="{{.Repo.Name}}" aria-describedby="cfg-name-hint">
+      <p id="cfg-name-hint" class="muted small">2–31 karakter: küçük harf, rakam ve '-'. Adresin: <span class="mono">{{$d.Scheme}}://<span class="host-name">{{.Name}}</span>.{{$d.Domain}}</span></p>
+    </div>
+
+    <div class="field">
+    {{if gt (len .Teams) 1}}{{$sel := .Team}}
+      <label for="cfg-team">Ekip</label>
+      <select id="cfg-team" name="team">
+      {{range .Teams}}<option value="{{.Slug}}"{{if eq .Slug $sel}} selected{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    {{else}}
+      <input type="hidden" name="team" value="{{.Team}}">
+      <span class="muted small">Ekip:</span> {{range .Teams}}<strong>{{.Name}}</strong>{{end}}
+    {{end}}
+    </div>
+
+    <div class="field">
+      <label for="cfg-branch">Production branch'i</label>
+      <input id="cfg-branch" name="production_branch" value="{{.Branch}}" placeholder="{{or .DefaultBranch "repo'nun varsayılan branch'i"}}" autocomplete="off" aria-describedby="cfg-branch-hint">
+      <p id="cfg-branch-hint" class="muted small">Boş bırakırsan {{with .DefaultBranch}}<span class="mono">{{.}}</span> (repo'nun varsayılanı){{else}}repo'nun varsayılan branch'i{{end}} kullanılır. Bu branch'e her push production'a çıkar; diğer branch'ler önizleme adresi alır.</p>
+    </div>
+
+    <button class="primary big" type="submit" style="width:100%">{{if $d.Deploys}}Deploy et{{else}}Projeyi oluştur{{end}}</button>
+  </form>
+
+  <aside class="card pad" aria-labelledby="facts-title">
+    <h2 id="facts-title" style="margin:0 0 12px">Ne olacak?</h2>
+    <dl class="facts">
+      <dt>Framework</dt>
+      <dd>İlk build'de otomatik algılanır.<br><span class="muted small">{{join $d.Frameworks ", "}}</span></dd>
+      <dt>Kök dizin</dt>
+      <dd><code>./</code> <span class="muted small">(repo kökü)</span></dd>
+      <dt>Build ve install</dt>
+      <dd>Algılanan framework'ün varsayılan komutları. Repoda <code>Dockerfile</code> varsa o kullanılır.</dd>
+      <dt>Production</dt>
+      <dd class="mono small">{{$d.Scheme}}://<span class="host-name">{{.Name}}</span>.{{$d.Domain}}</dd>
+      <dt>Önizlemeler</dt>
+      <dd>Diğer branch'lerin her push'u kendi önizleme adresini alır.</dd>
+      <dt>İlk deploy</dt>
+      <dd>{{if $d.Deploys}}Production branch'inin son commit'i hemen build edilir; ilerlemeyi canlı log'da izlersin.{{else}}Production branch'ine ilk push'ta başlar.{{end}}</dd>
+    </dl>
+    <p class="muted small" style="margin:16px 0 0">Kök dizin, komutlar, framework ve ortam değişkenlerini proje oluştuktan sonra <strong>Ayarlar</strong> sekmesinden değiştirebilirsin.</p>
+  </aside>
+</div>
+{{end}}
+{{else if $d.Configured}}
+<div id="repo-list"{{if $d.Poll}} hx-get="/import" hx-select="#repo-list" hx-trigger="every 3s" hx-swap="outerHTML"{{end}}>
+{{if $d.Total}}
+  {{/* Step 2: pick a repository. */}}
+  <form class="filterbar" method="get" action="/import" role="search">
+    <div class="search">
+      <label for="rq" class="sr-only">Repolarda ara</label>
+      <input id="rq" name="q" type="search" value="{{$d.Query}}" placeholder="Repolarda ara…" autocomplete="off"
+        data-search data-filter="#repos">
+      <kbd class="js-only hide-sm" title="Aramaya geçmek için / tuşuna bas">/</kbd>
+    </div>
+    <span class="muted small count">{{$d.Total}} repo</span>
+  </form>
+  <div class="card" id="repos">
+  {{range $d.Groups}}
+    <div data-filter-group>
+    <h3 class="group">{{.Account}}</h3>
+    {{range .Repos}}
+    <div class="repo-row" data-filter-text="{{.FullName}}">
       <div class="repo">
         <strong class="mono">{{.FullName}}</strong> {{if .Private}}<span class="tag">gizli</span>{{end}}
+        {{if $d.MultiTeam}}<span class="muted small">· ekip {{.Team}}</span>{{end}}
       </div>
+      <div class="action">
       {{if .App}}
-        <div style="padding-top:6px"><span class="muted small">Zaten eklendi:</span> <a href="/apps/{{.App}}"><strong>{{.App}}</strong></a></div>
+        <span class="muted small">Zaten eklendi:</span> <a href="/apps/{{.App}}"><strong>{{.App}}</strong> →</a>
       {{else if .CanImport}}
-        <form method="post" action="/import">
-          <input type="hidden" name="csrf" value="{{$.CSRF}}">
-          <input type="hidden" name="repo" value="{{.FullName}}">
-          <input type="hidden" name="team" value="{{.Team}}">
-          <button class="primary" type="submit">İçe aktar</button>
-          <details>
-            <summary class="muted">Ayarlar</summary>
-            <div class="row">
-              <div><label>Proje adı</label>
-                <input name="name" value="{{.Name}}" pattern="[a-z][a-z0-9-]{1,30}" required aria-label="{{.FullName}} için proje adı"></div>
-              <div><label>Canlı branch</label>
-                <input name="production_branch" placeholder="varsayılan branch" aria-label="{{.FullName}} için canlı branch"></div>
-            </div>
-            <p class="muted" style="margin:6px 0 0">Ekip: <a href="/teams/{{.Team}}">{{.Team}}</a></p>
-          </details>
-        </form>
+        <a class="btn primary small" href="/import?repo={{.FullName}}&amp;team={{.Team}}">İçe aktar<span class="sr-only"> {{.FullName}}</span> →</a>
       {{else}}
-        <div style="padding-top:6px" class="muted small">İçe aktarmak için ekipte üye rolü gerekir.</div>
+        <span class="muted small">İçe aktarmak için ekipte üye rolü gerekir.</span>
       {{end}}
+      </div>
     </div>
-  {{end}}{{end}}
+    {{end}}
+    </div>
+  {{end}}
   </div>
+  <p class="card empty" id="repos-empty"{{if $d.Groups}} hidden{{end}}>Aramana uyan repo yok. <a href="/import">Aramayı temizle</a></p>
   {{if $install}}
-  <p class="small" style="margin-top:12px">
-  {{if gt (len .Data.Teams) 1}}
-    Repo listesini GitHub'da düzenle:
-    {{range .Data.Teams}}<a href="/github/install?team={{.Slug}}">{{.Name}}</a> {{end}}
-  {{else}}{{range .Data.Teams}}<a href="/github/install?team={{.Slug}}">Repo listesini GitHub'da düzenle</a>{{end}}{{end}}
+  <p class="small muted" style="margin-top:12px">Aradığın repo listede yok mu?
+  {{if gt (len $d.Teams) 1}}
+    Erişimi GitHub'da düzenle:
+    {{range $d.Teams}}<a href="/github/install?team={{.Slug}}">{{.Name}}</a> {{end}}
+  {{else}}{{range $d.Teams}}<a href="/github/install?team={{.Slug}}">Repo erişimini GitHub'da düzenle ↗</a>{{end}}{{end}}
   </p>
   {{end}}
 {{else}}
+  {{/* Step 1: connect GitHub. */}}
   <div class="card hero">
-    <h1>GitHub repoların burada görünecek</h1>
+    <h2 style="font-size:22px;margin:0 0 8px">GitHub repoların burada görünecek</h2>
     {{if $install}}
-    <p>GitHub'da hangi repolara erişebileceğimizi seç; seçtiğin repolar bu sayfaya kendiliğinden gelir.</p>
-    {{if gt (len .Data.Teams) 1}}
-      {{range .Data.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç · {{.Name}}</a> {{end}}
-    {{else}}{{range .Data.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç</a>{{end}}{{end}}
+    <p>GitHub'da paas'ın hangi repolara erişebileceğini seç; seçtiğin repolar bu sayfaya kendiliğinden gelir.</p>
+    {{if gt (len $d.Teams) 1}}
+      {{range $d.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç · {{.Name}}</a> {{end}}
+    {{else}}{{range $d.Teams}}<a class="btn primary big" href="/github/install?team={{.Slug}}">GitHub'da repo seç</a>{{end}}{{end}}
+    <p class="small muted" style="margin:16px auto 0">GitHub'dan dönünce bu sayfa birkaç saniye içinde kendini yeniler.</p>
     {{else}}
     <p>GitHub'a bağlanmış bir repo henüz yok.</p>
     {{end}}
   </div>
 {{end}}
 </div>
+{{end}}
+
+{{if $d.Teams}}
+<details class="card section" id="manual"{{if $d.Manual.Open}} open{{end}}>
+  <summary>Repoyu elle ekle <span class="muted">GitHub App olmadan, push webhook'u ile</span></summary>
+  <div class="body">
+  <p class="muted small" style="margin-top:0">Proje oluşturulur; deploy için repoya <code>/webhooks/github</code> adresine giden bir push webhook'u eklemen gerekir.</p>
+  <form method="post" action="/apps">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <div class="row">
+      <div><label for="name">Proje adı</label>
+        <input id="name" name="name" value="{{$d.Manual.Name}}" placeholder="blog" pattern="[a-z][a-z0-9-]{1,30}" required autocomplete="off"></div>
+      <div><label for="repo">GitHub reposu</label>
+        <input id="repo" name="repo" value="{{$d.Manual.Repo}}" placeholder="sahip/repo" required autocomplete="off"></div>
+      <div><label for="branch">Production branch'i</label>
+        <input id="branch" name="production_branch" value="{{$d.Manual.Branch}}" autocomplete="off"></div>
+      {{$sel := $d.Manual.Team}}
+      <div><label for="team">Ekip</label>
+        <select id="team" name="team">
+        {{range $d.Teams}}<option value="{{.Slug}}"{{if eq .Slug $sel}} selected{{end}}>{{.Name}}</option>{{end}}
+        </select></div>
+      <div style="flex:0"><button class="primary" type="submit">Oluştur</button></div>
+    </div>
+  </form>
+  </div>
+</details>
 {{end}}
 {{end}}

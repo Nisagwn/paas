@@ -1,6 +1,8 @@
 {{define "head"}}<meta http-equiv="refresh" content="0;url={{.Data.Next}}">{{end}}
 {{define "content"}}
-<div class="card empty">
-  <p>{{with .Data.Message}}{{tr .}}{{else}}Giriş yapıldı.{{end}} <a href="{{.Data.Next}}">Devam et</a></p>
+<div class="card error-page" role="status">
+  <h1>{{with .Data.Message}}{{tr .}}{{else}}Giriş yapıldı.{{end}}</h1>
+  <p class="muted">Yönlendiriliyorsun…</p>
+  <div class="actions"><a class="btn primary" href="{{.Data.Next}}">Devam et →</a></div>
 </div>
 {{end}}

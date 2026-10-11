@@ -323,6 +323,9 @@ type page struct {
 	Me auth.Principal
 	// PlatformAdmin shows the admin link (Faz 23).
 	PlatformAdmin bool
+	// Page is the template name; Nav the header of signed-in pages (nav.go).
+	Page string
+	Nav  navData
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
@@ -333,6 +336,10 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
 	p.Me, p.LoggedIn = auth.From(r.Context())
 	p.PlatformAdmin = p.LoggedIn && s.Auth.PlatformAdmin(p.Me)
+	p.Page = name
+	if p.LoggedIn {
+		p.Nav = s.nav(r, p.Me)
+	}
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("render", "page", name, "err", err)
@@ -407,7 +414,7 @@ var flashes = map[string]string{
 }
 
 func (s *Server) errorPage(w http.ResponseWriter, r *http.Request, status int, msg string) {
-	s.render(w, r, status, "error", statusTitle(status), nil, msg)
+	s.render(w, r, status, "error", statusTitle(status), errorData(status), msg)
 }
 
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
@@ -466,110 +473,6 @@ func safeNext(next string) string {
 		return "/"
 	}
 	return next
-}
-
-// ---- apps ----
-
-type appRow struct {
-	store.App
-	Team          string
-	ProductionURL string
-	Latest        *store.Deployment
-}
-
-func (s *Server) appsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderApps(w, r, http.StatusOK, "", nil)
-}
-
-func (s *Server) renderApps(w http.ResponseWriter, r *http.Request, status int, errMsg string, form map[string]string) {
-	me, _ := auth.From(r.Context())
-	apps, err := s.Auth.Apps(r.Context(), me)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	teams, err := s.Auth.Teams(r.Context(), me)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	slugs := map[int64]string{}
-	var writable []store.Team
-	for _, t := range teams {
-		slugs[t.ID] = t.Slug
-		if store.RoleAllows(t.Role, store.RoleMember) {
-			writable = append(writable, t)
-		}
-	}
-	latest, err := s.Store.LatestDeployments(r.Context())
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	rows := make([]appRow, 0, len(apps))
-	for _, a := range apps {
-		row := appRow{App: a, Team: slugs[a.TeamID], ProductionURL: naming.URL(s.Scheme, naming.ProductionHost(a.Name, s.Domain))}
-		if d, ok := latest[a.ID]; ok {
-			row.Latest = &d
-		}
-		rows = append(rows, row)
-	}
-	if form == nil {
-		form = map[string]string{"Branch": "main"}
-	}
-	s.render(w, r, status, "apps", "Projeler", map[string]any{"Apps": rows, "Form": form, "Teams": writable}, errMsg)
-}
-
-func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
-	if !s.allowImport(w, r) {
-		return
-	}
-	name := strings.TrimSpace(r.PostFormValue("name"))
-	repo := strings.TrimSpace(r.PostFormValue("repo"))
-	branch := strings.TrimSpace(r.PostFormValue("production_branch"))
-	if branch == "" {
-		branch = "main"
-	}
-	teamSlug := strings.TrimSpace(r.PostFormValue("team"))
-	form := map[string]string{"Name": name, "Repo": repo, "Branch": branch, "Team": teamSlug, "Open": "1"}
-	switch {
-	case !naming.ValidAppName(name):
-		s.renderApps(w, r, http.StatusBadRequest,
-			"Ad 2-31 karakter olmalı: a-z harfleri, rakamlar ve '-'; harfle başlamalı.", form)
-		return
-	case !api.ValidRepo(repo):
-		s.renderApps(w, r, http.StatusBadRequest, `Repo "sahip/repo" biçiminde olmalı.`, form)
-		return
-	}
-	me, _ := auth.From(r.Context())
-	team, err := s.Auth.TeamForApps(r.Context(), me, teamSlug)
-	if errors.Is(err, store.ErrNotFound) || errors.Is(err, auth.ErrForbidden) {
-		s.renderApps(w, r, http.StatusForbidden, "Proje eklemek için ekipte üye rolü gerekir.", form)
-		return
-	}
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	if err := s.Plans.CheckCreateApp(r.Context(), team.ID); err != nil {
-		if status, msg, ok := limitError(err); ok {
-			s.renderApps(w, r, status, msg, form)
-			return
-		}
-		s.internalError(w, r, err)
-		return
-	}
-	_, err = s.Store.CreateAppInTeam(r.Context(), team.ID, name, repo, branch)
-	if errors.Is(err, store.ErrConflict) {
-		s.renderApps(w, r, http.StatusConflict, "Bu ad ya da repo ile bir proje zaten var.", form)
-		return
-	}
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	s.Log.Info("web: app created", "app", name, "repo", repo)
-	http.Redirect(w, r, "/apps/"+name+"?ok=created", http.StatusSeeOther)
 }
 
 // ---- deployment detail ----

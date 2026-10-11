@@ -1,6 +1,18 @@
+{{/* The error is shown inside the card, so the layout shows only Flash. */}}
+{{define "flash"}}{{if .Flash}}<div class="flash ok" role="status">{{.Flash}}</div>{{end}}{{end}}
 {{define "content"}}
-<div class="card empty">
-  <h1>{{.Title}}</h1>
-  <p><a href="/">Projelere dön</a></p>
+<div class="card error-page" role="alert" aria-labelledby="err-title">
+  {{with .Data}}{{with .Status}}<p class="code" aria-hidden="true">{{.}}</p>{{end}}{{end}}
+  <h1 id="err-title">{{.Title}}</h1>
+  {{with .Error}}<p>{{.}}</p>{{end}}
+  {{with .Data}}{{with .Hint}}<p class="muted small">{{.}}</p>{{end}}{{end}}
+  <div class="actions">
+    {{if .LoggedIn}}
+    <a class="btn primary" href="/">Projelere dön</a>
+    <button type="button" class="js-only" data-back>← Geri git</button>
+    {{else}}
+    <a class="btn primary" href="/login">Giriş yap</a>
+    {{end}}
+  </div>
 </div>
 {{end}}

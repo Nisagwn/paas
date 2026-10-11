@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nisagwn/paas/internal/api"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/github"
 	"github.com/nisagwn/paas/internal/store"
@@ -259,84 +258,4 @@ func (s *Server) claim(ctx context.Context, code, verifier string, id, teamID, u
 	s.Log.Info("web: github installation claimed", "installation", id, "account", grant.Installation.AccountLogin,
 		"team", teamID, "by", u.Login)
 	return http.StatusOK, "", nil
-}
-
-// ---- import page ----
-
-type importRow struct {
-	api.ImportableView
-	// Suggested app name.
-	Name string
-}
-
-type importGroup struct {
-	Account string
-	Repos   []importRow
-}
-
-func (s *Server) importPage(w http.ResponseWriter, r *http.Request) {
-	s.renderImport(w, r, http.StatusOK, "")
-}
-
-func (s *Server) renderImport(w http.ResponseWriter, r *http.Request, status int, errMsg string) {
-	p := me(r)
-	list, err := api.ImportableRepos(r.Context(), s.Store, s.Auth, p)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	teams, err := s.Auth.Teams(r.Context(), p)
-	if err != nil {
-		s.internalError(w, r, err)
-		return
-	}
-	var writable []store.Team
-	for _, t := range teams {
-		if store.RoleAllows(t.Role, store.RoleMember) {
-			writable = append(writable, t)
-		}
-	}
-	var groups []importGroup
-	for _, v := range list {
-		if len(groups) == 0 || !strings.EqualFold(groups[len(groups)-1].Account, v.AccountLogin) {
-			groups = append(groups, importGroup{Account: v.AccountLogin})
-		}
-		g := &groups[len(groups)-1]
-		g.Repos = append(g.Repos, importRow{ImportableView: v, Name: api.DeriveAppName(v.FullName)})
-	}
-	// Repositories come sorted by full name, so one account's are adjacent.
-	s.render(w, r, status, "import", "Import from GitHub", map[string]any{
-		"Groups": groups, "Teams": writable,
-		"Configured": s.GitHubAppSlug != "", "InstallEnabled": s.installEnabled() && p.UserID != 0,
-		"GitHubLogin": s.GitHub != nil, "Deploys": s.GitHubApp != nil,
-	}, errMsg)
-}
-
-func (s *Server) importApp(w http.ResponseWriter, r *http.Request) {
-	if !s.allowImport(w, r) {
-		return
-	}
-	req := api.ImportRequest{
-		Repo: r.PostFormValue("repo"), Name: r.PostFormValue("name"),
-		Team: r.PostFormValue("team"), ProductionBranch: r.PostFormValue("production_branch"),
-	}
-	res, status, err := api.ImportAppLimited(r.Context(), s.Store, s.Auth, s.GitHubApp, s.Plans, s.Log, me(r), req)
-	if status == http.StatusInternalServerError {
-		s.internalError(w, r, err)
-		return
-	}
-	if err != nil {
-		msg := err.Error()
-		s.renderImport(w, r, status, strings.ToUpper(msg[:1])+msg[1:]+".")
-		return
-	}
-	if res.Deployment != nil {
-		redirect(w, r, "/apps/"+res.App.Name+"?ok=imported")
-		return
-	}
-	if strings.Contains(res.Warning, "plan limit reached") { // Faz 23
-		redirect(w, r, "/apps/"+res.App.Name+"?ok=imported-limit")
-		return
-	}
-	redirect(w, r, "/apps/"+res.App.Name+"?ok=imported-idle")
 }

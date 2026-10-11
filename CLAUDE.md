@@ -32,6 +32,7 @@ Tüm token'lar tek yerde: `internal/web/templates/layout.html` içindeki `<style
   --ok: #0f7b3d; --ok-bg: #e6f6ec; --err: #c62828; --err-bg: #fdecec;
   --run: #0a5bd6; --run-bg: #e8f0fe; --idle: #666; --idle-bg: #f0f0f0;
   --warn: #9a5b00; --warn-bg: #fff4e0; --chart-req: #2f6fde; --chart-err: #d03b3b; --grid: #ececec;
+  --hover: #f4f4f5; --shadow: 0 6px 20px rgba(0,0,0,.08);
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) { :root { /* aynı adlar, koyu değerler */ } }
@@ -52,6 +53,8 @@ Tüm token'lar tek yerde: `internal/web/templates/layout.html` içindeki `<style
 | `--idle`, `--idle-bg` | Pasif, İptal, trafik yok | neutral |
 | `--code-bg`, `--code-text` | Log panelleri (temadan bağımsız koyu) | code |
 | `--chart-req`, `--chart-err`, `--grid` | SVG grafik serileri ve ızgara | chart |
+| `--hover` | Menü öğesi / üst menü bağlantısı üzerine gelince zemin | surface-hover |
+| `--shadow` | Açılır menü gölgesi (koyu temada daha koyu) | elevation |
 
 ### Diğer ölçüler (token değil, sabit — tutarlı kullan)
 
@@ -60,7 +63,7 @@ Tüm token'lar tek yerde: `internal/web/templates/layout.html` içindeki `<style
   - Başlıklarda negatif harf aralığı: `h1 -.02em`, `.brand -.01em`.
 - **Boşluk ölçeği:** 4 · 6 · 8 · 10 · 12 · 14 · 16 · 20 · 24 · 32 · 48 · 64 px. Kart iç boşluğu 16px (`.pad`), grid/row aralığı 12px, bölüm başlığı üst boşluğu 32px.
 - **Köşe yarıçapı:** kart `var(--radius)` (10px), buton/input/menü 8px, `.tag` 6px, `.badge` 999px (hap).
-- **Gölge:** yalnızca açılır menüde `0 6px 20px rgba(0,0,0,.08)`. Kartlar gölgesiz; ayrım kenarlıkla yapılır.
+- **Gölge:** yalnızca açılır menüde `var(--shadow)`. Kartlar gölgesiz; ayrım kenarlıkla yapılır.
 - **Maks. genişlik:** `main` 1080px (yorum/review sayfası 1600px'e genişletir).
 
 ### Figma değişkenlerini aktarma kuralları
@@ -97,10 +100,28 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `.log` (`.step`, `.bad`, `.meta`) | Koyu log paneli |
 | `.mono`, `.muted`, `.small`, `.trunc`, `.hide-sm` | Yardımcı sınıflar |
 | `svg.chart` (`.bar`, `.bar-err`, `.grid`, `.axis`, `.tick`) | Sunucuda üretilen grafik |
+| `header.top`, `nav.primary` (`a.on` + `aria-current="page"`), `.top-actions`, `.top-sep`, `.top-team` | Üst menü (yalnızca `layout.html`); bölüm vurgusu `page.Nav.Section`'dan gelir |
+| `details.dropdown` (`> summary`, `> .menu`, `.menu-right`, `.menu-head`, `.check`, `hr`) | Açılır menü (ekip seçici, hesap menüsü); dışarı tıklama ve Escape kapatır. `.user-menu` eski adıyla çalışır |
+| `.avatar`, `.avatar.square` | Baş harf rozeti: yuvarlak (kullanıcı) / köşeli (proje, repo). Görsel URL'si CSP yüzünden yüklenmez |
+| `nav.crumbs` | Konum çizgisi (Ekip / Proje / Deploy). Elle yazma, `{{crumbs …}}` fonksiyonunu kullan (§3.4) |
+| `button.copy` | Panoya kopyala butonu; `{{copy .URL}}` üretir. JS yoksa gizlidir, metin seçilebilir kalır |
+| `.js-only` | Yalnızca JS varken görünür (`html.js`); ör. `data-back` butonu, `kbd` ipucu |
+| `.sr-only` | Görsel olarak gizli, ekran okuyucuya açık metin (ör. arama `label`'ı) |
+| `.skip` | "İçeriğe geç" bağlantısı (layout'ta; `main#main`'e gider) |
+| `kbd` | Klavye kısayolu ipucu (ör. arama kutusunda `/`) |
+| `.filterbar` (`.search`, `.count`) | Liste üstü arama satırı: `input[type=search][data-search][data-filter="#liste"]` + sayaç. `?q=` ile JS'siz de filtrelenir |
+| `.project` (`a.stretch`, `.p-head`, `.p-line`, `.p-line .grow`, `.p-foot`), `ul.projects` | Proje kartı: `a.stretch` tüm kartı tıklanır yapar; kart içindeki diğer bağlantı/butonlar üstte kalır |
+| `ol.steps` (`li.on` + `aria-current="step"`, `li.done`, `.n`, `.label`) | Adım göstergesi (Yeni proje akışı); 720px altında yalnızca etkin adımın adı görünür |
+| `ol.checklist` (`li.done/.current/.todo/.skip`, `.n`, `.grow`) | İlk kullanım kontrol listesi; `.current` solda vurgu çizgisi alır |
+| `dl.facts` (`dt`, `dd`) | Etiket–açıklama listesi ("Ne olacak?" paneli); mobilde tek sütun |
+| `.flash .help` | Hata kutusunun altında "ne yapmalı" satırı + bağlantı |
+| `.error-page` (`.code`, `.actions`) | Hata / yönlendirme kartı |
+| `.auth-card`, `.btn.block`, `.divider` | Giriş kartı, tam genişlik buton, "ya da" ayırıcı |
+| `.btn.small`, `.btn.danger`, `button:disabled` | Bağlantı-buton küçük/tehlikeli varyantı; devre dışı görünüm |
 
 ### 3.2 Şablon parçaları (`{{define}}` / `{{template}}`)
 
-- `templates/layout.html` → `"layout"`: iskelet, üst menü, flash mesajları; sayfa `"content"` (ve isteğe bağlı `"head"`) bloğunu tanımlar.
+- `templates/layout.html` → `"layout"`: iskelet, üst menü, flash mesajları; sayfa `"content"` (ve isteğe bağlı `"head"`) bloğunu tanımlar. Hatayı kendi kartında gösteren sayfa `"flash"` bloğunu yeniden tanımlar (boş gövde Go'da yok sayılır; bkz. `login.html`, `error.html`).
 - `templates/partials.html` → `apphead` (proje başlığı + sekmeler), `depbadges`, `depcommit`, `recent`, `deployments`, `env`, `domains`.
 - `templates/processes.html`, `templates/rollout.html` → `processes`, `rollout` parçaları.
 - Parçalar hem tam sayfada hem htmx yanıtında kullanılır; her ikisi de `.Data` ve `.CSRF` taşıyan bir değer alır.
@@ -132,6 +153,11 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 | `ago`, `time`, `duration` | Göreli zaman, `02.01.2006 15:04:05 UTC`, süre |
 | `num`, `pct`, `ms`, `bytes`, `cpu` | Türk biçimi: `12.345`, `%1,5`, `1,5 sn`, `120 MiB`, `1,5 çekirdek` (`format.go`) |
 | `short`, `firstLine` | Kısa SHA, commit mesajının ilk satırı |
+| `when` | `<time datetime title="tam zaman" data-ago>2 sa önce</time>`; `time.Time` ya da `*time.Time` alır (nil → `—`). Metin sayfada kendiliğinden güncellenir. Göreli zaman gösterirken `ago` yerine bunu kullan |
+| `crumbs` | `{{crumbs "Ekip" "/teams/web" "blog" "/apps/blog" "Deploy #12"}}` → `nav.crumbs`; son etiket (href'siz) geçerli sayfadır. Tüm şablon setlerinde (htmx parçaları dahil) çalışır |
+| `copy` | `{{copy .URL}}` ya da `{{copy .URL "Adresi kopyala"}}` → ikonlu `button.copy` |
+| `framework` | Framework kimliği → görünen ad (`nextjs` → `Next.js`) |
+| `join`, `add1`, `initialOf`, `trimScheme` | `strings.Join`; sayaç +1; baş harf; `https://` olmadan adres |
 
 ---
 
@@ -139,7 +165,7 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 
 - **Metodoloji:** global, anlamsal sınıf adları (`.card`, `.badge`) + durum değiştiricileri (`.s-ready`, `.on`, `.primary`). BEM, utility-first veya scoped CSS yok.
 - **Yeni ortak stil** → `layout.html` `<style>` bloğuna, ilgili grubun yanına (dosyada `/* Faz 16–19 screens … */` gibi gruplama yorumları var).
-- **Tek sayfaya özel stil** → o sayfanın `{{define "head"}}<style>…</style>{{end}}` bloğuna (örnek: `templates/review.html:1`). Yine yalnızca `var(--…)` kullan.
+- **Tek sayfaya özel stil** → o sayfanın `{{define "head"}}<style>…</style>{{end}}` bloğuna (global `<style>`'dan sonra gelir, yani aynı özgüllükte sayfa kuralı kazanır) (örnek: `templates/review.html:1`). Yine yalnızca `var(--…)` kullan.
 - **Inline `style="…"`**: mevcut kodda yalnızca tek seferlik yerleşim ayarı için (margin, `flex:0`, `grid-column:1/-1`) kullanılır. Renk gerekiyorsa `style="color:var(--err)"` gibi **token** ile. Tekrar eden inline stil görürsen sınıfa çevir.
 - **Koyu tema:** otomatik, `prefers-color-scheme` ile. Manuel tema anahtarı yok. Yeni renk = iki tema değeri.
 - **Responsive:** tek kırılım `@media (max-width: 720px)` → `.hide-sm` gizlenir, tablo hücre boşluğu 8px olur. Izgaralar `repeat(auto-fit, minmax(…, 1fr))` ile, satırlar `flex-wrap: wrap` ile kendiliğinden uyum sağlar. Sayfaya özel ek kırılım gerekirse o sayfanın `head` bloğuna (review: 1000px).
@@ -177,7 +203,16 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 - Kart içi güncelleme: kartın kendi `id`'si + `hx-target="#env-card" hx-swap="outerHTML"`.
 - Canlı yenileme: yalnızca bir iş sürerken `hx-trigger="every 3s"` ekle.
 - Gecikmeli bölüm: `hx-get=… hx-trigger="load"` ve içinde `.card.pad.muted.small` "… yükleniyor…" yer tutucusu.
-- Açılır menü / akordeon: `<details>`; JS yazma.
+- Açılır menü / akordeon: `<details>`; JS yazma. Üst menü tarzı açılır menü için `details.dropdown`.
+- **Global yardımcı script** (`layout.html` sonunda, nonce'lu). Hepsi aşamalı iyileştirmedir; JS olmadan sayfa çalışır. Yeni sayfada aynı işi yapan ikinci script yazma, bu `data-` özniteliklerini kullan:
+  - `data-copy="metin"` → tıklayınca panoya kopyalar (`{{copy …}}` üretir), ekran okuyucuya "Kopyalandı." der.
+  - `data-search` → `/` tuşu bu kutuya odaklanır (sayfada bir tane olsun).
+  - `data-filter="#liste"` → `#liste` içindeki `[data-filter-text]` öğelerini canlı filtreler; boş kalan `[data-filter-group]` gizlenir; hiç sonuç yoksa `#liste-empty` görünür. Aynı form `GET ?q=` ile sunucuda da filtrelemeli.
+  - `data-mirror="#hedef"` (+ `data-mirror-empty`) → input değerini hedef metne yansıtır (ör. proje adı → önizlenen adres).
+  - `data-back` → tarayıcı geçmişinde geri gider (geçmiş yoksa `/`).
+  - `time[data-ago]` → 30 sn'de bir göreli metni yeniler.
+  - Her `method="post"` form gönderilince butonları devre dışı kalır, basılan butonun sonuna `…` eklenir, form `aria-busy="true"` olur (htmx formlarında istek bitince geri açılır). İstemiyorsan forma `data-no-busy` ekle.
+- Ekip seçici seçimi `?team=<slug>` ile ana sayfada yapılır ve `paas_team` çerezinde saklanır; `page.Nav.Team` seçili ekiptir (nil: tüm ekipler).
 
 ---
 
@@ -188,6 +223,8 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 - Ürünü küçülten kelimeler kullanma (mini, basit, MVP, küçük vb.) — ne metinde ne sınıf adında.
 - Her `input`'un `<label for>`'u olsun; sekmelerde `aria-current="page"`, grafikte `role="img" aria-label`, `nav`'larda `aria-label`.
 - Boş durumlar `.empty` ile ve bir sonraki adımı söyleyerek yazılır.
+- Hata mesajının yanında ne yapılacağını söyle (`.flash .help` + bağlantı; ör. plan limiti → "Kullanımı gör").
+- Klavye: tüm etkileşimli öğelerde `:focus-visible` halkası global gelir; `outline: none` yazma. Yeni sekmede açılan bağlantıya `↗` ve `<span class="sr-only">(yeni sekmede açılır)</span>` ekle.
 
 ---
 
