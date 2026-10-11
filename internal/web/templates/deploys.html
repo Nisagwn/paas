@@ -1,5 +1,4 @@
 {{define "head"}}
-{{template "ux-css"}}
 <style>
 /* Deploy'lar: filter bar. */
 .filters { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin: 20px 0 8px; }
@@ -27,7 +26,6 @@
   <span>Her push yeni bir deploy oluşturur. Önizlemeyi build etmeden production'a taşıyabilir, eski bir production sürümüne dönebilir ya da süren bir deploy'u iptal edebilirsin; diğer eylemler <span aria-hidden="true">⋯</span> menüsünde.{{if not .Data.CanWrite}} Bu işlemler için ekipte üye rolü gerekir.{{end}}</span>
 </p>
 {{template "deployments" .}}
-{{template "ux-js" .}}
 <script nonce="{{.Nonce}}">
 // Filters apply as soon as a choice changes.
 document.getElementById("deploy-filters").addEventListener("change", (e) => e.currentTarget.requestSubmit());

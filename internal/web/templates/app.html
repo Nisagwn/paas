@@ -1,5 +1,4 @@
 {{define "head"}}
-{{template "ux-css"}}
 <style>
 /* Genel: production hero, previews and the advanced entry points. */
 .attn { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; margin: 20px 0 0;
@@ -169,5 +168,4 @@
     <span class="st">{{with .Data.TerminalSessions}}{{len .}} oturum kaydı →{{else}}Oturum kaydı →{{end}}</span></a>
   {{end}}
 </div>
-{{template "ux-js" .}}
 {{end}}

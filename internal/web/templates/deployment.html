@@ -1,5 +1,4 @@
 {{define "head"}}
-{{template "ux-css"}}
 <style>
 /* Deploy detayı: actions, step timeline, failure box, log toolbar. */
 .dp-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 0; }
@@ -51,7 +50,7 @@
 
 {{define "content"}}
 {{$d := .Data.D}}{{$x := .Data.X}}{{$csrf := .CSRF}}
-<p class="sub small crumbs"><a href="/">Projeler</a><span class="sep" aria-hidden="true">/</span><a href="/apps/{{$d.AppName}}">{{$d.AppName}}</a><span class="sep" aria-hidden="true">/</span><a href="/apps/{{$d.AppName}}/deployments">Deploy'lar</a><span class="sep" aria-hidden="true">/</span>#{{$d.ID}}</p>
+{{crumbs "Projeler" "/" $d.AppName (printf "/apps/%s" $d.AppName) "Deploy'lar" (printf "/apps/%s/deployments" $d.AppName) (printf "#%d" $d.ID)}}
 <div class="dp-title">
   <h1>{{with firstLine $d.CommitMessage}}{{.}}{{else}}Deploy #{{$d.ID}}{{end}}</h1>
   <div class="dp-sub">
@@ -152,7 +151,6 @@
   data-src="/api/apps/{{$d.AppName}}/deployments/{{$d.ID}}/runtime-logs?follow=1&tail=200"></div>
 {{end}}
 
-{{template "ux-js" .}}
 <script nonce="{{.Nonce}}">
 (() => {
   const errRe = /^(error|fatal)\b|\berror:|npm err!|exit (code|status):? [1-9]|^#\d+ error/i;

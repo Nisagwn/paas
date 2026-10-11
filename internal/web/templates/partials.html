@@ -1,89 +1,9 @@
 {{/* Fragments shared by full pages and htmx responses. Both pass a value
      with .Data (the app detail) and .CSRF. */}}
 
-{{/* ux-css: styles shared by the project and deployment screens (Genel,
-     Deploy'lar, deploy detayı, Ayarlar). Each of those pages includes it in
-     its "head" block. Candidates for layout.html once they settle. */}}
-{{define "ux-css"}}
-<style>
-/* Visually hidden, still read by screen readers. */
-.vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-/* Controls that need JavaScript stay hidden without it (the page script sets html.js). */
-.js-only { display: none !important; }
-html.js .js-only { display: inline-flex !important; }
-html.js .no-js { display: none !important; }
-button:disabled, button:disabled:hover { opacity: .5; cursor: not-allowed; border-color: var(--border); }
-.btn.danger { color: var(--err); }
-button:focus-visible, .btn:focus-visible, a:focus-visible, select:focus-visible, summary:focus-visible, textarea:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 2px; }
-.crumbs { margin: 0 0 6px; }
-.crumbs .sep { color: var(--border); margin: 0 4px; }
-.sec-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 32px 0 12px; }
-.sec-head h2 { margin: 0; }
-.sec-head .actions { margin-left: auto; }
-/* Sticky success/error message, so it stays visible after a jump to #section. */
-main > .flash { position: sticky; top: 8px; z-index: 5; border: 1px solid currentColor; }
-/* Deployment rows (recent, deployments). */
-table.deps td { vertical-align: top; }
-td.dr-status { width: 1%; white-space: nowrap; padding-right: 4px; }
-td.dr-status .tag { margin-top: 4px; }
-.dr-msg { color: var(--text); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 520px; }
-.dr-msg:hover { color: var(--accent); }
-.dr-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 2px; color: var(--muted); }
-.dr-err { color: var(--err); margin-top: 4px; max-width: 520px; }
-td.dr-when { white-space: nowrap; width: 1%; color: var(--muted); }
-.dr-when-sm { display: none; }
-td.controls { width: 1%; }
-td.controls form.inline { margin-left: 4px; }
-.rowmenu { position: relative; display: inline-block; margin-left: 4px; text-align: left; }
-.rowmenu > summary { list-style: none; padding: 3px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--surface); }
-.rowmenu > summary::-webkit-details-marker { display: none; }
-.rowmenu[open] > summary { border-color: var(--muted); }
-.rowmenu .menu { position: absolute; right: 0; top: calc(100% + 4px); background: var(--surface); border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px; min-width: 230px; z-index: 10; box-shadow: 0 6px 20px rgba(0,0,0,.08); white-space: normal; }
-.rowmenu .menu > a { display: block; padding: 6px 8px; border-radius: 6px; color: var(--text); font-size: 13px; }
-.rowmenu .menu > a:hover { background: var(--bg); text-decoration: none; }
-.rowmenu .menu form { display: block; margin: 4px 0 0; padding: 8px 8px 4px; border-top: 1px solid var(--border); }
-.rowmenu .menu form button { width: 100%; margin-top: 6px; }
-.rowmenu .menu .note { padding: 6px 8px; font-size: 12px; color: var(--muted); }
-.copy { margin-left: 6px; vertical-align: middle; }
-@media (max-width: 720px) {
-  .dr-when-sm { display: inline; }
-  .dr-msg { max-width: 62vw; }
-  .dr-err { max-width: 62vw; }
-  td.controls { white-space: normal; }
-  td.controls form.inline { display: inline-block; margin: 0 0 4px; }
-}
-</style>
-{{end}}
-
-{{/* ux-js: html.js marker and copy buttons; delegated, so it keeps working
-     after htmx swaps. Pages include it once at the end of "content". */}}
-{{define "ux-js"}}
-<script nonce="{{.Nonce}}">
-(() => {
-  document.documentElement.classList.add("js");
-  if (window.__uxBound) return;
-  window.__uxBound = true;
-  document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-copy]");
-    if (!b) return;
-    const done = (text) => { const old = b.dataset.label || b.textContent; b.dataset.label = old; b.textContent = text;
-      setTimeout(() => { b.textContent = old; }, 1500); };
-    navigator.clipboard.writeText(b.dataset.copy).then(() => done("Kopyalandı"), () => done("Kopyalanamadı"));
-  });
-  // Plain forms ask before destructive posts (htmx forms use hx-confirm).
-  document.addEventListener("submit", (e) => {
-    const f = e.target.closest("form[data-confirm]");
-    if (f && !confirm(f.dataset.confirm)) e.preventDefault();
-  });
-})();
-</script>
-{{end}}
-
 {{define "apphead"}}
 {{$a := .Data.App}}{{$tab := .Data.Tab}}
-<p class="sub small crumbs"><a href="/">Projeler</a><span class="sep" aria-hidden="true">/</span>{{$a.Name}}</p>
+{{crumbs "Projeler" "/" $a.Name}}
 <div class="head" style="align-items:center">
   <div style="min-width:0">
     <h1>{{$a.Name}}</h1>
@@ -195,9 +115,9 @@ td.controls form.inline { margin-left: 4px; }
             <button class="small danger" type="submit">İptal et</button>
           </form>
           {{end}}
-          <details class="rowmenu">
+          <details class="dropdown rowmenu">
             <summary aria-label="{{short .CommitSHA}} için diğer eylemler">⋯</summary>
-            <div class="menu">
+            <div class="menu menu-right">
               <a href="/deployments/{{.ID}}">Ayrıntılar ve log</a>
               {{if eq .Status "ready"}}
               <a href="{{.URL}}" target="_blank" rel="noopener">Deploy adresini aç ↗</a>
