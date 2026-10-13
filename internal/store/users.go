@@ -324,7 +324,8 @@ func (s *Store) changeMembers(ctx context.Context, teamID int64, change func(*sq
 // AppsForUser lists the apps of every team the user belongs to.
 func (s *Store) AppsForUser(ctx context.Context, userID int64) ([]App, error) {
 	return s.listApps(ctx, `SELECT `+appCols+` FROM apps
-		WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = $1) ORDER BY name`, userID)
+		WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = $1) AND deleting_at IS NULL
+		ORDER BY name`, userID)
 }
 
 // ---- API tokens ----

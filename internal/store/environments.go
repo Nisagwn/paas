@@ -496,7 +496,8 @@ func (s *Store) DeleteDeployHook(ctx context.Context, appID, id int64) error {
 // TriggerDeployHook finds the hook with tokenHash and records the trigger.
 func (s *Store) TriggerDeployHook(ctx context.Context, tokenHash string) (DeployHook, error) {
 	h, err := scanHook(s.db.QueryRowContext(ctx, `
-		UPDATE deploy_hooks SET last_triggered_at = now() WHERE token_hash = $1
+		UPDATE deploy_hooks SET last_triggered_at = now()
+		WHERE token_hash = $1 AND app_id IN (SELECT id FROM apps WHERE deleting_at IS NULL)
 		RETURNING `+hookCols, tokenHash))
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, ErrNotFound

@@ -297,3 +297,21 @@ func Limit(teamID, appID int64, app, limit string, used, max int64, detail strin
 	}
 	return e
 }
+
+// ProjectDeletedEvent is the event of a project deletion (Faz 28). The
+// event outlives the app row (its app_id becomes NULL); the name stays in
+// the payload. There is no link: the project page is gone.
+func ProjectDeletedEvent(app store.App, by string, deletionID int64) Event {
+	return Event{
+		Type: ProjectDeleted, Key: "project-deleted:" + strconv.FormatInt(deletionID, 10),
+		TeamID: app.TeamID, AppID: app.ID, App: app.Name, Severity: SeverityWarning,
+		Title: app.Name + ": proje silindi",
+		Text:  fmt.Sprintf("%s projesi deploy'ları, alan adları, veritabanları ve ortam değişkenleriyle birlikte silindi.", app.Name),
+		Fields: []Field{
+			{Name: "Proje", Value: app.Name},
+			{Name: "Repo", Value: app.Repo},
+			{Name: "Silen", Value: by},
+		},
+		Data: map[string]any{"app": app.Name, "repo": app.Repo, "deleted_by": by},
+	}
+}

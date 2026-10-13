@@ -287,6 +287,15 @@ queued → building → deploying → ready
 - **Çıktı:** bir uygulamayı canlıda incelemek (ortam, dosyalar, ağ, tek seferlik komut) için küme erişimi gerekmiyor; kimin ne zaman
   hangi pod'a girdiği kayıt altında
 
+### Faz 28 — Proje silme (migration 021) ✅ (veritabanı, API, web ve sahte clientset testleri; gerçek kümede namespace sonlanması denenmedi)
+- `DELETE /api/apps/{name}` + `{"confirm":"<ad>"}` (owner, platform yöneticisi, admin token; member / viewer 403, başka ekip 404, ad tutmazsa 400); bittiyse 204, arka planda sürüyorsa 202
+- Ayarlar › Tehlikeli bölge: neyin silineceğini anlatan, adı yazdıran form (CSRF, JS'siz çalışır; JS ile düğme ad eşleşince açılır); owner olmayanlara gerekçeli kapalı düğme; başarıda `/` + "„ad“ projesi silindi."
+- `paas apps delete <app> [--yes]`
+- `internal/appdelete`: 1) tek işlemde kayıt + gizleme (`apps.deleting_at`) + kuyruğu iptal + çalışanlara iptal isteği + denetim satırı + `project.deleted` bildirimi; 2) çalışan deploy kalmayınca satır silme (CASCADE), yalnızca bu projeyi izleyen bildirim kanalları kapatılır; 3) küme: namespace(ler) + `Retain` PV'ler, namespace kalkınca biter. Kiralı arka plan döngüsü çökme sonrası tamamlar
+- Ad, küme adımı bitene kadar ayrılmış (409), sonra serbest; aynı reponun yeniden import'u çalışır. Plan kullanımı anında düşer
+- Denetim kaydı ad ile kalır (migration 021: `audit_log.app_id` ON DELETE SET NULL + `app_name`); bildirim geçmişi kalır
+- **Çıktı:** bir proje tek işlemle, yarım kalmadan ve küme kaynağı sızdırmadan siliniyor; ad yeniden kullanılabiliyor
+
 ### Faz 26 — Bildirimler (migration 019) ✅ (birim ve veritabanı testleri; Slack / Discord / webhook httptest sunucularına, e-posta STARTTLS konuşan sahte SMTP sunucusuna karşı denendi; gerçek Slack çalışma alanında ve SMTP sağlayıcısında deneme bekliyor)
 - Ekip başına kanallar (`notification_channels`, isteğe bağlı proje süzgeci `notification_channel_apps`): `email` (net/smtp, STARTTLS zorunlu, `PAAS_SMTP_*`), `slack` ve `discord` (incoming webhook), `webhook` (HMAC-SHA256 imzalı JSON, `X-Paas-Signature: sha256=…` + `X-Paas-Timestamp`, anahtar bir kez gösterilir). URL ve anahtarlar env anahtarlığıyla şifreli (kanal kimliğine bağlı AES-256-GCM), `paas-envkey` rotasyonu ve açılış kontrolü onları da kapsar
 - Olaylar: `deployment.ready|failed|canceled`, `production.changed` (rollback, promote, canary tamamlandı, elle sonuçlandırılan yayın), `rollout.rolled_back` (Faz 21 otomatik geri alma / durdurma), `addon.failed` (Faz 22: hazırlama, kopya, yedek, geri yükleme), `domain.failed` ve `domain.certificate_expiring` (Faz 12; cert-manager `status.notAfter`), `limit.reached` (genel `notify.Limit` + `Emitter.Emit`, Faz 23 için). Kanal olayların alt kümesine abone olur; kullanıcı başına e-posta tercihleri (adres, tümden kapatma, istenmeyen olaylar)

@@ -25,6 +25,8 @@ textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
 .danger-zone .dz-row + .dz-row { border-top: 1px solid var(--border); }
 .danger-zone .dz-row > div { flex: 1; min-width: 220px; }
 .danger-zone p { margin: 4px 0 0; }
+.danger-zone .dz-list { margin: 6px 0 0; padding-left: 18px; }
+.danger-zone .dz-form { margin-top: 12px; }
 .set-sec > h2.danger-h { color: var(--err); }
 @media (max-width: 720px) {
   .set-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 12px; }
@@ -242,10 +244,31 @@ textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
         <p class="small muted">Veritabanı, verileri ve tüm yedekleri kalıcı olarak silinir. Silme, Veritabanları sekmesinde veritabanının adını yazarak onaylanır.</p></div>
       <a class="btn danger" href="/apps/{{$a.Name}}/databases">Veritabanlarına git</a>
     </div>
-    <div class="dz-row">
+    <div class="dz-row" id="delete-project">
       <div><strong>Projeyi sil</strong>
-        <p class="small muted" id="why-delete">Projeyi, tüm deploy'larını, adreslerini ve ayarlarını kaldırır. Arayüzden proje silme henüz yok: önce alan adlarını ve veritabanlarını kaldır, sonra projenin silinmesi için platform yöneticisine yaz.</p></div>
-      <button type="button" class="danger" disabled aria-describedby="why-delete" title="Arayüzden proje silme henüz yok">Projeyi sil</button>
+        <p class="small muted" id="why-delete"><span class="mono">{{$a.Name}}</span> projesi ve ona ait her şey kalıcı olarak silinir. Bu işlem geri alınamaz.</p>
+        <ul class="small muted dz-list">
+          <li>Tüm deploy'lar ve logları; canlı adres, önizleme adresleri ve deploy adresleri hemen yanıt vermeyi keser. Devam eden deploy'lar iptal edilir.</li>
+          <li>Bağlı alan adları{{with .Data.Domains}} ({{len .}}){{end}} ve HTTPS sertifikaları.</li>
+          <li>Veritabanları ve içindeki veriler, önizleme kopyaları ve tüm yedekleri.</li>
+          <li>Ortam değişkenleri{{with .Data.EnvKeys}} ({{len .}}){{end}}, deploy hook'ları, süreç, koruma ve yayın ayarları, analitik verisi ve yorumlar.</li>
+        </ul>
+        <p class="small muted">GitHub reposu ve GitHub App kurulumu olduğu gibi kalır; aynı repoyu daha sonra yeniden içe aktarabilirsin. Terminal oturum kayıtları ve bildirim geçmişi proje adıyla saklanır.</p>
+        {{if .Data.CanDelete}}
+        <form method="post" action="/apps/{{$a.Name}}/delete" class="dz-form">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <label class="small" for="delete-confirm">Onaylamak için proje adını yaz: <span class="mono">{{$a.Name}}</span></label>
+          <div class="row">
+            <div><input id="delete-confirm" name="confirm" autocomplete="off" autocapitalize="off" spellcheck="false" required
+              data-delete-name="{{$a.Name}}" aria-describedby="why-delete"{{if .Data.DeleteInvalid}} aria-invalid="true"{{end}}></div>
+            <div style="flex:0"><button class="danger" type="submit">Projeyi kalıcı olarak sil</button></div>
+          </div>
+        </form>
+        {{else}}
+        <p class="small" id="delete-owner">{{.Data.DeleteBlocked}}</p>
+        {{end}}
+      </div>
+      {{if not .Data.CanDelete}}<button type="button" class="danger" disabled aria-describedby="delete-owner">Projeyi sil</button>{{end}}
     </div>
   </div>
 </section>
@@ -264,6 +287,14 @@ textarea { font-family: var(--mono); font-size: 13px; resize: vertical; }
     b.textContent = show ? "Gizle" : "Göster";
     b.setAttribute("aria-pressed", String(show));
     b.setAttribute("aria-label", show ? "Değeri gizle" : "Değeri göster");
+  });
+  // Projeyi sil: the button waits for the exact project name (the server
+  // checks it again; without JS the button is always enabled).
+  document.querySelectorAll("input[data-delete-name]").forEach((input) => {
+    const btn = input.form.querySelector('button[type="submit"]');
+    const sync = () => { btn.disabled = input.value.trim() !== input.dataset.deleteName; };
+    input.addEventListener("input", sync);
+    sync();
   });
   // The section nav marks the section being read.
   const links = [...document.querySelectorAll('.set-nav a[href^="#"]')];

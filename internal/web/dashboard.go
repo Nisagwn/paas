@@ -261,6 +261,10 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = s.Store.CreateAppInTeam(r.Context(), team.ID, name, repo, branch)
+	if errors.Is(err, store.ErrAppDeleting) { // Faz 28 (tr_delete.go)
+		fail(http.StatusConflict, tr(api.MsgAppDeleting), &helpName)
+		return
+	}
 	if errors.Is(err, store.ErrConflict) {
 		fail(http.StatusConflict, "Bu ad ya da repo ile bir proje zaten var.", &helpName)
 		return

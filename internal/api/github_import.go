@@ -189,6 +189,9 @@ func ImportAppLimited(ctx context.Context, st *store.Store, a *auth.Authenticato
 	}
 	// GitHub's spelling of the name, so webhooks and tokens match it exactly.
 	res.App, err = st.CreateAppInTeam(ctx, team.ID, name, pick.FullName, branch)
+	if errors.Is(err, store.ErrAppDeleting) { // Faz 28
+		return res, http.StatusConflict, errors.New(MsgAppDeleting)
+	}
 	if errors.Is(err, store.ErrConflict) {
 		return res, http.StatusConflict, errors.New("an app with this name or repo already exists")
 	}

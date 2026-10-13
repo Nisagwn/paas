@@ -107,6 +107,9 @@ var eventGroups = []eventGroup{
 	{"Plan", []eventInfo{
 		{notify.LimitReached, notify.EventLabels[notify.LimitReached], "Ekip bir plan limitine ulaştı; yeni işlemler reddediliyor."},
 	}},
+	{"Projeler", []eventInfo{
+		{notify.ProjectDeleted, notify.EventLabels[notify.ProjectDeleted], "Bir proje tüm deploy'ları, alan adları ve veritabanlarıyla silindi."},
+	}},
 }
 
 // eventChoice is one checkbox of an event fieldset.

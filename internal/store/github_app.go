@@ -145,7 +145,7 @@ func (s *Store) InstallationForRepo(ctx context.Context, repo string) (int64, er
 func (s *Store) ImportableRepos(ctx context.Context, teamIDs []int64) ([]ImportableRepo, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.installation_id, r.repo_id, r.full_name, r.private, i.account_login,
-			COALESCE((SELECT a.name FROM apps a WHERE lower(a.repo_full_name) = lower(r.full_name)
+			COALESCE((SELECT a.name FROM apps a WHERE lower(a.repo_full_name) = lower(r.full_name) AND a.deleting_at IS NULL
 			          ORDER BY a.id LIMIT 1), '')
 		FROM github_installation_repos r
 		JOIN github_installations i ON i.id = r.installation_id

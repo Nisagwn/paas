@@ -204,11 +204,18 @@ func (s *Store) CreateApp(ctx context.Context, name, repo, branch string) (App, 
 }
 
 // CreateAppInTeam creates an app owned by teamID (0: the "default" team).
+//
+// Faz 28: a name stays taken until the deletion of the project that had it
+// has finished (its namespace is gone): ErrAppDeleting, a conflict.
 func (s *Store) CreateAppInTeam(ctx context.Context, teamID int64, name, repo, branch string) (App, error) {
 	a, err := scanApp(s.db.QueryRowContext(ctx, `
 		INSERT INTO apps (name, repo_full_name, production_branch, team_id)
-		VALUES ($1, $2, $3, COALESCE(NULLIF($4, 0), (SELECT id FROM teams WHERE slug = 'default')))
+		SELECT $1, $2, $3, COALESCE(NULLIF($4, 0), (SELECT id FROM teams WHERE slug = 'default'))
+		WHERE NOT EXISTS (SELECT 1 FROM app_deletions WHERE app_name = $1 AND finished_at IS NULL)
 		RETURNING `+appCols, name, repo, branch, teamID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrAppDeleting
+	}
 	if isUniqueViolation(err) {
 		return a, ErrConflict
 	}
@@ -216,7 +223,7 @@ func (s *Store) CreateAppInTeam(ctx context.Context, teamID int64, name, repo, b
 }
 
 func (s *Store) ListApps(ctx context.Context) ([]App, error) {
-	return s.listApps(ctx, `SELECT `+appCols+` FROM apps ORDER BY name`)
+	return s.listApps(ctx, `SELECT `+appCols+` FROM apps WHERE deleting_at IS NULL ORDER BY name`)
 }
 
 func (s *Store) listApps(ctx context.Context, query string, args ...any) ([]App, error) {
@@ -236,13 +243,15 @@ func (s *Store) listApps(ctx context.Context, query string, args ...any) ([]App,
 	return apps, rows.Err()
 }
 
+// GetAppByName and GetAppByRepo do not find an app that is being deleted
+// (Faz 28): the API, the UI, pushes and hooks treat it as gone.
 func (s *Store) GetAppByName(ctx context.Context, name string) (App, error) {
-	return s.getApp(ctx, `name = $1`, name)
+	return s.getApp(ctx, `name = $1 AND deleting_at IS NULL`, name)
 }
 
 // GetAppByRepo matches GitHub's "owner/repo" case-insensitively.
 func (s *Store) GetAppByRepo(ctx context.Context, repo string) (App, error) {
-	return s.getApp(ctx, `lower(repo_full_name) = lower($1)`, repo)
+	return s.getApp(ctx, `lower(repo_full_name) = lower($1) AND deleting_at IS NULL`, repo)
 }
 
 func (s *Store) getApp(ctx context.Context, where string, arg any) (App, error) {
@@ -284,11 +293,17 @@ func (s *Store) EnqueueDeploymentFrom(ctx context.Context, appID int64, sha, bra
 		INSERT INTO deployments (app_id, commit_sha, branch, commit_message, origin, target)
 		SELECT $1, $2, $3, $4, $5,
 			CASE WHEN a.production_branch = $3 THEN 'production' ELSE 'preview' END
-		FROM apps a WHERE a.id = $1
+		FROM apps a WHERE a.id = $1 AND a.deleting_at IS NULL
 		ON CONFLICT (app_id, commit_sha, generation) DO NOTHING
 		RETURNING id`, appID, sha, branch, message, origin).Scan(&id)
 	created := true
 	if errors.Is(err, sql.ErrNoRows) {
+		// Faz 28: nothing is queued for an app that is being deleted.
+		var deleting bool
+		if err := s.db.QueryRowContext(ctx, `SELECT deleting_at IS NOT NULL FROM apps WHERE id = $1`, appID).
+			Scan(&deleting); errors.Is(err, sql.ErrNoRows) || deleting {
+			return Deployment{}, false, ErrNotFound
+		}
 		created = false
 		err = s.db.QueryRowContext(ctx,
 			`SELECT id FROM deployments WHERE app_id = $1 AND commit_sha = $2 AND generation = 0`, appID, sha).Scan(&id)

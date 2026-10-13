@@ -1539,6 +1539,39 @@ gerekmez. Deploy listesinde ve deploy sayfasında hazır deploy'ların yanında 
   4004 kabuk yok, 4009 çalışan pod yok, 4029 oturum sınırı, 1001 sunucu kapanıyor.
 - **Bağlantı koparsa** sayfadaki "Yeniden bağlan" yeni bir oturum açar (eski kabuk kapanmıştır; kayıt ayrı satırdır).
 
+### Proje silme (Faz 28)
+
+Ayarlar › Tehlikeli bölge › **Projeyi sil**: sayfa neyin silineceğini (deploy'lar ve adresleri, alan adları, veritabanları
+ve verileri, ortam değişkenleri, ayarlar) ve geri alınamayacağını söyler; onay için proje adı yazılır. JS varken düğme ad
+eşleşene kadar kapalıdır, JS olmadan sunucu adı kontrol eder. Başarıda `/` açılır: "„blog“ projesi silindi."
+
+- **Kim:** ekibin owner'ı, platform yöneticileri (`PAAS_ADMIN_GITHUB_LOGINS`) ve admin token'ı. Member / viewer `403`
+  (arayüzde gerekçeli kapalı düğme), başka ekip `404`.
+- **API:** `DELETE /api/apps/{name}` gövdesi `{"confirm":"<ad>"}`; ad tutmazsa `400`. Hiçbir deploy çalışmıyorsa ve namespace
+  hemen kalkıyorsa `204`; çalışan deploy'lar duruyor ya da namespace sonlanıyorsa `202` (`{"app","status":"deleting","deletion_id"}`),
+  arka plan döngüsü saniyeler içinde bitirir. Uygulama her iki durumda da API'de, listelerde ve push'larda hemen yok olur.
+- **CLI:** `paas apps delete <app>` adı sorar; `--yes` sormaz.
+- **Adımlar** (`internal/appdelete`, migration 021; her adım tekrarlanabilir, çökme sonrası döngü kaldığı yerden sürer):
+  1. Tek işlemde: `app_deletions` kaydı (kim, ne zaman), `apps.deleting_at` (push, deploy hook, redeploy, API ve listeler
+     uygulamayı görmez; kuyruğa yeni iş girmez, worker almaz), kuyruktaki deploy'lar iptal, çalışanlara Faz 17 iptal isteği,
+     `audit_log`'a `app_delete` satırı. `project.deleted` bildirimi gönderilir.
+  2. Hiçbir deploy `building` / `deploying` değilken tek işlemde uygulama satırı silinir; ona bağlı her tablo CASCADE ile gider
+     (deploy'lar ve logları, alias'lar, değişkenler, alan adları, hook'lar, build / süreç / yayın / koruma ayarları, rollout'lar,
+     metrikler, eklentiler + kopya ve yedek kayıtları, yorumlar, bildirim süzgeçleri). Yalnızca bu projeyi izleyen bildirim
+     kanalları kapatılır (süzgeçsiz kanal bütün projeleri alır).
+  3. Küme: `app-<ad>` namespace'i ve uygulamayla etiketli diğer namespace'ler silinir; içindeki her şey (Deployment, Service,
+     Ingress, IngressRoute / TraefikService / Middleware, süreçler, CronJob'lar, eklenti StatefulSet / PVC / yedek ve kopya
+     Job'ları, env Secret'ları, cert-manager Certificate ve Secret'ları) onunla gider. Namespace dışında kalan tek şey `Retain`
+     politikalı PersistentVolume'lardır; bunlar ayrıca silinir (RBAC'e `persistentvolumes` `get/list/delete` eklendi).
+     ClusterIssuer, Traefik ve kontrol düzlemi namespace'inde uygulamaya ait nesne yoktur. Namespace tamamen kalkınca kayıt biter.
+     `PAAS_DEPLOYER=dryrun` ile küme adımı yoktur.
+- **Ad yeniden kullanımı:** ad ve repo, 3. adım bitince serbesttir (çoğunlukla isteğin içinde). O ana kadar aynı adla proje
+  oluşturma / import `409` "still being deleted" döner; böylece yeni proje eski namespace'e hiç denk gelmez. Aynı reponun
+  yeniden import'u çalışır.
+- **Kalanlar:** denetim kaydı (terminal oturumları ve silme satırı) proje adıyla, `app_id` boş olarak saklanır; bildirim
+  geçmişi ve `app_deletions` kaydı da kalır. Plan kullanımındaki proje sayısı silme anında düşer. GitHub App kurulumuna ve
+  repoya dokunulmaz; PR'lara yazılmış preview yorumları silinmez.
+
 ## Yerel geliştirme
 
 Gerekenler: Go 1.24+, Docker, `openssl`.
@@ -1629,6 +1662,7 @@ göre yetkilendirilir (viewer okur, member değiştirir; bkz. [roller](#kullanı
 | GET | `/api/github/repos` | Ekiplerin GitHub App kurulumlarındaki repolar (`team`, `can_import`; zaten import edildiyse `app`) |
 | POST | `/api/apps/import` | `{"repo","name"?,"team"?,"production_branch"?}` — member+; uygulamayı oluşturur, ilk deploy'u kuyruğa koyar (`201`, `{"app","deployment"?,"warning"?}`); import edilemeyen repo `404`, çakışma `409` |
 | GET | `/api/apps/{name}` | Uygulama + alias'lar |
+| DELETE | `/api/apps/{name}` | `{"confirm":"<ad>"}` — projeyi her şeyiyle siler (owner / platform yöneticisi); bittiyse `204`, arka planda sürüyorsa `202`; ad tutmazsa `400` ([Faz 28](#proje-silme-faz-28)) |
 | GET | `/api/apps/{name}/deployments?limit=` | Deployment geçmişi |
 | POST | `/api/apps/{name}/rollback` | `{"deployment_id"}` — production alias'ını taşır |
 | GET | `/api/apps/{name}/env` | `{"keys":[…],"vars":[{"key","target","git_branch"?,"updated_at"}]}` — değerler API'den asla okunmaz |

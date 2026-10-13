@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/appdelete"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
 	"github.com/nisagwn/paas/internal/notify"
@@ -93,6 +94,10 @@ type Server struct {
 	Limits    *ratelimit.Set
 	Suspender api.Suspender
 	Legal     Legal
+
+	// Faz 28 (delete.go): project deletion; nil deletes without a cluster
+	// (the rows only, as with the dry-run deployer).
+	Deleter *appdelete.Service
 
 	pages map[string]*template.Template
 }
@@ -165,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /apps/{name}/analytics", s.authed(s.analyticsPage))
 	mux.Handle("GET /apps/{name}/settings", s.authed(s.settingsPage))
 	mux.Handle("POST /apps/{name}/settings", s.authed(s.saveSettings))
+	mux.Handle("POST /apps/{name}/delete", s.authed(s.deleteApp)) // Faz 28 (delete.go)
 	mux.Handle("POST /apps/{name}/promote", s.authed(s.promote))
 	mux.Handle("POST /apps/{name}/redeploy", s.authed(s.redeploy))
 	mux.Handle("POST /apps/{name}/cancel", s.authed(s.cancel))
@@ -332,6 +338,9 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	p := page{
 		Title: tr(title), CSRF: s.Sessions.CSRFToken(r), Domain: s.Domain, Data: data, Error: tr(errMsg),
 		Flash: flashes[r.URL.Query().Get("ok")],
+	}
+	if f, ok := deletedFlash(r); ok { // Faz 28
+		p.Flash = f
 	}
 	p.Nonce, _ = r.Context().Value(nonceKey).(string)
 	p.Me, p.LoggedIn = auth.From(r.Context())

@@ -137,6 +137,12 @@ func TestAuthorizationMatrix(t *testing.T) {
 		before func()
 	}{
 		{"GET", "/api/apps/blog", nil, read, nil},
+		// Faz 28: deleting a project is the team owner's (and the admin's);
+		// "doomed" is recreated before every caller.
+		{"DELETE", "/api/apps/doomed", func(string) any { return map[string]string{"confirm": "doomed"} },
+			want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 204, "dave": 404, "admin": 204}, f.doomed},
+		{"DELETE", "/api/apps/doomed", func(string) any { return map[string]string{"confirm": "nope"} },
+			want{"anonymous": 401, "carol": 403, "bob": 403, "alice": 400, "dave": 404, "admin": 400}, f.doomed},
 		{"GET", "/api/apps/blog/deployments", nil, read, nil},
 		{"GET", "/api/apps/blog/env", nil, read, nil},
 		{"GET", fmt.Sprintf("/api/apps/blog/deployments/%d/runtime-logs", d), nil, read, nil},

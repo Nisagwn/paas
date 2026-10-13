@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nisagwn/paas/internal/api"
+	"github.com/nisagwn/paas/internal/appdelete"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/build"
 	"github.com/nisagwn/paas/internal/cleanup"
@@ -199,6 +200,22 @@ func run(log *slog.Logger) error {
 	}
 	w.Notifier = deploymentNotifier(notifications, st, log, w.Notifier)
 	apiSrv.Notifications, ui.Notifications, verifier.Notify = notifications, notifications, notifications
+	// Faz 28: project deletion; the loop finishes deletions that wait for
+	// running deployments or a terminating namespace, also after a crash.
+	var _ appdelete.Cluster = (*deploy.Kubernetes)(nil) // nil with the dry-run deployer
+	deleter := &appdelete.Service{Store: st, Log: log}
+	if c, ok := applier.(appdelete.Cluster); ok {
+		deleter.Cluster = c
+	}
+	if notifications != nil {
+		deleter.Notify = notifications
+	}
+	apiSrv.Deleter, ui.Deleter = deleter, deleter
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		deleter.Run(ctx)
+	}()
 	// Faz 22: managed databases; deployments wait for their copies.
 	dbs, err := startAddons(ctx, st, applier, log, &wg, notifications)
 	if err != nil {

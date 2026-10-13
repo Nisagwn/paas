@@ -39,6 +39,8 @@ const (
 	DomainFailed       = "domain.failed"
 	CertExpiring       = "domain.certificate_expiring"
 	LimitReached       = "limit.reached"
+	// ProjectDeleted: a project and its resources were deleted (Faz 28).
+	ProjectDeleted = "project.deleted"
 	// Test is sent by "Test gönder" to one channel; nobody subscribes to it.
 	Test = "test"
 )
@@ -46,14 +48,14 @@ const (
 // EventTypes lists the subscribable types in display order.
 var EventTypes = []string{
 	DeploymentReady, DeploymentFailed, DeploymentCanceled, ProductionChanged, RolloutRolledBack,
-	AddonFailed, DomainFailed, CertExpiring, LimitReached,
+	AddonFailed, DomainFailed, CertExpiring, LimitReached, ProjectDeleted,
 }
 
 // DefaultEvents is what a channel created without a list receives: every
 // type except deployment.ready, which is frequent on busy teams.
 var DefaultEvents = []string{
 	DeploymentFailed, DeploymentCanceled, ProductionChanged, RolloutRolledBack,
-	AddonFailed, DomainFailed, CertExpiring, LimitReached,
+	AddonFailed, DomainFailed, CertExpiring, LimitReached, ProjectDeleted,
 }
 
 // EventLabels are the Turkish names of the event types (UI, emails).
@@ -67,6 +69,7 @@ var EventLabels = map[string]string{
 	DomainFailed:       "Alan adı doğrulanamadı",
 	CertExpiring:       "Sertifikanın süresi doluyor",
 	LimitReached:       "Limite ulaşıldı",
+	ProjectDeleted:     "Proje silindi",
 	Test:               "Test bildirimi",
 }
 

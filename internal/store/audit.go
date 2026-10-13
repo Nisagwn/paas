@@ -43,8 +43,8 @@ func (s *Store) StartAudit(ctx context.Context, e AuditEntry) (int64, error) {
 	}
 	var id int64
 	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO audit_log (action, app_id, deployment_id, user_id, actor, process, pod)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		INSERT INTO audit_log (action, app_id, app_name, deployment_id, user_id, actor, process, pod)
+		VALUES ($1, $2, COALESCE((SELECT name FROM apps WHERE id = $2), ''), $3, $4, $5, $6, $7) RETURNING id`,
 		e.Action, e.AppID, dep, uid, e.Actor, e.Process, e.Pod).Scan(&id)
 	return id, err
 }

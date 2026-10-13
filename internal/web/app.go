@@ -90,6 +90,11 @@ type appDetail struct {
 	Team     store.Team
 	Role     string
 	CanWrite bool
+	// Faz 28 (delete.go): team owners and platform admins may delete the
+	// project; DeleteInvalid marks a typed name that did not match.
+	CanDelete     bool
+	DeleteInvalid bool
+	DeleteBlocked string
 
 	// Ayarlar. EnvKeys are the distinct variable names.
 	EnvKeys    []string
@@ -164,6 +169,10 @@ func (s *Server) appDetail(ctx context.Context, app store.App) (appDetail, error
 		return v, err
 	}
 	v.Role, v.CanWrite = role, store.RoleAllows(role, store.RoleMember)
+	v.CanDelete = role == store.RoleOwner || s.Auth.PlatformAdmin(me)
+	if !v.CanDelete {
+		v.DeleteBlocked = msgDeleteOwner
+	}
 	aliases, err := s.Store.ListAliases(ctx, app.ID)
 	if err != nil {
 		return v, err

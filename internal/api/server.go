@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nisagwn/paas/internal/appdelete"
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/naming"
 	"github.com/nisagwn/paas/internal/notify"
@@ -97,6 +98,9 @@ type Server struct {
 	// Faz 26 (notifications.go): channels, test messages and production
 	// change events; nil stores channels but sends nothing.
 	Notifications *notify.Service
+	// Faz 28 (delete.go): project deletion; nil deletes without a cluster
+	// (the rows only, as with the dry-run deployer).
+	Deleter *appdelete.Service
 }
 
 func (s *Server) Handler() http.Handler {
@@ -124,6 +128,8 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/apps/import", s.importApp)
 	// Per-app endpoints: requireApp checks the caller's team role (access.go).
 	api.HandleFunc("GET /api/apps/{name}", s.requireApp(viewer, s.getApp))
+	// Faz 28: team owners and platform admins (delete.go checks).
+	api.HandleFunc("DELETE /api/apps/{name}", s.deleteApp)
 	api.HandleFunc("GET /api/apps/{name}/deployments", s.requireApp(viewer, s.listDeployments))
 	api.HandleFunc("POST /api/apps/{name}/rollback", s.requireApp(member, s.rollback))
 	api.HandleFunc("GET /api/apps/{name}/env", s.requireApp(viewer, s.getEnv))
@@ -304,6 +310,10 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app, err := s.Store.CreateAppInTeam(r.Context(), team.ID, req.Name, req.Repo, req.ProductionBranch)
+	if errors.Is(err, store.ErrAppDeleting) {
+		writeError(w, http.StatusConflict, MsgAppDeleting)
+		return
+	}
 	if errors.Is(err, store.ErrConflict) {
 		writeError(w, http.StatusConflict, "an app with this name or repo already exists")
 		return

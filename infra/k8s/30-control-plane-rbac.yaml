@@ -58,6 +58,12 @@ rules:
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Project deletion (Faz 28): deleting the namespace removes everything in
+  # it; volumes with the Retain reclaim policy outlive their claims and are
+  # deleted explicitly (cluster-scoped).
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [get, list, delete]
   # networkpolicies: per-app isolation; ingresses: deployment and alias routes (Faz 4).
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies, ingresses]

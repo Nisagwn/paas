@@ -92,6 +92,12 @@ func commandList() []command {
 			summary: "Manage custom domains", run: cmdDomains},
 		{name: "import", args: "<owner/repo> [--name n] [--team t] [--branch b]",
 			summary: "Import a GitHub repository and queue its first deployment", run: cmdImport},
+		// Faz 28 (apps.go).
+		{name: "apps", args: "delete <app> [--yes]",
+			summary: "Delete an app with its deployments, domains, databases and variables",
+			help: "Only team owners (and platform admins) may delete. Without --yes the command asks for the\n" +
+				"app name. Running deployments are canceled; the GitHub repository is left alone.",
+			run: cmdApps},
 		{name: "open", args: "<app> [--print]", summary: "Open the app's production URL in the browser", run: cmdOpen},
 		// Faz 20 (processes.go).
 		{name: "ps", args: "<app> [--deployment ID] | scale <app> NAME=N...",

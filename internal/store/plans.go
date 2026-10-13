@@ -140,7 +140,7 @@ func (s *Store) UnsuspendTeam(ctx context.Context, teamID int64) error {
 
 // TeamAppNames lists the names of a team's apps.
 func (s *Store) TeamAppNames(ctx context.Context, teamID int64) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name FROM apps WHERE team_id = $1 ORDER BY name`, teamID)
+	rows, err := s.db.QueryContext(ctx, `SELECT name FROM apps WHERE team_id = $1 AND deleting_at IS NULL ORDER BY name`, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ type TeamUsage struct {
 // usageCols computes TeamUsage for the team id in column team (an
 // expression); $1 is the start of the month, $2 the start of the day.
 func usageCols(team string) string {
-	return `(SELECT count(*) FROM apps ua WHERE ua.team_id = ` + team + `),
+	return `(SELECT count(*) FROM apps ua WHERE ua.team_id = ` + team + ` AND ua.deleting_at IS NULL),
 		(SELECT count(*) FROM app_domains dm JOIN apps ua ON ua.id = dm.app_id WHERE ua.team_id = ` + team + `),
 		(SELECT count(*) FROM addons ad JOIN apps ua ON ua.id = ad.app_id WHERE ua.team_id = ` + team + ` AND ad.status <> 'deleting'),
 		(SELECT count(*) FROM deployments ud JOIN apps ua ON ua.id = ud.app_id WHERE ua.team_id = ` + team + ` AND ud.created_at >= $2),
@@ -373,7 +373,7 @@ func (s *Store) ClaimNextFor(ctx context.Context, caps ClaimCaps) (Deployment, e
 		WHERE id = (
 			SELECT d.id FROM deployments d
 			JOIN apps a ON a.id = d.app_id JOIN teams t ON t.id = a.team_id
-			WHERE d.status = 'queued' AND t.suspended_at IS NULL
+			WHERE d.status = 'queued' AND t.suspended_at IS NULL AND a.deleting_at IS NULL
 				AND (NOT $1 OR `+capExpr+` < 0 OR (
 					SELECT count(*) FROM deployments r JOIN apps ra ON ra.id = r.app_id
 					WHERE ra.team_id = t.id AND r.status IN ('building', 'deploying')) < `+capExpr+`)
