@@ -24,7 +24,7 @@
     <span class="muted">· {{if eq $x.Range "1h"}}dakikalık{{else if eq $x.Range "24h"}}10 dakikalık{{else}}saatlik{{end}} adımlar, UTC</span>
   </div>
   {{$x.Chart}}
-  {{if not $x.View.Histogram}}<p class="muted small" style="margin:8px 0 0">Yanıt süreleri için Traefik'in süre histogramı gerekir (bkz. README, Analitik).</p>{{end}}
+  {{if not $x.View.Histogram}}<p class="muted small" style="margin:8px 0 0">Yanıt süreleri için Traefik'in süre histogramı gerekir (bkz. docs/KULLANIM.md, Analitik).</p>{{end}}
 </div>
 
 <h2>Deploy sağlığı <span class="muted small" style="font-weight:400">· son 15 dakika</span></h2>

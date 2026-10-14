@@ -6,7 +6,7 @@
 #   scripts/k3d-up.sh          # create
 #   scripts/k3d-up.sh down     # delete cluster and registry
 #
-# Then run the control plane against it (see README, "Yerel Kubernetes"):
+# Then run the control plane against it (see README, "Hızlı başlangıç", 2b):
 #   PAAS_BUILDER=docker PAAS_REGISTRY=localhost:5111
 #   PAAS_DEPLOYER=kubernetes PAAS_INGRESS_TLS=false PAAS_DOMAIN=localtest.me
 set -euo pipefail
