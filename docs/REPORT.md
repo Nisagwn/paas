@@ -67,7 +67,7 @@ paas, Vercel'in değişmez deployment + alias modelini Kubernetes nesnelerine bi
 
 ## 4. Mimari
 
-Ayrıntılı diyagramlar: [ARCHITECTURE.md](ARCHITECTURE.md).
+Ayrıntılı diyagramlar: [MIMARI.md](MIMARI.md).
 
 Kontrol düzlemi tek bir Go ikilisidir. Ayrı mikroservisler yerine tek süreç seçildi:
 bileşenler aynı veritabanı durumunu paylaşır, aralarında ağ çağrısı yoktur, dağıtım ve
