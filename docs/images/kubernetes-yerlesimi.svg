@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" width="960" height="700" role="img" aria-labelledby="t d">
+  <title id="t">Kubernetes yerleşimi</title>
+  <desc id="d">kube-system'de Traefik ve wildcard sertifika; küme kapsamında kontrol düzleminin ClusterRole'ü ve cert-manager ClusterIssuer'ları; paas namespace'inde kontrol düzlemi, PostgreSQL ve buildkitd; her uygulamanın app-ad namespace'inde rotalar, değişmez deploy nesneleri, namespace politikaları ve eklentiler.</desc>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #0f172a; }
+      .ttl { font-size: 18px; font-weight: 700; }
+      .grp { font-size: 12.5px; font-weight: 700; fill: #1e293b; }
+      .h { font-size: 12px; font-weight: 600; }
+      .s { font-size: 11px; fill: #334155; }
+      .t { font-size: 11px; fill: #64748b; }
+      .ks { fill: #fff7ed; stroke: #ea580c; stroke-width: 1.2; }
+      .cl { fill: #f8fafc; stroke: #64748b; stroke-width: 1.2; stroke-dasharray: 6 4; }
+      .cp { fill: #eef2ff; stroke: #6366f1; stroke-width: 1.2; }
+      .app { fill: #ecfdf5; stroke: #10b981; stroke-width: 1.2; }
+      .box { fill: #ffffff; stroke: #94a3b8; stroke-width: 1; }
+      .a { fill: none; stroke: #334155; stroke-width: 1.4; marker-end: url(#ar); }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="700" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="36" class="ttl">Kubernetes yerleşimi</text>
+
+  <!-- kube-system -->
+  <rect x="20" y="56" width="500" height="176" rx="10" class="ks"/>
+  <text x="32" y="76" class="grp">namespace: kube-system</text>
+  <rect x="32" y="86" width="220" height="134" rx="8" class="box"/>
+  <text x="44" y="106" class="h">Traefik (k3s ile gelir)</text>
+  <text x="44" y="126" class="s">Ingress + CRD sağlayıcısı</text>
+  <text x="44" y="144" class="s">:80 → HTTPS yönlendirmesi</text>
+  <text x="44" y="162" class="s">:443 websecure · wildcard TLS</text>
+  <text x="44" y="180" class="s">ForwardAuth · ağırlıklı servis</text>
+  <text x="44" y="198" class="s">:9100 Prometheus metrikleri</text>
+  <rect x="264" y="86" width="244" height="134" rx="8" class="box"/>
+  <text x="276" y="106" class="s">TLSStore default → wildcard-tls</text>
+  <text x="276" y="124" class="s">Certificate wildcard (DNS-01)</text>
+  <text x="276" y="142" class="s">IngressRoute redirect-https</text>
+  <text x="276" y="160" class="s">HelmChartConfig traefik (metrikler)</text>
+  <text x="276" y="178" class="s">Role paas-traefik-metrics</text>
+  <text x="288" y="196" class="t">yalnızca pods/proxy: get</text>
+
+  <!-- cluster scoped -->
+  <rect x="536" y="56" width="404" height="176" rx="10" class="cl"/>
+  <text x="548" y="76" class="grp">Küme kapsamlı</text>
+  <text x="548" y="98" class="h">ClusterRole paas-control-plane → SA paas/paas</text>
+  <text x="560" y="116" class="s">yazma: namespaces, deployments, services, secrets,</text>
+  <text x="560" y="132" class="s">ingresses, networkpolicies, jobs, cronjobs, statefulsets,</text>
+  <text x="560" y="148" class="s">pvc, endpointslices, traefik.io (route, middleware)</text>
+  <text x="560" y="164" class="s">okuma: pods, pods/log, events, certificates, metrics</text>
+  <text x="560" y="180" class="s">pods/exec (terminal) · persistentvolumes: get/list/delete</text>
+  <text x="548" y="202" class="h">ClusterIssuer letsencrypt · letsencrypt-http01</text>
+  <text x="560" y="220" class="s">cert-manager (namespace: cert-manager)</text>
+
+  <!-- paas namespace -->
+  <rect x="20" y="250" width="330" height="430" rx="10" class="cp"/>
+  <text x="32" y="270" class="grp">namespace: paas</text>
+  <rect x="32" y="280" width="306" height="104" rx="8" class="box"/>
+  <text x="44" y="299" class="h">Deployment paas · 1 kopya · SA paas</text>
+  <text x="44" y="318" class="s">UID 65532 · salt okunur kök · yetkiler düşük</text>
+  <text x="44" y="336" class="s">:8080 API · arayüz · webhook · /_auth/verify</text>
+  <text x="44" y="354" class="s">:8081 aktivatör (uyuyan deploy'lar)</text>
+  <text x="44" y="372" class="t">emptyDir /tmp: klonlar · Secret: ECR, GitHub App</text>
+  <rect x="32" y="394" width="306" height="58" rx="8" class="box"/>
+  <text x="44" y="414" class="h">Service + IngressRoute paas</text>
+  <text x="44" y="432" class="s">apex &lt;domain&gt; · Certificate paas-apex</text>
+  <rect x="32" y="462" width="306" height="58" rx="8" class="box"/>
+  <text x="44" y="482" class="h">StatefulSet postgres</text>
+  <text x="44" y="500" class="s">postgres:16-alpine · PVC 10Gi (local-path)</text>
+  <rect x="32" y="530" width="306" height="58" rx="8" class="box"/>
+  <text x="44" y="550" class="h">Deployment buildkitd (rootless)</text>
+  <text x="44" y="568" class="s">:1234 · PVC 15Gi build önbelleği</text>
+  <rect x="32" y="598" width="306" height="70" rx="8" class="box"/>
+  <text x="44" y="618" class="h">NetworkPolicy postgres · buildkitd</text>
+  <text x="44" y="636" class="s">yalnızca app.kubernetes.io/name=paas</text>
+  <text x="44" y="652" class="s">pod'undan, yalnızca 5432 / 1234</text>
+
+  <!-- app namespace -->
+  <rect x="366" y="250" width="574" height="430" rx="10" class="app"/>
+  <text x="378" y="270" class="grp">namespace: app-&lt;ad&gt;</text>
+
+  <rect x="378" y="280" width="270" height="176" rx="8" class="box"/>
+  <text x="390" y="299" class="h">Rotalar · uygulama başına</text>
+  <text x="390" y="319" class="s">Ingress alias-&lt;ad&gt; → production deploy'u</text>
+  <text x="390" y="337" class="s">Ingress alias-&lt;branch&gt;-&lt;ad&gt; → preview</text>
+  <text x="390" y="355" class="s">Ingress domain-&lt;host&gt;-&lt;hash&gt; + TLS Secret</text>
+  <text x="390" y="373" class="s">Middleware paas-protect (ForwardAuth)</text>
+  <text x="390" y="391" class="s">TraefikService rollout + IngressRoute</text>
+  <text x="402" y="407" class="t">yalnızca canary sürerken (öncelik 100000)</text>
+  <text x="390" y="431" class="t">Hepsi Postgres'teki aliases tablosundan</text>
+  <text x="390" y="446" class="t">routing.Syncer ile üretilir.</text>
+
+  <rect x="660" y="280" width="268" height="176" rx="8" class="box"/>
+  <text x="672" y="299" class="h">Deploy başına · değişmez</text>
+  <text x="672" y="319" class="s">Secret d-&lt;sha7&gt;-env (env anlık görüntüsü)</text>
+  <text x="672" y="337" class="s">Deployment + Service d-&lt;sha7&gt; (:80→:8080)</text>
+  <text x="672" y="355" class="s">Ingress d-&lt;sha7&gt; → &lt;sha7&gt;-&lt;ad&gt;.&lt;domain&gt;</text>
+  <text x="672" y="373" class="s">Deployment d-&lt;sha7&gt;-w-&lt;süreç&gt; (worker)</text>
+  <text x="672" y="391" class="s">CronJob d-&lt;sha7&gt;-c-&lt;süreç&gt; (cron)</text>
+  <text x="672" y="409" class="s">EndpointSlice d-&lt;sha7&gt;-activator</text>
+  <text x="684" y="425" class="t">uyurken Service → paas :8081</text>
+  <text x="672" y="446" class="t">Sahibi Deployment: silinince hepsi gider.</text>
+
+  <rect x="378" y="468" width="270" height="200" rx="8" class="box"/>
+  <text x="390" y="487" class="h">Namespace politikaları</text>
+  <text x="390" y="507" class="s">ResourceQuota paas · plan + eklenti payı</text>
+  <text x="390" y="525" class="s">LimitRange paas · varsayılan limitler</text>
+  <text x="390" y="547" class="s">NetworkPolicy paas (eklenti dışı pod'lar):</text>
+  <text x="402" y="563" class="t">giriş yalnızca kube-system'den (Traefik)</text>
+  <text x="402" y="579" class="t">ve aktivatör için paas pod'undan</text>
+  <text x="390" y="601" class="s">NetworkPolicy paas-addons:</text>
+  <text x="402" y="617" class="t">yalnızca aynı namespace, 5432 / 6379</text>
+  <text x="390" y="641" class="s">Pod: runAsNonRoot · seccomp · ALL düşük</text>
+  <text x="402" y="657" class="t">SA token'ı bağlanmaz</text>
+
+  <rect x="660" y="468" width="268" height="200" rx="8" class="box"/>
+  <text x="672" y="487" class="h">Eklentiler · Postgres / Redis</text>
+  <text x="672" y="507" class="s">StatefulSet + Service addon-&lt;ad&gt; (1 kopya)</text>
+  <text x="672" y="525" class="s">PVC addon-&lt;ad&gt;-data · -backups</text>
+  <text x="672" y="543" class="s">Secret addon-&lt;ad&gt; · -branches</text>
+  <text x="672" y="561" class="s">ConfigMap addon-&lt;ad&gt;-init</text>
+  <text x="672" y="579" class="s">CronJob addon-&lt;ad&gt;-backup (günlük)</text>
+  <text x="672" y="597" class="s">Job: copy · drop · rotate · backup · restore</text>
+  <text x="672" y="621" class="t">preview başına veritabanı: preview_&lt;slug&gt;</text>
+  <text x="672" y="637" class="t">salt okunur kök · UID 70 / 999</text>
+
+  <!-- arrows -->
+  <line x1="142" y1="220" x2="142" y2="278" class="a"/>
+  <text x="150" y="246" class="s">apex · /_auth/verify</text>
+  <path d="M480,232 V240 H580 V278" class="a"/>
+  <text x="588" y="262" class="s">HTTPS → Service d-&lt;sha7&gt;</text>
+</svg>

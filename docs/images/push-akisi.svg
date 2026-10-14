@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 760" width="960" height="760" role="img" aria-labelledby="t d">
+  <title id="t">Bir push'un yolculuğu</title>
+  <desc id="d">GitHub push webhook'u imza doğrulandıktan sonra deployments tablosuna queued olarak yazılır. Worker işi FOR UPDATE SKIP LOCKED ile alır, commit'i SHA ile çeker, BuildKit ile imajı derleyip registry'ye iter, Kubernetes nesnelerini oluşturur, hazır olmayı bekler, alias'ları tek transaction'da taşır, Ingress'leri senkronlar ve GitHub ile bildirim kanallarına sonucu bildirir.</desc>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; fill: #0f172a; }
+      .ttl { font-size: 18px; font-weight: 700; }
+      .h { font-size: 13px; font-weight: 600; }
+      .s { font-size: 11px; fill: #475569; }
+      .m { font-size: 11.5px; fill: #1e293b; }
+      .n { font-size: 11px; font-weight: 600; fill: #ffffff; }
+      .hd { fill: #f1f5f9; stroke: #64748b; stroke-width: 1.2; }
+      .ll { stroke: #94a3b8; stroke-width: 1.2; stroke-dasharray: 4 4; }
+      .a { fill: none; stroke: #334155; stroke-width: 1.4; marker-end: url(#ar); }
+      .r { fill: none; stroke: #334155; stroke-width: 1.3; stroke-dasharray: 5 4; marker-end: url(#ar); }
+      .note { fill: #fffbeb; stroke: #d97706; stroke-width: 1.1; }
+      .frame { fill: #eef2ff; fill-opacity: 0.55; stroke: #6366f1; stroke-width: 1.1; stroke-dasharray: 6 4; }
+      .dot { fill: #4f46e5; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="760" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="24" y="36" class="ttl">Bir push'un yolculuğu</text>
+
+  <!-- participants: x = 90, 245, 400, 555, 710, 865 -->
+  <rect x="25" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="90" y="83" class="h" text-anchor="middle">GitHub</text>
+  <rect x="180" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="245" y="76" class="h" text-anchor="middle">API · webhook</text>
+  <text x="245" y="92" class="s" text-anchor="middle">internal/api</text>
+  <rect x="335" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="400" y="76" class="h" text-anchor="middle">PostgreSQL</text>
+  <text x="400" y="92" class="s" text-anchor="middle">kuyruk + durum</text>
+  <rect x="490" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="555" y="76" class="h" text-anchor="middle">Worker</text>
+  <text x="555" y="92" class="s" text-anchor="middle">internal/worker</text>
+  <rect x="645" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="710" y="76" class="h" text-anchor="middle">BuildKit → ECR</text>
+  <text x="710" y="92" class="s" text-anchor="middle">internal/build</text>
+  <rect x="800" y="56" width="130" height="44" rx="8" class="hd"/>
+  <text x="865" y="76" class="h" text-anchor="middle">Kubernetes</text>
+  <text x="865" y="92" class="s" text-anchor="middle">internal/deploy</text>
+
+  <line x1="90" y1="100" x2="90" y2="740" class="ll"/>
+  <line x1="245" y1="100" x2="245" y2="740" class="ll"/>
+  <line x1="400" y1="100" x2="400" y2="740" class="ll"/>
+  <line x1="555" y1="100" x2="555" y2="740" class="ll"/>
+  <line x1="710" y1="100" x2="710" y2="740" class="ll"/>
+  <line x1="865" y1="100" x2="865" y2="740" class="ll"/>
+
+  <!-- heartbeat frame -->
+  <rect x="470" y="290" width="478" height="390" rx="8" class="frame"/>
+  <text x="480" y="306" class="s">heartbeat her StaleAfter/4 · iptal isteği kontrolü · deploy zaman aşımı</text>
+
+  <!-- 1 -->
+  <circle cx="20" cy="134" r="9" class="dot"/><text x="20" y="138" class="n" text-anchor="middle">1</text>
+  <line x1="90" y1="140" x2="243" y2="140" class="a"/>
+  <text x="167" y="133" class="m" text-anchor="middle">push webhook</text>
+  <rect x="160" y="150" width="232" height="38" rx="6" class="note"/>
+  <text x="276" y="166" class="s" text-anchor="middle">HMAC-SHA256 imzası · repo → uygulama</text>
+  <text x="276" y="181" class="s" text-anchor="middle">atlama işareti · plan limiti</text>
+
+  <!-- 2 -->
+  <circle cx="20" cy="206" r="9" class="dot"/><text x="20" y="210" class="n" text-anchor="middle">2</text>
+  <line x1="245" y1="212" x2="398" y2="212" class="a"/>
+  <text x="322" y="205" class="m" text-anchor="middle">INSERT queued</text>
+
+  <!-- 3 -->
+  <line x1="245" y1="240" x2="92" y2="240" class="r"/>
+  <text x="167" y="233" class="m" text-anchor="middle">201 / 200 (aynı SHA)</text>
+
+  <!-- 4 -->
+  <circle cx="20" cy="264" r="9" class="dot"/><text x="20" y="268" class="n" text-anchor="middle">3</text>
+  <line x1="555" y1="270" x2="402" y2="270" class="a"/>
+  <text x="478" y="263" class="m" text-anchor="middle">FOR UPDATE SKIP LOCKED</text>
+
+  <!-- 5 -->
+  <circle cx="20" cy="324" r="9" class="dot"/><text x="20" y="328" class="n" text-anchor="middle">4</text>
+  <line x1="555" y1="330" x2="92" y2="330" class="a"/>
+  <text x="320" y="323" class="m" text-anchor="middle">commit status: pending</text>
+
+  <!-- 6 note -->
+  <circle cx="20" cy="362" r="9" class="dot"/><text x="20" y="366" class="n" text-anchor="middle">5</text>
+  <rect x="482" y="346" width="146" height="34" rx="6" class="note"/>
+  <text x="555" y="361" class="s" text-anchor="middle">git fetch --depth=1 &lt;sha&gt;</text>
+  <text x="555" y="374" class="s" text-anchor="middle">algıla · Dockerfile üret</text>
+
+  <!-- 7 -->
+  <line x1="555" y1="404" x2="708" y2="404" class="a"/>
+  <text x="632" y="397" class="m" text-anchor="middle">buildctl (yerel bağlam)</text>
+  <line x1="710" y1="432" x2="557" y2="432" class="r"/>
+  <text x="632" y="425" class="m" text-anchor="middle">push → sha256 digest</text>
+
+  <!-- 8 -->
+  <circle cx="20" cy="454" r="9" class="dot"/><text x="20" y="458" class="n" text-anchor="middle">6</text>
+  <line x1="555" y1="460" x2="402" y2="460" class="a"/>
+  <text x="478" y="453" class="m" text-anchor="middle">image@digest · deploying</text>
+
+  <!-- 9 -->
+  <circle cx="20" cy="494" r="9" class="dot"/><text x="20" y="498" class="n" text-anchor="middle">7</text>
+  <line x1="555" y1="500" x2="863" y2="500" class="a"/>
+  <text x="710" y="493" class="m" text-anchor="middle">Namespace · Secret · Deployment · Service · Ingress</text>
+  <line x1="865" y1="530" x2="557" y2="530" class="r"/>
+  <text x="710" y="523" class="m" text-anchor="middle">hazır (CrashLoop / ImagePull → hemen failed)</text>
+
+  <!-- 10 -->
+  <circle cx="20" cy="564" r="9" class="dot"/><text x="20" y="568" class="n" text-anchor="middle">8</text>
+  <line x1="555" y1="570" x2="402" y2="570" class="a"/>
+  <text x="478" y="563" class="m" text-anchor="middle">ready + alias'lar</text>
+  <rect x="270" y="580" width="260" height="38" rx="6" class="note"/>
+  <text x="400" y="596" class="s" text-anchor="middle">tek transaction · alias yalnızca ileri gider</text>
+  <text x="400" y="611" class="s" text-anchor="middle">canary/guarded ise rollouts satırı açılır</text>
+
+  <!-- 11 -->
+  <circle cx="20" cy="644" r="9" class="dot"/><text x="20" y="648" class="n" text-anchor="middle">9</text>
+  <line x1="555" y1="650" x2="863" y2="650" class="a"/>
+  <text x="710" y="643" class="m" text-anchor="middle">SyncApp: alias Ingress'leri (+ canary katmanı)</text>
+
+  <!-- 12 -->
+  <circle cx="20" cy="704" r="9" class="dot"/><text x="20" y="708" class="n" text-anchor="middle">10</text>
+  <line x1="555" y1="710" x2="92" y2="710" class="a"/>
+  <text x="320" y="703" class="m" text-anchor="middle">status: success · PR yorumu · bildirim outbox'ı</text>
+</svg>
