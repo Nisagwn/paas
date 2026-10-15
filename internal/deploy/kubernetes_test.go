@@ -98,7 +98,7 @@ func TestDeployCreatesObjects(t *testing.T) {
 	ctx := context.Background()
 
 	n, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
-	if err != nil || n.Labels[LabelManagedBy] != "paas" {
+	if err != nil || n.Labels[LabelManagedBy] != "paas" || n.Labels["pod-security.kubernetes.io/enforce"] != "baseline" {
 		t.Fatalf("namespace: %v %v", n.Labels, err)
 	}
 	q, err := cs.CoreV1().ResourceQuotas(ns).Get(ctx, "paas", metav1.GetOptions{})

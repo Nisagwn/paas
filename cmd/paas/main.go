@@ -85,6 +85,8 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Faz 29: RoleBindings of app namespaces created before least-privilege RBAC.
+	ensureAppAccess(applier, log)
 	// Alias routing exists only with a real deployer; nil interfaces otherwise.
 	var router *routing.Syncer
 	var apiRouter api.Router

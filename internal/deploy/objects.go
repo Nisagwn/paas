@@ -85,10 +85,26 @@ func (k *Kubernetes) ensureNamespace(ctx context.Context, app string) error {
 	ns := naming.Namespace(app)
 	lbl := map[string]string{LabelManagedBy: ManagedBy, LabelApp: app}
 
+	// Faz 29: Pod Security "baseline" keeps privileged, host-path and
+	// host-network pods out of app namespaces, so the control plane's
+	// rights there do not reach the node. A stricter level set by an
+	// operator ("restricted") is kept.
+	nsLbl := maps.Clone(lbl)
+	nsLbl[LabelPodSecurity] = PodSecurityLevel
 	nsc := k.client.CoreV1().Namespaces()
 	if _, err := apply(ctx, nsc, ns, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: lbl},
-	}, func(have *corev1.Namespace) bool { return mergeLabels(&have.Labels, lbl) }); err != nil {
+		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: nsLbl},
+	}, func(have *corev1.Namespace) bool {
+		want := maps.Clone(nsLbl)
+		if have.Labels[LabelPodSecurity] == "restricted" {
+			delete(want, LabelPodSecurity)
+		}
+		return mergeLabels(&have.Labels, want)
+	}); err != nil {
+		return err
+	}
+	// Faz 29: everything below needs paas-app-manager in the namespace.
+	if err := k.EnsureAppAccess(ctx, ns); err != nil {
 		return err
 	}
 

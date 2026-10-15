@@ -577,28 +577,68 @@ kök, `/tmp` emptyDir'de klonlar), `StatefulSet postgres` (10 GiB `local-path`),
 `buildkitd` (15 GiB önbellek). `NetworkPolicy`'ler Postgres'e ve buildkitd'ye yalnızca
 `app.kubernetes.io/name=paas` pod'unun erişmesine izin verir.
 
-**RBAC.** Uygulama namespace'leri önceden var olmadığı için kontrol düzleminin yetkisi bir
-`ClusterRole`'dür (`30-control-plane-rbac.yaml`); en az yetki ilkesi kaynak türü ve fiil
-düzeyinde uygulanır:
+**RBAC (Faz 29, en az yetki).** Kontrol düzleminin ServiceAccount'u (`paas/paas`) küme genelinde
+hiçbir namespace'li nesneye yazamaz. Yetkisi üç parçadır (`30-control-plane-rbac.yaml`):
+
+- `ClusterRole paas-control-plane` (küme genelinde bağlı) yalnızca küme kapsamlı olanı taşır:
+  `namespaces`, Retain politikalı birimler için `persistentvolumes` get/list/delete (Faz 28),
+  `rolebindings` create ve `clusterroles` üzerinde yalnızca `paas-app-manager` adına `bind`.
+- `ClusterRole paas-app-manager` uygulama namespace'i içindeki her fiili taşır ama küme genelinde
+  **bağlanmaz**: kontrol düzlemi `app-<ad>`'ı oluşturduğu anda oraya `RoleBinding
+  paas-control-plane` koyar (`internal/deploy/access.go`, `EnsureAppAccess`) ve yetkilendiricinin
+  bağlamayı görmesini bekler; kota, LimitRange ve NetworkPolicy ondan sonra gelir. Açılışta
+  `app-*` + `managed-by=paas` etiketli her namespace için aynı işlem idempotent olarak yapılır;
+  Faz 29'dan önce açılmış namespace'ler böylece kendiliğinden bağlanır. Kontrol düzlemi kendi
+  kimliğini `SelfSubjectReview` ile öğrenir; kubeconfig kullanıcısıyla (dizüstü kümesi) bağlama
+  yapılmaz.
+- `Role paas-traefik-metrics` (`kube-system`): Traefik pod'larını listeleme ve metriklerini pod
+  proxy'si üzerinden okuma.
+
+Kontrol düzleminin kendi namespace'inde (`paas`) yönettiği nesne yoktur (sırlar pod'a ortam
+değişkeni ve birim olarak gelir, aktivatörün EndpointSlice'ları uygulama namespace'lerindedir,
+apex rotası `kubectl` ile uygulanır); bu yüzden orada Role da yoktur. Sıfıra ölçeklemenin
+"tüm deploy'lar" ve "host'un arka ucu" sorguları da küme genelinde değil, uygulama namespace'leri
+tek tek dolaşılarak yapılır.
+
+RBAC kuralları namespace adı ya da etiketiyle sınırlanamaz; "her yerde rolebinding oluştur +
+`paas-app-manager`'ı bağla" tek başına rolü `kube-system`'de bağlamaya izin verirdi. Bu açığı
+üç `ValidatingAdmissionPolicy` kapatır (yalnızca `system:serviceaccount:paas:paas` isteklerine
+uygulanır, `failurePolicy: Fail`):
+
+| Politika | İzin verilen |
+|---|---|
+| `paas-control-plane-rolebindings` | Yalnızca `app-*` + `managed-by=paas` namespace'inde, yalnızca `ClusterRole paas-app-manager`'ı isteği yapan ServiceAccount'a bağlayan RoleBinding oluşturma / güncelleme; silme yok |
+| `paas-control-plane-namespaces` | `app-*` adlı, `managed-by=paas` ve Pod Security `baseline` (ya da `restricted`) etiketli namespace oluşturma; yalnızca zaten uygulama namespace'i olanı değiştirme / silme, etiketleri kaldırmadan |
+| `paas-control-plane-volumes` | Yalnızca `app-*`'tan talep edilmiş PersistentVolume silme; oluşturma / değiştirme yok |
+
+Uygulama namespace'leri `pod-security.kubernetes.io/enforce=baseline` taşır: ayrıcalıklı,
+`hostPath`'li ya da `hostNetwork`'lü pod çalışamaz, böylece uygulama namespace'indeki yetki düğüme
+(ve oradan kümeye) taşınamaz. paas'ın kendi pod'ları zaten `restricted` düzeyine yakındır; bir
+operatörün koyduğu `restricted` korunur.
 
 ```mermaid
 flowchart LR
     SA["ServiceAccount paas/paas"]
-    CR["ClusterRole paas-control-plane"]
+    CR["ClusterRole paas-control-plane<br/>(ClusterRoleBinding)"]
+    AM["ClusterRole paas-app-manager<br/>(yalnızca app-* içinde RoleBinding)"]
     R["Role paas-traefik-metrics<br/>(kube-system)"]
+    VAP["ValidatingAdmissionPolicy ×3"]
     SA --> CR
     SA --> R
-    CR --> W1["yazma: namespaces, deployments, services,<br/>secrets, configmaps, quotas, limitranges,<br/>ingresses, networkpolicies, jobs, cronjobs,<br/>statefulsets, pvc, endpointslices,<br/>traefik.io ingressroutes / middlewares / traefikservices"]
-    CR --> R1["yalnızca okuma: pods, pods/log, events,<br/>replicasets, cert-manager certificates,<br/>metrics.k8s.io pods"]
-    CR --> X1["dar: pods/exec (terminal) get/create,<br/>persistentvolumes get/list/delete,<br/>endpoints get/delete"]
-    R --> R2["pods/proxy get<br/>(Traefik metrikleri)"]
+    SA -. "RoleBinding paas-control-plane<br/>her app-&lt;ad&gt;'da" .-> AM
+    CR --> C1["namespaces (yazma app-* ile sınırlı),<br/>persistentvolumes get/list/delete,<br/>rolebindings create, bind paas-app-manager"]
+    VAP -. "app-* dışını reddeder" .-> C1
+    AM --> W1["yazma: deployments, services, secrets, configmaps,<br/>quotas, limitranges, ingresses, networkpolicies,<br/>jobs, cronjobs, statefulsets, pvc, endpointslices,<br/>traefik.io ingressroutes / middlewares / traefikservices"]
+    AM --> R1["okuma: pods, pods/log, events, replicasets,<br/>cert-manager certificates, metrics.k8s.io pods;<br/>pods/exec (terminal), endpoints get/delete,<br/>rolebindings get/update"]
+    R --> R2["pods get/list, pods/proxy get<br/>(Traefik metrikleri)"]
 ```
 
 Yıldızlı (`*`) kaynak ya da fiil yoktur; `pods/exec` yalnızca tarayıcı terminali içindir ve
-`PAAS_TERMINAL=false` ile birlikte kural kaldırılarak kümede de kapatılabilir. Sınırı açıkça
-söylemek gerekirse: `ClusterRole` küme genelinde Secret ve Deployment yazabilir; namespace'e
-kısıtlama bir admission politikasıyla (ör. yalnızca `app.kubernetes.io/managed-by=paas` etiketli
-namespace'ler) sıkılaştırılabilir, şu an yapılmıyor.
+`PAAS_TERMINAL=false` ile birlikte `paas-app-manager`'dan kural kaldırılarak kümede de
+kapatılabilir. Ele geçirilmiş bir kontrol düzlemi bugün uygulama namespace'lerinin içini (tüm
+uygulamaların sırları ve veritabanları dahil) yönetebilir; `kube-system`'e, kendi namespace'ine,
+cert-manager'a ve diğer namespace'lere yazamaz, küme rolü bağlayamaz, ayrıcalıklı pod
+çalıştıramaz. Kalan sınırlar §9'dadır.
 
 ---
 
@@ -765,6 +805,12 @@ eklenti yedekleri de aynı düğümde durur. Düğüm kaybı veri kaybıdır; d�
 - Env anahtarı Kubernetes Secret'ında durur, KMS ile sarılmaz.
 - Canary kararları dakikalık metriklere dayanır; bu yüzden adım en az 2 dakikadır.
 - İzin listeleri GitHub kullanıcı adıyla eşleşir; bırakılan bir ad başkasınca alınabilir.
+- **RBAC (Faz 29).** Admission politikaları ServiceAccount adını (`paas:paas`) sabit taşır;
+  kontrol düzlemi başka bir namespace'e ya da adla kurulursa politikalar da güncellenmelidir.
+  `ValidatingAdmissionPolicy` Kubernetes 1.30 ve üstünü ister (k3s v1.35 sağlar). Küme genelinde
+  kalan okumalar namespace ve PersistentVolume meta verisidir; `kube-system`'de Traefik
+  pod'larının listesi ve pod proxy'si okunur (proxy pod adıyla sınırlanamaz, pod adları değişir).
+  Uygulama namespace'leri arasında ayrım yoktur: tek bir kimlik hepsini yönetir.
 
 ---
 
@@ -775,7 +821,7 @@ eklenti yedekleri de aynı düğümde durur. Düğüm kaybı veri kaybıdır; d�
 | Kuyruk olarak PostgreSQL (`SKIP LOCKED`), Redis / Kafka yok | İş, durum ve alias aynı transaction'da; "kuyruğa yazıldı ama durum yazılmadı" olamaz. Tek düğümde ayrı bir broker işletme yükü. Darboğaz kuyruk değil build | Çok yüksek iş hacminde yoklama maliyeti; bu ölçekte ölçülebilir değil |
 | Veritabanı tek doğruluk kaynağı, küme ona uzlaştırılır | Kararlar (alias, rollback) bir yerde verilir; küme hatası kararı kaybettirmez, döngü uygular | Küme anlık olarak geride kalabilir (en fazla bir döngü) |
 | Değişmez deploy'lar + alias'lar | Rollback anlıktır (API p95 23 ms); her commit kalıcı bir adreste test edilebilir; yarışlar "alias yalnızca ileri gider" kuralıyla çözülür | Her deploy bir pod; kota, saklama ve sıfıra ölçeklemeyle sınırlanır |
-| Uygulama başına namespace | Kota, LimitRange ve NetworkPolicy doğal sınırla uygulanır; silme tek namespace silmesidir | ClusterRole gerekir; çok sayıda namespace |
+| Uygulama başına namespace | Kota, LimitRange ve NetworkPolicy doğal sınırla uygulanır; silme tek namespace silmesidir; kontrol düzleminin yetkisi namespace başına RoleBinding'le yalnızca uygulama namespace'lerine bağlanır (Faz 29) | Namespace başına RoleBinding ve admission politikaları; çok sayıda namespace |
 | Sunucu tarafı `html/template` + htmx | Build adımı yok, tek ikili, JS olmadan çalışan formlar, sıkı CSP | Zengin istemci etkileşimleri sınırlı |
 | Standart Ingress, CRD yalnızca gerektiğinde | Tipli client-go, test edilebilir, ingress denetleyicisinden bağımsız | Canary ve ForwardAuth Traefik'e bağlıdır |
 | Tek etiketli host'lar + wildcard sertifika | Tek sertifika tüm deploy ve alias'ları kapsar, Let's Encrypt sınırlarına takılmaz | Kontrol düzlemi apex'te; uygulama adları alt alan adlarıyla çakışmamalı |

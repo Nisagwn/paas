@@ -1,10 +1,31 @@
-# The control plane creates one namespace per app (app-<name>) and, inside
-# it, Deployments, Services, Secrets, ResourceQuotas, LimitRanges,
-# NetworkPolicies, Traefik IngressRoutes, (Faz 20) CronJobs and Jobs and (Faz 22)
-# StatefulSets and PersistentVolumeClaims of managed databases. Pods and pods/log are read to
-# report rollout progress and crash logs. Namespaces are cluster-scoped and
-# the app namespaces do not exist beforehand, hence a ClusterRole rather than
-# per-namespace Roles.
+# Faz 29: least-privilege RBAC of the control plane.
+#
+# The control plane (ServiceAccount paas/paas) creates one namespace per app
+# (app-<name>) and manages everything inside it. It holds no write access
+# to namespaced objects cluster-wide; its rights are split in three:
+#
+#   paas-control-plane (ClusterRole, bound cluster-wide)
+#       only what is cluster-scoped: namespaces, PersistentVolumes with the
+#       Retain policy (Faz 28), creating the RoleBinding below, and "bind"
+#       on paas-app-manager alone.
+#   paas-app-manager (ClusterRole, NOT bound cluster-wide)
+#       every verb inside an app namespace. When paas creates app-<name> it
+#       creates the RoleBinding "paas-control-plane" there
+#       (internal/deploy/access.go); at startup it ensures the binding in
+#       every existing app namespace.
+#   paas-traefik-metrics (Role in kube-system)
+#       reading Traefik's metrics through the pod proxy (Faz 11, 19).
+#
+# "create rolebindings" + "bind paas-app-manager" would let a compromised
+# control plane bind the role in kube-system; the ValidatingAdmissionPolicies
+# below refuse every RoleBinding, namespace change and volume deletion of the
+# ServiceAccount outside the app namespaces. RBAC rules cannot be limited by
+# namespace name or label, admission policies can.
+#
+# The control plane manages nothing in its own namespace (paas): its
+# Secrets reach the pod as environment variables and volumes, the
+# activator's EndpointSlices live in the app namespaces and its route
+# (31-control-plane.yaml) is applied by kubectl. Hence no Role there.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -20,9 +41,60 @@ metadata:
   labels:
     app.kubernetes.io/name: paas
 rules:
+  # App namespaces: created and labelled by deployments, add-ons and
+  # suspensions, listed by scale to zero (app-* with the managed-by label),
+  # deleted with the project (Faz 28). Writes are limited to app-* by the
+  # admission policy paas-control-plane-namespaces.
   - apiGroups: [""]
     resources: [namespaces]
     verbs: [get, list, watch, create, update, patch, delete]
+  # Project deletion (Faz 28): volumes with the Retain reclaim policy
+  # outlive their claims and are deleted explicitly. Deletion is limited to
+  # volumes claimed from app-* by paas-control-plane-volumes.
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [get, list, delete]
+  # The binding of paas-app-manager in a new app namespace. "create"
+  # cannot be namespace-limited in RBAC; paas-control-plane-rolebindings
+  # admits app-* only, with this role and this ServiceAccount as subject.
+  # Updates happen through paas-app-manager (in app namespaces only).
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [create]
+  # RBAC escalation check: a RoleBinding may only grant a role its creator
+  # holds or may "bind". paas may bind exactly one role.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    verbs: [bind]
+    resourceNames: [paas-app-manager]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: paas-control-plane
+  labels:
+    app.kubernetes.io/name: paas
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: paas-control-plane
+subjects:
+  - kind: ServiceAccount
+    name: paas
+    namespace: paas
+---
+# Everything paas does inside an app namespace: Deployments, Services,
+# Secrets, ResourceQuotas, LimitRanges, NetworkPolicies, Ingresses, Traefik
+# IngressRoutes, (Faz 20) CronJobs and Jobs, (Faz 22) StatefulSets and
+# PersistentVolumeClaims of managed databases. Bound per namespace by the
+# RoleBinding paas-control-plane, never by a ClusterRoleBinding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: paas-app-manager
+  labels:
+    app.kubernetes.io/name: paas
+rules:
   - apiGroups: [""]
     resources: [services, secrets, resourcequotas, limitranges, configmaps]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -51,19 +123,13 @@ rules:
   # Managed databases (Faz 22): each add-on is a StatefulSet with standalone
   # PersistentVolumeClaims (data, backups); copies, drops, rotations,
   # backups and restores are Jobs (above) whose results are read from their
-  # pods' termination messages (pods: get/list above). (pods/exec only for the browser terminal, Faz 27.)
+  # pods' termination messages (pods: get/list above).
   - apiGroups: [apps]
     resources: [statefulsets]
     verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: [""]
     resources: [persistentvolumeclaims]
     verbs: [get, list, watch, create, update, patch, delete]
-  # Project deletion (Faz 28): deleting the namespace removes everything in
-  # it; volumes with the Retain reclaim policy outlive their claims and are
-  # deleted explicitly (cluster-scoped).
-  - apiGroups: [""]
-    resources: [persistentvolumes]
-    verbs: [get, list, delete]
   # networkpolicies: per-app isolation; ingresses: deployment and alias routes (Faz 4).
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies, ingresses]
@@ -73,8 +139,8 @@ rules:
   - apiGroups: [cert-manager.io]
     resources: [certificates]
     verbs: [get, list, watch]
-  # Canary rollouts (Faz 21): a weighted TraefikService and IngressRoute
-  # overlays split the production hostnames while a canary runs.
+  # Canary rollouts (Faz 21) and deployment protection (Faz 24): a weighted
+  # TraefikService, IngressRoute overlays and a ForwardAuth Middleware.
   - apiGroups: [traefik.io]
     resources: [ingressroutes, middlewares, traefikservices]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -91,9 +157,14 @@ rules:
   - apiGroups: [metrics.k8s.io]
     resources: [pods]
     verbs: [get, list]
+  # Faz 29: the startup check of this namespace's own binding (its subject
+  # is corrected if needed). No delete: the binding goes with the namespace.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [get, update]
 ---
 # Idle detection reads Traefik's Prometheus metrics through the API server's
-# pod proxy; only in kube-system.
+# pod proxy; only in kube-system, only Traefik's pods are listed.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -102,6 +173,9 @@ metadata:
   labels:
     app.kubernetes.io/name: paas
 rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list]
   - apiGroups: [""]
     resources: [pods/proxy]
     verbs: [get]
@@ -122,17 +196,150 @@ subjects:
     name: paas
     namespace: paas
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+# Admission policies (admissionregistration.k8s.io/v1, Kubernetes 1.30+).
+# They apply to requests of the control plane's ServiceAccount only and
+# fail closed. An app namespace is a namespace named app-* labelled
+# app.kubernetes.io/managed-by=paas.
+#
+# Namespaces: created only as app-* with the paas label and Pod Security
+# "baseline" or "restricted" (no privileged, host-path or host-network pods,
+# so app-namespace rights do not reach the node); changed and deleted only
+# when they already are app namespaces, and never stripped of those labels.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
 metadata:
-  name: paas-control-plane
+  name: paas-control-plane-namespaces
   labels:
     app.kubernetes.io/name: paas
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: paas-control-plane
-subjects:
-  - kind: ServiceAccount
-    name: paas
-    namespace: paas
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [namespaces]
+        operations: [CREATE, UPDATE, DELETE]
+  matchConditions:
+    - name: control-plane
+      expression: request.userInfo.username == 'system:serviceaccount:paas:paas'
+  validations:
+    - expression: >-
+        request.operation == 'CREATE' ||
+        (oldObject.metadata.name.startsWith('app-') &&
+         has(oldObject.metadata.labels) &&
+         oldObject.metadata.labels.exists(k, k == 'app.kubernetes.io/managed-by' &&
+           oldObject.metadata.labels[k] == 'paas'))
+      messageExpression: >-
+        'paas may only change or delete its app namespaces (app-* labelled app.kubernetes.io/managed-by=paas), not ' +
+        oldObject.metadata.name
+      reason: Forbidden
+    - expression: >-
+        request.operation == 'DELETE' ||
+        (object.metadata.name.startsWith('app-') &&
+         has(object.metadata.labels) &&
+         object.metadata.labels.exists(k, k == 'app.kubernetes.io/managed-by' &&
+           object.metadata.labels[k] == 'paas') &&
+         object.metadata.labels.exists(k, k == 'pod-security.kubernetes.io/enforce' &&
+           object.metadata.labels[k] in ['baseline', 'restricted']))
+      messageExpression: >-
+        'paas namespaces must be named app-* and labelled app.kubernetes.io/managed-by=paas and ' +
+        'pod-security.kubernetes.io/enforce=baseline (or restricted): ' + object.metadata.name
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: paas-control-plane-namespaces
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  policyName: paas-control-plane-namespaces
+  validationActions: [Deny]
+---
+# RoleBindings: only the binding of paas-app-manager to the requesting
+# ServiceAccount itself, only in app namespaces. Deletion is refused too
+# (RBAC grants none; this keeps it so if a role ever does).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: paas-control-plane-rolebindings
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: ["*"]
+        resources: [rolebindings]
+        operations: [CREATE, UPDATE, DELETE]
+  matchConditions:
+    - name: control-plane
+      expression: request.userInfo.username == 'system:serviceaccount:paas:paas'
+  validations:
+    - expression: >-
+        request.operation != 'DELETE' &&
+        namespaceObject.metadata.name.startsWith('app-') &&
+        has(namespaceObject.metadata.labels) &&
+        namespaceObject.metadata.labels.exists(k, k == 'app.kubernetes.io/managed-by' &&
+          namespaceObject.metadata.labels[k] == 'paas')
+      messageExpression: >-
+        'paas may only bind roles in its app namespaces (app-* labelled app.kubernetes.io/managed-by=paas), not in ' +
+        request.namespace
+      reason: Forbidden
+    - expression: >-
+        request.operation == 'DELETE' ||
+        (object.roleRef.kind == 'ClusterRole' && object.roleRef.name == 'paas-app-manager' &&
+         has(object.subjects) && size(object.subjects) == 1 &&
+         object.subjects.all(s, s.kind == 'ServiceAccount' && has(s.namespace) &&
+           'system:serviceaccount:' + s.namespace + ':' + s.name == request.userInfo.username))
+      message: paas may only bind the ClusterRole paas-app-manager to its own ServiceAccount
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: paas-control-plane-rolebindings
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  policyName: paas-control-plane-rolebindings
+  validationActions: [Deny]
+---
+# PersistentVolumes: only volumes claimed from an app namespace are
+# deleted (Faz 28); creating or changing volumes is refused.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: paas-control-plane-volumes
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        resources: [persistentvolumes]
+        operations: [CREATE, UPDATE, DELETE]
+  matchConditions:
+    - name: control-plane
+      expression: request.userInfo.username == 'system:serviceaccount:paas:paas'
+  validations:
+    - expression: >-
+        request.operation == 'DELETE' &&
+        has(oldObject.spec.claimRef) && has(oldObject.spec.claimRef.namespace) &&
+        oldObject.spec.claimRef.namespace.startsWith('app-')
+      messageExpression: >-
+        'paas may only delete volumes claimed from its app namespaces, not ' + request.name
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: paas-control-plane-volumes
+  labels:
+    app.kubernetes.io/name: paas
+spec:
+  policyName: paas-control-plane-volumes
+  validationActions: [Deny]
