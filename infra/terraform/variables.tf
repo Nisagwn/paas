@@ -122,9 +122,15 @@ variable "ecr_app_prefix" {
 }
 
 variable "ecr_keep_images" {
-  description = "Lifecycle policy: images kept per repository (oldest are expired first)."
+  description = "Lifecycle policy of the control-plane repository: images kept (oldest are expired first). App repositories are not count-limited (Faz 30)."
   type        = number
   default     = 30
+}
+
+variable "ecr_untagged_days" {
+  description = "Lifecycle policy of app repositories: untagged images (superseded build caches, a crashed build's push, children of deleted indexes) expire this many days after their push. Tagged app images are deleted by the control plane when it retires their deployments (Faz 30)."
+  type        = number
+  default     = 7
 }
 
 variable "control_plane_image_tag" {

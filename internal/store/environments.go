@@ -310,7 +310,8 @@ type CopyOptions struct {
 	Origin string // OriginRedeploy, OriginPromote or OriginHook
 	Target string // environment of the new deployment
 	// ReuseImage copies the source's image: the worker deploys it without
-	// building. Without an image on the source, it is built again.
+	// building. Without an image on the source, or when the cleanup already
+	// deleted it from the registry (Faz 30), it is built again.
 	ReuseImage bool
 	Message    string // "" keeps the source's commit message
 }
@@ -325,26 +326,33 @@ func (s *Store) CopyDeployment(ctx context.Context, src Deployment, o CopyOption
 	if !src.Finished() {
 		return Deployment{}, ErrInFlight
 	}
-	image := ""
-	if o.ReuseImage {
-		image = src.Image
-	}
 	message := o.Message
 	if message == "" {
 		message = src.CommitMessage
 	}
 	var id int64
+	var image string
 	var err error
 	// Two concurrent copies may pick the same generation; the unique
 	// constraint rejects one and it retries with the next.
+	//
+	// Faz 30: the image is read from the source row under FOR SHARE. An
+	// image the cleanup released (deleted from the registry, see
+	// ReleaseImage, which locks the row FOR UPDATE) is not reused: the copy
+	// builds the commit again. Either the copy commits first and the
+	// cleanup sees it as a reference, or the release commits first and the
+	// copy sees image_released_at.
 	for attempt := 0; attempt < 5; attempt++ {
 		err = s.db.QueryRowContext(ctx, `
 			INSERT INTO deployments (app_id, commit_sha, branch, commit_message, image, target, origin,
 				source_deployment_id, generation)
-			SELECT $1, $2, $3, $4, $5, $6, $7, $8,
+			SELECT $1, $2, $3, $4,
+				CASE WHEN $5::bool THEN COALESCE((SELECT CASE WHEN image_released_at IS NULL THEN image ELSE '' END
+					FROM deployments WHERE id = $8 FOR SHARE), '') ELSE '' END,
+				$6, $7, $8,
 				(SELECT COALESCE(max(generation), 0) + 1 FROM deployments WHERE app_id = $1 AND commit_sha = $2)
-			RETURNING id`,
-			src.AppID, src.CommitSHA, src.Branch, message, image, o.Target, o.Origin, src.ID).Scan(&id)
+			RETURNING id, image`,
+			src.AppID, src.CommitSHA, src.Branch, message, o.ReuseImage, o.Target, o.Origin, src.ID).Scan(&id, &image)
 		if !isUniqueViolation(err) {
 			break
 		}

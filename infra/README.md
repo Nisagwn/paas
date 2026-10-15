@@ -10,7 +10,7 @@ infra/
 │   ├── variables.tf            girdiler
 │   ├── network.tf              VPC, public subnet, IGW, security group
 │   ├── compute.tf              Ubuntu 24.04 arm64 AMI, EC2, Elastic IP, cloud-init
-│   ├── iam.tf                  instance role: ECR push/pull, Route 53 DNS-01
+│   ├── iam.tf                  instance role: ECR push/pull/silme, Route 53 DNS-01
 │   ├── dns.tf                  <domain> ve *.<domain> → Elastic IP
 │   ├── ecr.tf                  kontrol düzlemi reposu + create-on-push şablonu
 │   ├── outputs.tf
@@ -92,12 +92,31 @@ yenilemeler yeniden başlatma olmadan pod'a yansır. Kontrol düzlemi imajına e
 buildkitd kayıt sırrı tutmaz.
 
 **Uygulama başına ECR reposu — create-on-push.** Builder imajları
-`<hesap>.dkr.ecr.<bölge>.amazonaws.com/paas/<app>:<sha>` adresine gönderir.
+`<hesap>.dkr.ecr.<bölge>.amazonaws.com/paas/<app>:<sha>-<deploy id>` adresine gönderir.
 `aws_ecr_repository_creation_template` (`CREATE_ON_PUSH`, önek `paas`) sayesinde
-`paas/<app>` reposu ilk push'ta, şablondaki yaşam döngüsü kuralıyla (son 30
-imaj) otomatik oluşur. Kontrol düzlemi ECR API'sini hiç çağırmaz. Instance role,
-yalnızca `repository/paas/*` üzerinde push/pull + `CreateRepository` yetkisine
-sahiptir.
+`paas/<app>` reposu ilk push'ta, şablondaki yaşam döngüsü kuralıyla otomatik oluşur.
+Kontrol düzlemi ECR kontrol API'sini hiç çağırmaz. Instance role, yalnızca
+`repository/paas/*` üzerinde push/pull/silme + `CreateRepository` yetkisine sahiptir.
+
+**İmaj saklama (Faz 30) — platformun saklamasını izler, sayı sınırı yok.** Eskiden
+şablon repo başına son 30 imajı tutuyordu; çok sayıda preview push'u rollback hedefi
+ya da canlı bir deploy'un imajını silebiliyordu (pod yeniden planlanınca
+`ImagePullBackOff`). Artık kontrol düzlemi, emekliye ayırdığı deploy'un imajını,
+tutulan hiçbir deploy aynı digest'i göstermiyorsa registry API'siyle siler
+(`DELETE /v2/paas/<app>/manifests/<digest>`, `ecr:BatchDeleteImage`; kimlik
+`/docker-config`'teki ECR token'ı). Uygulama repo'larının yaşam döngüsü kuralı
+yalnızca **etiketsiz** imajları `ecr_untagged_days` (varsayılan 7) gün sonra siler;
+kontrol düzlemi reposu `ecr_keep_images` (30) sayı kuralını korur. Şablon yalnızca
+yeni oluşan repo'lara uygulanır; eski kuralla oluşmuş repo'lar için:
+
+```bash
+REGION=eu-central-1
+POLICY='{"rules":[{"rulePriority":1,"description":"Expire untagged images 7 days after push","selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":7},"action":{"type":"expire"}}]}'
+for r in $(aws ecr describe-repositories --region "$REGION" \
+    --query "repositories[?starts_with(repositoryName, 'paas/')].repositoryName" --output text); do
+  aws ecr put-lifecycle-policy --region "$REGION" --repository-name "$r" --lifecycle-policy-text "$POLICY"
+done
+```
 
 **Wildcard TLS.** cert-manager, Route 53 DNS-01 ile `<domain>` ve `*.<domain>`
 için tek sertifika alır (ClusterIssuer, access key olmadan "ambient credentials").
@@ -212,13 +231,31 @@ kubectl -n paas rollout restart deployment/paas
 
 ## GitHub webhook'u
 
-Repo → Settings → Webhooks → Add webhook:
+Önerilen yol bir **GitHub App**'tir (giriş, repo erişimi, webhook, commit status'ları ve PR yorumları
+tek yerde; kurulum: kök [README.md → GitHub App kurulumu](../README.md#github-app-kurulumu)). App
+ayarlarında *Webhook URL* `https://<domain>/webhooks/github`, *Webhook secret* yukarıdaki
+`github-webhook-secret` olur; *Subscribe to events* altında **Push** ve **Pull request** seçilir.
+
+App'siz yolda repo başına: Repo → Settings → Webhooks → Add webhook:
 
 - **Payload URL:** `terraform output -raw github_webhook_url` → `https://<domain>/webhooks/github`
 - **Content type:** `application/json`
 - **Secret:** yukarıdaki `github-webhook-secret`
 - **SSL verification:** Enable (staging sertifikasıyla geçici olarak Disable gerekir)
-- **Events:** Just the push event
+- **Events:** "Let me select individual events" → **Pushes** ve **Pull requests**
+
+Kontrol düzleminin işlediği olaylar (`X-GitHub-Event`; hepsi `X-Hub-Signature-256` ile doğrulanır,
+diğer olaylar `202 ignored` alır):
+
+| Olay | Ne yapar | Kod |
+|---|---|---|
+| `push` | Branch push'u deploy kuyruğuna girer (production branch'i → production, diğerleri → preview); head commit mesajında `[skip deploy]` ya da `[skip ci]` varsa atlanır; etiket push'ları yok sayılır. Branch silme push'u (`after` = sıfır SHA, `deleted`) o branch'in preview alias'ını kaldırır ve preview deploy'larını emekliye ayırır | `internal/api/server.go`, `internal/webhook/github.go` |
+| `pull_request` | Yalnızca `closed` (birleştirilmiş ya da birleştirilmeden): aynı repodaki head branch'in preview'leri ve branch veritabanı kopyaları kaldırılır. Fork'tan gelen PR'lar ve diğer eylemler (`opened`, `synchronize`, …) yok sayılır; preview yorumu ise deploy bitince branch'in açık PR'ları GitHub API'sinden bulunarak yazılır, bir olay gerektirmez | `internal/webhook/branch.go` |
+| `installation` | Yalnızca GitHub App: `created`, `deleted`, `suspend` / `unsuspend`, `new_permissions_accepted` kurulum kaydını günceller | `internal/webhook/installation.go` |
+| `installation_repositories` | Yalnızca GitHub App: `added` / `removed` kuruluma bağlı repo listesini günceller | `internal/webhook/installation.go` |
+| `ping` | Webhook oluşturulunca gelir; `pong` döner | `internal/api/server.go` |
+
+`installation` ve `installation_repositories` olayları bir App'e abonelik seçilmeden de gönderilir.
 
 Uygulamayı kaydetmek:
 

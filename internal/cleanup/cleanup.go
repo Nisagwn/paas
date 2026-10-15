@@ -16,14 +16,24 @@
 //
 // Retirement is recorded in Postgres first and the cluster objects are
 // deleted afterwards; a failed delete stays pending and is retried.
+//
+// Faz 30: once the cluster objects are gone, the deployment's image is
+// deleted from the registry too, unless a deployment that is kept (live,
+// rollback target, active preview, queued or running) references the same
+// manifest (store.ReleaseImage decides per digest). Registry retention thus
+// follows this policy instead of a blind image count; a failed registry
+// delete keeps the deployment pending and is retried like a failed
+// Kubernetes delete.
 package cleanup
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/nisagwn/paas/internal/registry"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/worker"
 )
@@ -31,6 +41,17 @@ import (
 // Router pushes an app's aliases to the ingress layer (routing.Syncer).
 type Router interface {
 	SyncApp(ctx context.Context, app string) error
+}
+
+// Images deletes images from the registry the builder pushes to
+// (registry.Client). Every method is idempotent.
+type Images interface {
+	// Owns reports whether img lives in this registry.
+	Owns(img registry.Image) bool
+	// Resolve returns img's digest ("" when its tag no longer exists).
+	Resolve(ctx context.Context, img registry.Image) (string, error)
+	// Delete deletes the manifest repository@digest and all its tags.
+	Delete(ctx context.Context, repository, digest string) error
 }
 
 type Policy struct {
@@ -48,7 +69,10 @@ type Collector struct {
 	// Retirer deletes cluster objects; nil means there are none (dry run).
 	Retirer worker.Retirer
 	// Router is nil when nothing is routed (dry run).
-	Router   Router
+	Router Router
+	// Images is nil when no registry is pruned (dry-run builder, or
+	// PAAS_IMAGE_GC=false).
+	Images   Images
 	Policy   Policy
 	Interval time.Duration // of the full sweep in Run; zero means 10m
 	Log      *slog.Logger
@@ -195,6 +219,11 @@ func (c *Collector) CollectApp(ctx context.Context, app store.App, syncRoutes bo
 				continue // retried on the next sweep
 			}
 		}
+		// After the objects: no pod of d pulls the image any more.
+		if err := c.deleteImage(ctx, d); err != nil {
+			fail("delete image", "deployment", d.ID, "image", d.Image, "err", err)
+			continue // retried on the next sweep
+		}
 		if err := c.Store.MarkCleaned(ctx, d.ID); err != nil {
 			fail("mark cleaned", "deployment", d.ID, "err", err)
 			continue
@@ -202,6 +231,41 @@ func (c *Collector) CollectApp(ctx context.Context, app store.App, syncRoutes bo
 		r.Cleaned++
 	}
 	return r
+}
+
+// deleteImage deletes d's image from the registry unless a kept deployment
+// references the same manifest. Images the registry cannot delete (deletes
+// disabled) or that live elsewhere are left alone and are not an error.
+func (c *Collector) deleteImage(ctx context.Context, d store.Deployment) error {
+	if c.Images == nil || d.Image == "" {
+		return nil
+	}
+	img, err := registry.Parse(d.Image)
+	if err != nil || !c.Images.Owns(img) {
+		return nil // not pushed by this builder (dry run, an earlier registry)
+	}
+	digest, err := c.Images.Resolve(ctx, img)
+	if err != nil {
+		return err
+	}
+	if digest == "" {
+		return nil // the tag is gone already
+	}
+	ok, err := c.Store.ReleaseImage(ctx, d.ID, img.Name(), digest, d.Image)
+	if err != nil || !ok {
+		return err // !ok: a kept deployment still runs this manifest
+	}
+	err = c.Images.Delete(ctx, img.Repository, digest)
+	if errors.Is(err, registry.ErrUnsupported) {
+		c.Log.Warn("cleanup: the registry does not allow deletes; image kept", "app", d.AppName,
+			"deployment", d.ID, "image", d.Image, "err", err)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	c.logLine(ctx, d.ID, "==> image deleted from the registry: %s", img.Name()+"@"+digest)
+	return nil
 }
 
 func (c *Collector) logLine(ctx context.Context, id int64, format string, args ...any) {

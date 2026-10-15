@@ -107,9 +107,10 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Log.Info("web: github login", "user", u.Login, "id", u.ID)
 	s.Sessions.IssueUser(w, r, u.ID)
-	// A plain redirect would still count as part of the cross-site
-	// navigation from github.com, and the SameSite=Strict session cookie
-	// would not be sent with it. A same-site page that navigates on is.
+	// The session cookie is SameSite=Lax, so a plain redirect would carry
+	// it too; a same-site page that navigates on keeps the login working
+	// even with a Strict cookie, which a redirect that is still part of the
+	// cross-site navigation from github.com would not carry.
 	s.render(w, r, http.StatusOK, "redirect", "Giriş yapılıyor", map[string]string{"Next": next}, "")
 }
 

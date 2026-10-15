@@ -24,6 +24,7 @@ import (
 	"github.com/nisagwn/paas/internal/deploy"
 	"github.com/nisagwn/paas/internal/domains"
 	"github.com/nisagwn/paas/internal/github"
+	"github.com/nisagwn/paas/internal/registry"
 	"github.com/nisagwn/paas/internal/routing"
 	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/web"
@@ -101,6 +102,11 @@ func run(log *slog.Logger) error {
 	gc := cleanup.New(st, retirerOf(pipeline), gcRouter, cleanup.Policy{
 		KeepProduction: cfg.KeepProduction, PreviewTTL: cfg.PreviewTTL, PreviewAliasTTL: cfg.PreviewAliasTTL,
 	}, cfg.GCInterval, log)
+	// Faz 30: the registry keeps the images of the deployments kept above.
+	images := imageRegistry(cfg, log)
+	if images != nil {
+		gc.Images = images
+	}
 
 	// App URLs are HTTPS (wildcard certificate) unless Kubernetes routes are
 	// served without TLS, e.g. on a laptop cluster.
@@ -209,6 +215,9 @@ func run(log *slog.Logger) error {
 	}
 	if notifications != nil {
 		deleter.Notify = notifications
+	}
+	if images != nil {
+		deleter.Images = images
 	}
 	apiSrv.Deleter, ui.Deleter = deleter, deleter
 	wg.Add(1)
@@ -347,6 +356,17 @@ func newGitHubApp(cfg config.Config, st *store.Store, log *slog.Logger) (*github
 	log.Info("github app enabled", "app_id", cfg.GitHubApp.ID, "slug", cfg.GitHubApp.Slug,
 		"token_fallback", cfg.GitHubToken != "")
 	return app, nil
+}
+
+// imageRegistry returns the client that deletes images the platform no
+// longer keeps (Faz 30), nil with the dry-run builder or PAAS_IMAGE_GC=false.
+func imageRegistry(cfg config.Config, log *slog.Logger) *registry.Client {
+	if cfg.Builder == "dryrun" || !cfg.ImageGC {
+		return nil
+	}
+	c := registry.New(cfg.Registry, cfg.RegistryInsecure)
+	log.Info("image retention follows deployment retention", "registry", c.Host, "prefix", c.Prefix)
+	return c
 }
 
 // retirerOf returns the stage that deletes a deployment's objects.

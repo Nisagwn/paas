@@ -51,6 +51,9 @@ data "aws_iam_policy_document" "ecr" {
       "ecr:DescribeImages",
       "ecr:DescribeRepositories",
       "ecr:ListImages",
+      # Faz 30: the control plane deletes the images of retired
+      # deployments (registry API DELETE /v2/<repo>/manifests/<digest>).
+      "ecr:BatchDeleteImage",
       # Create-on-push: the pushing principal creates the repository and
       # applies the template's lifecycle policy and tags.
       "ecr:CreateRepository",

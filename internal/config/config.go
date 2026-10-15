@@ -36,6 +36,9 @@ type Config struct {
 	BuildPlatform string
 	// Export/import a registry layer cache per app.
 	BuildCache bool
+	// Faz 30: delete the images of retired deployments and deleted projects
+	// from the registry (default true; needs a registry that allows deletes).
+	ImageGC bool
 	// Base URL that "owner/repo" is appended to for cloning.
 	GitBaseURL string
 	// Token for cloning private GitHub repositories (optional).
@@ -198,6 +201,7 @@ func Load() (Config, error) {
 		BuildKitAddr:        getenv("PAAS_BUILDKIT_ADDR", "tcp://127.0.0.1:1234"),
 		BuildPlatform:       os.Getenv("PAAS_BUILD_PLATFORM"),
 		BuildCache:          os.Getenv("PAAS_BUILD_CACHE") == "true",
+		ImageGC:             os.Getenv("PAAS_IMAGE_GC") != "false",
 		GitBaseURL:          getenv("PAAS_GIT_BASE_URL", "https://github.com"),
 		GitHubToken:         os.Getenv("PAAS_GITHUB_TOKEN"),
 		Kubeconfig:          os.Getenv("PAAS_KUBECONFIG"),

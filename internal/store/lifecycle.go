@@ -35,7 +35,8 @@ func (s *Store) revive(ctx context.Context, id int64, branch, message string) (b
 			cancel_requested_at = NULL,
 			commit_message = COALESCE(NULLIF($3, ''), d.commit_message),
 			error = '', image = '', started_at = NULL, finished_at = NULL,
-			retired_at = NULL, retire_reason = '', cleaned_at = NULL, attempts = 0, heartbeat_at = NULL
+			retired_at = NULL, retire_reason = '', cleaned_at = NULL, image_released_at = NULL,
+			attempts = 0, heartbeat_at = NULL
 		FROM apps a
 		WHERE d.id = $1 AND a.id = d.app_id AND d.status = 'retired' AND d.cleaned_at IS NOT NULL`, id, branch, message)
 	if err != nil {
