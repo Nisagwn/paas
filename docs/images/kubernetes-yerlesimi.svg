@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" width="960" height="700" role="img" aria-labelledby="t d">
   <title id="t">Kubernetes yerleşimi</title>
-  <desc id="d">kube-system'de Traefik ve wildcard sertifika; küme kapsamında kontrol düzleminin ClusterRole'ü ve cert-manager ClusterIssuer'ları; paas namespace'inde kontrol düzlemi, PostgreSQL ve buildkitd; her uygulamanın app-ad namespace'inde rotalar, değişmez deploy nesneleri, namespace politikaları ve eklentiler.</desc>
+  <desc id="d">kube-system'de Traefik ve wildcard sertifika; küme kapsamında kontrol düzleminin dar ClusterRole'ü, uygulama namespace'lerine RoleBinding'le bağlanan paas-app-manager, admission politikaları ve cert-manager ClusterIssuer'ları; paas namespace'inde kontrol düzlemi, PostgreSQL ve buildkitd; her uygulamanın app-ad namespace'inde rotalar, değişmez deploy nesneleri, namespace politikaları ve eklentiler.</desc>
   <defs>
     <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#334155"/>
@@ -40,17 +40,17 @@
   <text x="276" y="142" class="s">IngressRoute redirect-https</text>
   <text x="276" y="160" class="s">HelmChartConfig traefik (metrikler)</text>
   <text x="276" y="178" class="s">Role paas-traefik-metrics</text>
-  <text x="288" y="196" class="t">yalnızca pods/proxy: get</text>
+  <text x="288" y="196" class="t">yalnızca pods: get/list · pods/proxy: get</text>
 
   <!-- cluster scoped -->
   <rect x="536" y="56" width="404" height="176" rx="10" class="cl"/>
   <text x="548" y="76" class="grp">Küme kapsamlı</text>
   <text x="548" y="98" class="h">ClusterRole paas-control-plane → SA paas/paas</text>
-  <text x="560" y="116" class="s">yazma: namespaces, deployments, services, secrets,</text>
-  <text x="560" y="132" class="s">ingresses, networkpolicies, jobs, cronjobs, statefulsets,</text>
-  <text x="560" y="148" class="s">pvc, endpointslices, traefik.io (route, middleware)</text>
-  <text x="560" y="164" class="s">okuma: pods, pods/log, events, certificates, metrics</text>
-  <text x="560" y="180" class="s">pods/exec (terminal) · persistentvolumes: get/list/delete</text>
+  <text x="560" y="116" class="s">namespaces · persistentvolumes: get/list/delete</text>
+  <text x="560" y="132" class="s">rolebindings: create · bind: yalnızca paas-app-manager</text>
+  <text x="548" y="148" class="h">ClusterRole paas-app-manager (küme genelinde bağsız)</text>
+  <text x="560" y="164" class="s">her app-&lt;ad&gt;'da RoleBinding: deploy, secret, exec…</text>
+  <text x="560" y="180" class="s">3 ValidatingAdmissionPolicy: app-* dışını reddeder</text>
   <text x="548" y="202" class="h">ClusterIssuer letsencrypt · letsencrypt-http01</text>
   <text x="560" y="220" class="s">cert-manager (namespace: cert-manager)</text>
 
@@ -113,7 +113,7 @@
   <text x="390" y="601" class="s">NetworkPolicy paas-addons:</text>
   <text x="402" y="617" class="t">yalnızca aynı namespace, 5432 / 6379</text>
   <text x="390" y="641" class="s">Pod: runAsNonRoot · seccomp · ALL düşük</text>
-  <text x="402" y="657" class="t">SA token'ı bağlanmaz</text>
+  <text x="402" y="657" class="t">SA token'ı yok · Pod Security baseline</text>
 
   <rect x="660" y="468" width="268" height="200" rx="8" class="box"/>
   <text x="672" y="487" class="h">Eklentiler · Postgres / Redis</text>

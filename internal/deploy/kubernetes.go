@@ -105,6 +105,12 @@ type Config struct {
 	// Faz 24 (protection.go): the control plane's ForwardAuth endpoint as
 	// Traefik reaches it; empty means DefaultForwardAuthURL.
 	ForwardAuthURL string
+
+	// Faz 29 (access.go): the control plane's ServiceAccount, bound to
+	// paas-app-manager in every app namespace. Empty: no RoleBinding is
+	// created, e.g. under a kubeconfig user; DetectServiceAccount fills it
+	// in when paas runs as a ServiceAccount.
+	ServiceAccountNamespace, ServiceAccountName string
 }
 
 // DefaultConfig is sized for a 4 GiB node shared by many deployments.

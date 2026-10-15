@@ -26,7 +26,8 @@ infra/
     ├── 05-traefik-config.yaml  k3s Traefik HelmChartConfig: servis başına Prometheus metrikleri
     ├── 10-postgres.yaml        StatefulSet + Service (local-path PVC)
     ├── 20-buildkitd.yaml       rootless BuildKit Deployment + Service + PVC
-    ├── 30-control-plane-rbac.yaml  ServiceAccount + ClusterRole + binding
+    ├── 30-control-plane-rbac.yaml  ServiceAccount, en az yetki RBAC (Faz 29): küme rolü,
+    │                           paas-app-manager, kube-system Role, admission politikaları
     ├── 31-control-plane.yaml   Deployment + Service + IngressRoute (<domain>)
     ├── 40-tls.yaml             ClusterIssuer (Route 53 DNS-01), wildcard Certificate,
     │                           Traefik varsayılan TLSStore, HTTP→HTTPS yönlendirme
@@ -242,6 +243,38 @@ VARS='${DOMAIN} ${AWS_REGION} ${HOSTED_ZONE_ID} ${LETSENCRYPT_EMAIL} ${ACME_SERV
 for f in ../k8s/*.yaml; do envsubst "$VARS" <"$f"; echo '---'; done | kubectl apply -f -
 ```
 
+### En az yetki RBAC'e geçiş (Faz 29)
+
+`30-control-plane-rbac.yaml` artık kontrol düzlemine küme genelinde yalnızca namespace,
+PersistentVolume ve "`paas-app-manager`'ı bağlama" yetkisi verir; uygulama namespace'lerindeki
+yetki her `app-*` içindeki `RoleBinding paas-control-plane`'den gelir. Admission politikaları
+(`admissionregistration.k8s.io/v1`) Kubernetes 1.30+ ister; k3s v1.35 sağlar. Sıra:
+
+1. Önce RBAC: `kubectl apply -f 30-control-plane-rbac.yaml` (yukarıdaki `envsubst` döngüsü de
+   dosyaları ad sırasıyla, 30'u 31'den önce uygular). `ClusterRole paas-control-plane` yerinde
+   daralır; eski pod'un uygulama namespace'lerindeki yetkisi o anda biter.
+2. Sonra kontrol düzlemi: Faz 29 imajıyla `31-control-plane.yaml` (ya da aynı imajdaysa
+   `kubectl -n paas rollout restart deployment/paas`). Yeni pod açılışta `SelfSubjectReview` ile
+   kimliğini öğrenir ve `app.kubernetes.io/managed-by=paas` etiketli her `app-*` namespace'ine
+   RoleBinding'i ve Pod Security `baseline` etiketini koyar (idempotent; her açılışta tekrarlanır).
+   Ayrı bir göç adımı gerekmez. 1 ile 2 arasındaki birkaç saniyede başlayan deploy'lar
+   başarısız olabilir; yeniden denenebilir.
+
+Denetim:
+
+```bash
+SA=system:serviceaccount:paas:paas
+kubectl logs -n paas deploy/paas | grep 'rbac:'            # "app namespace rolebindings ensured"
+kubectl get rolebinding paas-control-plane -A               # her app-* namespace'inde bir tane
+kubectl auth can-i create secrets -n app-<ad> --as=$SA      # yes
+kubectl auth can-i create secrets -n kube-system --as=$SA   # no
+kubectl get validatingadmissionpolicy,validatingadmissionpolicybinding | grep paas-control-plane
+```
+
+Kontrol düzlemini başka bir namespace'e ya da ServiceAccount adıyla kurarsanız üç politikadaki
+`system:serviceaccount:paas:paas` ifadesini de değiştirin; aksi hâlde politikalar yeni kimliğe
+uygulanmaz.
+
 `cert-manager` için `helm upgrade` yaparsanız controller'ın `hostNetwork` yaması
 silinir; node'da `sudo /usr/local/sbin/paas-bootstrap` komutunu tekrar
 çalıştırın (betik idempotenttir).
@@ -296,8 +329,10 @@ kubectl -n paas exec postgres-0 -- pg_dump -U paas paas > paas.sql
 - **BuildKit registry cache ECR'de kapalı** (`PAAS_BUILD_CACHE=false`). ECR,
   cache export için `image-manifest=true,oci-mediatypes=true` ister; builder bu
   seçenekleri eklediğinde açılabilir. Yerel önbellek (PVC) çalışmaya devam eder.
-- **Geniş ClusterRole.** Kontrol düzlemi tüm namespace'lerde Secret/Deployment
-  yönetebilir. İleride admission policy ile `app-*` namespace'lerine daraltılabilir.
+- **RBAC kapsamı (Faz 29).** Kontrol düzlemi yalnızca `app-*` namespace'lerinin içini
+  yönetir; bu namespace'lerin hepsine tek kimlikle erişir (bir uygulamanın sırları diğerininkiyle
+  aynı yetkiyle okunur). Küme genelinde namespace ve PersistentVolume meta verisini, `kube-system`'de
+  Traefik pod'larını okur. Admission politikaları ServiceAccount adını sabit taşır.
 - **Uygulama izolasyonu.** `app-*` namespace'leri için default-deny NetworkPolicy
   deployer'ın (Faz 3) sorumluluğundadır; altyapı yalnızca `paas` namespace'ini
   korur.

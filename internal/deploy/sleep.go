@@ -24,6 +24,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,17 +78,34 @@ func workloadOf(d *appsv1.Deployment) Workload {
 	return w
 }
 
-// Workloads lists every web Deployment paas manages, in all namespaces.
-func (k *Kubernetes) Workloads(ctx context.Context) ([]Workload, error) {
-	list, err := k.client.AppsV1().Deployments("").List(ctx, metav1.ListOptions{
-		LabelSelector: webWorkloads, // Faz 20: not worker Deployments
-	})
+// webDeployments lists the web Deployments (Faz 20: not worker
+// Deployments) of every app namespace. Faz 29: paas may only list inside
+// the app namespaces, so it asks them one by one instead of cluster-wide.
+func (k *Kubernetes) webDeployments(ctx context.Context) ([]appsv1.Deployment, error) {
+	names, err := k.AppNamespaces(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Workload, 0, len(list.Items))
-	for i := range list.Items {
-		out = append(out, workloadOf(&list.Items[i]))
+	var out []appsv1.Deployment
+	for _, ns := range names {
+		list, err := k.client.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{LabelSelector: webWorkloads})
+		if err != nil {
+			return nil, fmt.Errorf("deployments %s: %w", ns, err)
+		}
+		out = append(out, list.Items...)
+	}
+	return out, nil
+}
+
+// Workloads lists every web Deployment paas manages, in all app namespaces.
+func (k *Kubernetes) Workloads(ctx context.Context) ([]Workload, error) {
+	list, err := k.webDeployments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Workload, 0, len(list))
+	for i := range list {
+		out = append(out, workloadOf(&list[i]))
 	}
 	return out, nil
 }
@@ -163,15 +181,13 @@ func (k *Kubernetes) RepointActivator(ctx context.Context) error {
 	if k.cfg.ActivatorIP == "" || k.cfg.ActivatorPort == 0 {
 		return nil
 	}
-	list, err := k.client.AppsV1().Deployments("").List(ctx, metav1.ListOptions{
-		LabelSelector: webWorkloads,
-	})
+	list, err := k.webDeployments(ctx)
 	if err != nil {
 		return err
 	}
 	var errs []error
-	for i := range list.Items {
-		d := &list.Items[i]
+	for i := range list {
+		d := &list[i]
 		if _, ok := d.Annotations[AnnotSleeping]; ok && d.Spec.Replicas != nil && *d.Spec.Replicas == 0 {
 			if err := k.pointAtActivator(ctx, d); err != nil {
 				errs = append(errs, fmt.Errorf("%s/%s: %w", d.Namespace, d.Name, err))
@@ -185,13 +201,21 @@ func (k *Kubernetes) RepointActivator(ctx context.Context) error {
 // does: through the Ingress rule for host and the Service it points at.
 func (k *Kubernetes) Backend(ctx context.Context, host string) (Workload, error) {
 	host = strings.ToLower(host)
-	list, err := k.client.NetworkingV1().Ingresses("").List(ctx, metav1.ListOptions{
-		LabelSelector: LabelManagedBy + "=" + ManagedBy,
-	})
+	names, err := k.AppNamespaces(ctx)
 	if err != nil {
 		return Workload{}, err
 	}
-	for _, ing := range list.Items {
+	var ingresses []networkingv1.Ingress
+	for _, ns := range names {
+		list, err := k.client.NetworkingV1().Ingresses(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: LabelManagedBy + "=" + ManagedBy,
+		})
+		if err != nil {
+			return Workload{}, fmt.Errorf("ingresses %s: %w", ns, err)
+		}
+		ingresses = append(ingresses, list.Items...)
+	}
+	for _, ing := range ingresses {
 		for _, r := range ing.Spec.Rules {
 			if !strings.EqualFold(r.Host, host) || r.HTTP == nil {
 				continue

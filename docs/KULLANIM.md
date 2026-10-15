@@ -718,7 +718,7 @@ kubectl -n kube-system get pods -l app.kubernetes.io/name=traefik   # yeni pod g
 ve bellek (working set, bayt) değerlerini k3s ile gelen metrics-server'dan (`metrics.k8s.io`)
 anlık okur; değerler saklanmaz. Pod limitleri de döner, böylece kullanım oranı gösterilebilir.
 Uyuyan deploy'ların pod'u olmadığından listede yer almazlar. metrics-server yoksa `503` döner.
-Kontrol düzleminin ClusterRole'üne `metrics.k8s.io/pods` (get, list) eklendi.
+Kontrol düzleminin `paas-app-manager` rolünde `metrics.k8s.io/pods` (get, list) vardır (Faz 29'dan beri yalnızca uygulama namespace'lerinde).
 
 **Deploy sağlığı.** `GET /api/apps/{name}/health`, hazır her deploy için son 15 dakikadaki istek ve
 5xx sayısını, hata oranını ve durumu döner: `no_traffic`, `healthy` (5xx < %1), `degraded`
@@ -1005,7 +1005,7 @@ gerekmez. Deploy listesinde ve deploy sayfasında hazır deploy'ların yanında 
   - Her oturum denetim kaydına yazılır (`audit_log`, migration 020): kim, uygulama, deploy, süreç, pod, başlangıç, bitiş, çıkış kodu
     ve kapanma nedeni (`exit`, `idle`, `max_duration`, `client_closed`, `no_shell`, `error`, `shutdown`). **Tuş vuruşları ve çıktı
     kaydedilmez.** Kayıtlar projenin Genel sekmesinde "Terminal oturumları" altında üyelere listelenir.
-  - Kümede `pods/exec` (`get`, `create`) yetkisi gerekir (`infra/k8s/30-control-plane-rbac.yaml`).
+  - Kümede `pods/exec` (`get`, `create`) yetkisi gerekir (`paas-app-manager`, `infra/k8s/30-control-plane-rbac.yaml`).
 - **Ayarlar:**
 
 | Değişken | Anlamı |
