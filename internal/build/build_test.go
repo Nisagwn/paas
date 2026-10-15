@@ -130,7 +130,7 @@ func TestBuilderBuild(t *testing.T) {
 		t.Fatalf("%v\nlog:\n%s", err, logs.text())
 	}
 
-	if want := "localhost:5000/blog:" + first + "@sha256:feed"; image != want {
+	if want := "localhost:5000/blog:" + first + "-7@sha256:feed"; image != want {
 		t.Errorf("image = %q, want %q", image, want)
 	}
 	if eng.hello != "v1" {
@@ -144,7 +144,7 @@ func TestBuilderBuild(t *testing.T) {
 		t.Errorf("spec = %+v", eng.spec)
 	}
 	for _, want := range []string{"==> fetching nisagwn/blog@" + first[:7], "==> detected: static site",
-		"    | FROM ", "#2 DONE 0.1s", "==> pushed localhost:5000/blog:" + first} {
+		"    | FROM ", "#2 DONE 0.1s", "==> pushed localhost:5000/blog:" + first + "-7"} {
 		if !strings.Contains(logs.text(), want) {
 			t.Errorf("log lacks %q:\n%s", want, logs.text())
 		}

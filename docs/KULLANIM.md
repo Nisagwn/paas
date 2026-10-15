@@ -63,7 +63,8 @@ H="Authorization: Bearer $TOKEN"
    `Procfile`'daki `web:` satırı Node, Python, Ruby ve Java'da başlatma komutunun yerine geçer (`sh -c` ile,
    `$PORT` genişler); Go ve statik imajlarda kabuk olmadığından yok sayılır. Örnekler: [examples/](../examples/)
 3. Build logunda önce algılanan framework (`==> framework: Next.js`), ardından üretilen Dockerfile aynen görünür.
-4. İmaj `PAAS_REGISTRY/<app>:<sha>` olarak push edilir; deployment'a digest'li referans yazılır.
+4. İmaj `PAAS_REGISTRY/<app>:<sha>-<deploy id>` olarak push edilir (her deploy'un kendi etiketi; Faz 30);
+   deployment'a digest'li referans yazılır.
 
 **Platform sözleşmesi:** uygulama `$PORT` (8080) üzerinden dinler.
 
@@ -184,7 +185,8 @@ Bir commit'in ikinci ve sonraki deploy'ları **nesil** (`generation`) numarası 
 
 **Redeploy.** `POST /api/apps/{name}/deployments/{id}/redeploy` bitmiş bir deploy'u aynı commit, branch ve
 ortamla yeniden çalıştırır (`202`). Varsayılan olarak imaj yeniden kullanılır; `{"use_cache": false}`
-yeniden build ettirir. Kuyrukta ya da çalışmakta olan bir deploy için `409` döner.
+yeniden build ettirir. İmajı registry'den silinmiş (emekli ya da başarısız; Faz 30) bir deploy'un redeploy'u
+imajı yeniden kullanamaz ve commit'i yeniden build eder. Kuyrukta ya da çalışmakta olan bir deploy için `409` döner.
 
 **İptal.** `POST /api/deployments/{id}/cancel` (uygulamada member+). Durum makinesine `canceled` eklendi:
 
@@ -333,6 +335,7 @@ varsayılan 10 dk; bir deploy bitince de tetiklenir) her uygulama için:
 3. Alias'ı kalmamış preview deploy'larını, bitişlerinden `PAAS_PREVIEW_TTL` (72 saat) sonra emekliye ayırır.
 4. Emekli ve başarısız deploy'ların Kubernetes nesnelerini siler (Deployment silinince Service,
    Secret ve Ingress de gider); silme başarısız olursa bir sonraki turda tekrar dener.
+5. Ardından bu deploy'ların imajlarını registry'den siler (Faz 30, aşağıda).
 
 Emekli (`retired`) bir deploy'a rollback yapılamaz (`409`); aynı commit tekrar push'lanırsa
 yeniden build edilir. Branch GitHub'da silinince ya da PR kapanınca o branch'in preview alias'ı
@@ -349,6 +352,38 @@ kalırsa `failed` olur. Ayrıntılar ve tüm arıza durumları: [docs/FAILURE-SC
 | `PAAS_PREVIEW_ALIAS_TTL` | hiç güncellenmeyen preview alias'ının kaldırılma süresi (varsayılan `0` = asla) |
 | `PAAS_GC_INTERVAL` | temizlik turu aralığı (varsayılan `10m`) |
 | `PAAS_WORKER_STALE_AFTER` | heartbeat'siz kalan deploy'un sahipsiz sayılma süresi (varsayılan `2m`) |
+| `PAAS_IMAGE_GC` | `false` → imajlar registry'den silinmez (varsayılan `true`; `dryrun` builder'da kapalı) |
+
+### İmaj saklama (Faz 30)
+
+Registry'de tutulan imajlar, platformun tuttuğu deploy'ları izler; repo başına bir sayı sınırı yoktur.
+Canlı deploy'un, rollback hedeflerinin (`PAAS_KEEP_PRODUCTION`), etkin preview'lerin ve kuyrukta ya da
+build/deploy aşamasındaki deploy'ların imajları **asla silinmez**; ne kadar preview push'lanırsa push'lansın
+rollback hedefi çekilebilir kalır.
+
+- Bir deploy emekliye ayrılınca, başarısız olunca ya da iptal edilince temizlik önce Kubernetes nesnelerini,
+  sonra imajını siler (`DELETE /v2/<repo>/manifests/<digest>`). Silinen satır deploy logunda görünür:
+  `==> image deleted from the registry: …@sha256:…`.
+- Karar **digest başına** verilir: imajı yeniden kullanan redeploy ve promote'lar, ya da aynı digest'i üreten iki
+  build aynı manifest'i paylaşır. Tutulan herhangi bir deploy o manifest'i gösteriyorsa imaj kalır; sonuncusu
+  da emekliye ayrılınca silinir.
+- Registry geçici olarak erişilemezse deploy "temizlendi" sayılmaz, bir sonraki turda tekrar denenir. Silmeye
+  izin vermeyen bir registry (`UNSUPPORTED`) için imaj bırakılır ve uyarı loglanır.
+- Proje silinince projenin registry'deki bütün imajları (build önbelleği dahil) silinir; ad ancak bundan sonra
+  yeniden alınabilir.
+
+Registry'ye göre:
+
+| Registry | Gerekenler |
+|---|---|
+| Yerel `registry:2` (`docker compose`) | `REGISTRY_STORAGE_DELETE_ENABLED=true` (compose dosyasında açık). Silme manifest'i kaldırır; disk alanı `docker compose exec registry registry garbage-collect /etc/docker/registry/config.yml` ile geri gelir |
+| k3d registry'si (`scripts/k3d-up.sh`) | Silme kapalıdır; imajlar kalır, temizlik uyarı loglar |
+| Amazon ECR | Düğüm rolünde `ecr:BatchDeleteImage` (Terraform ekler). Yaşam döngüsü kuralı yalnızca **etiketsiz** imajları `ecr_untagged_days` (7) gün sonra siler; etiketli imajları kontrol düzlemi siler |
+| GHCR, Docker Hub, Harbor | Docker config'inde (`$DOCKER_CONFIG/config.json`, satır içi `auths`) silme yetkisi olan bir token |
+
+Kimlik bilgileri builder'ın kullandığı Docker config'inden her çağrıda yeniden okunur (AWS'de
+`paas-ecr-auth` zamanlayıcısının yenilediği token hemen kullanılır); Basic (ECR) ve Bearer token
+(GHCR, Docker Hub) kimlik doğrulaması desteklenir. Credential helper (`credsStore`) okunmaz.
 
 
 ## Özel alan adları (Faz 12)
@@ -1222,8 +1257,8 @@ doğrulanır:
               5. ClaimInstallation → /import?ok=github
 ```
 
-- GitHub'dan dönüş siteler arası bir yönlendirmedir, `SameSite=Strict` oturum çerezi gönderilmez. Akışı
-  kimin başlattığını imzalı state, GitHub'da kimin onayladığını token söyler; ikisi aynı hesap olmalıdır.
+- GitHub'dan dönüş siteler arası bir yönlendirmedir; `SameSite=Lax` oturum çerezi bu üst düzey GET ile gelir ama
+  akış ona dayanmaz: kimin başlattığını imzalı state, GitHub'da kimin onayladığını token söyler; ikisi aynı hesap olmalıdır.
   Başkasının kurulum numarasıyla gelen saldırganın token'ı o kurulumu listelemez → **403**, hiçbir şey
   kaydedilmez. Token yalnızca bu çağrılar için kullanılır, saklanmaz.
 - Başka bir ekibe bağlı bir kurulumu taşımak o ekipte de member+ olmayı gerektirir (aksi halde **409**).
@@ -1431,9 +1466,12 @@ Arayüz `/` adresinde: GitHub ile giriş yapılır (geliştirme modunda API toke
 - **Ekipler** (`/teams`): ekip oluşturma, üyeler ve roller; **Tokens** (`/tokens`): kişisel API token'ları
 
 Güvenlik: oturum, `PAAS_SESSION_KEY` (yoksa API token'ından türetilen) anahtarla HMAC imzalı, sunucuda
-durum tutmayan bir çerezdir (`HttpOnly`, `SameSite=Strict`, HTTPS'te `Secure`); anahtar değişince tüm
-oturumlar düşer.
-Değişiklik yapan her form oturuma bağlı bir CSRF token'ı ve aynı-origin kontrolünden geçer.
+durum tutmayan bir çerezdir (`HttpOnly`, `SameSite=Lax`, HTTPS'te `Secure`); anahtar değişince tüm
+oturumlar düşer. `Strict` değil, çünkü GitHub'dan girişten ya da App kurulumundan dönüş siteler arası bir
+gezinmedir ve `Strict` her dönüşte oturumu düşürürdü.
+CSRF koruması: değişiklik yapan her istek oturuma bağlı HMAC CSRF token'ını (form alanı ya da `X-CSRF-Token`
+başlığı) taşımalı ve `Origin` (yoksa `Referer`) aynı host olmalıdır; `Lax` çerezin siteler arası POST'larla
+gitmemesi ikinci katmandır.
 Sayfalar sıkı bir CSP (istek başına nonce) ile sunulur.
 
 Canlı log: yeni log satırı ve durum değişikliği Postgres'te `NOTIFY` üretir; SSE akışı önce

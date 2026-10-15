@@ -29,7 +29,7 @@ output "ecr_registry" {
 }
 
 output "paas_registry" {
-  description = "PAAS_REGISTRY: app images go to <this>/<app>:<sha>."
+  description = "PAAS_REGISTRY: app images go to <this>/<app>:<sha>-<deployment id>."
   value       = local.k8s_vars.PAAS_REGISTRY
 }
 

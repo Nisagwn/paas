@@ -19,7 +19,8 @@
 //  3. Cluster (Cluster.DeleteApp): the namespace and what lives outside it
 //     are deleted; the deletion finishes once the namespace is gone. Only
 //     then may a new project take the name (store.CreateAppInTeam), so it
-//     never meets the old namespace.
+//     never meets the old namespace. Faz 30: the project's images are
+//     deleted from the registry in the same step, after the namespace.
 //
 // Delete runs the steps once inline: with nothing running and a cluster
 // that removes the namespace at once (the dry-run deployer, tests) the
@@ -49,11 +50,20 @@ type Cluster interface {
 	DeleteApp(ctx context.Context, app string, appID int64) (done bool, err error)
 }
 
+// Images removes a deleted app's images from the registry
+// (registry.Client). It must be idempotent.
+type Images interface {
+	DeleteAppImages(ctx context.Context, app string) (manifests int, err error)
+}
+
 // Service deletes projects. Store is required; the rest is optional.
 type Service struct {
 	Store *store.Store
 	// Cluster is nil when nothing runs in a cluster (PAAS_DEPLOYER=dryrun).
 	Cluster Cluster
+	// Images is nil when no registry is pruned (dry-run builder,
+	// PAAS_IMAGE_GC=false).
+	Images Images
 	// Notify receives the project.deleted event.
 	Notify notify.Emitter
 	Log    *slog.Logger
@@ -152,14 +162,27 @@ func (s *Service) advance(ctx context.Context, d store.AppDeletion) (bool, error
 			return false, fmt.Errorf("delete rows: %w", err)
 		}
 	}
-	if s.Cluster == nil {
-		return true, nil
+	if s.Cluster != nil {
+		done, err := s.Cluster.DeleteApp(ctx, d.AppName, d.AppID)
+		if err != nil {
+			return false, fmt.Errorf("cluster: %w", err)
+		}
+		if !done {
+			return false, nil
+		}
 	}
-	done, err := s.Cluster.DeleteApp(ctx, d.AppName, d.AppID)
-	if err != nil {
-		return false, fmt.Errorf("cluster: %w", err)
+	// Faz 30: with no pod left, the project's images leave the registry
+	// (before the name is free, so a new project never shares them).
+	if s.Images != nil {
+		n, err := s.Images.DeleteAppImages(ctx, d.AppName)
+		if err != nil {
+			return false, fmt.Errorf("images: %w", err)
+		}
+		if n > 0 {
+			s.log().Info("project images deleted", "app", d.AppName, "manifests", n)
+		}
 	}
-	return done, nil
+	return true, nil
 }
 
 // Run finishes pending deletions every Interval until ctx ends; it also

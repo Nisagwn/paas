@@ -77,6 +77,45 @@ func TestDeletionResumes(t *testing.T) {
 	}
 }
 
+// images fails once, then deletes.
+type images struct {
+	calls int
+	apps  []string
+}
+
+func (i *images) DeleteAppImages(_ context.Context, app string) (int, error) {
+	i.calls++
+	if i.calls == 1 {
+		return 0, errors.New("registry unavailable")
+	}
+	i.apps = append(i.apps, app)
+	return 3, nil
+}
+
+// Faz 30: the project's images leave the registry before the name is
+// free; a registry failure is retried like a cluster failure.
+func TestDeletionImages(t *testing.T) {
+	st := testdb.Open(t)
+	ctx := context.Background()
+	app, _ := st.CreateApp(ctx, "blog", "nisagwn/blog", "main")
+	img := &images{}
+	svc := &appdelete.Service{Store: st, Images: img}
+	res, err := svc.Delete(ctx, app, "blog", store.DeletionActor{Login: "admin"})
+	if err != nil || res.Done {
+		t.Fatalf("first run: %+v %v", res, err)
+	}
+	if _, err := st.CreateApp(ctx, "blog", "nisagwn/blog", "main"); !errors.Is(err, store.ErrAppDeleting) {
+		t.Fatalf("name while images remain: %v", err)
+	}
+	svc.Sweep(ctx)
+	if d, _ := st.GetAppDeletion(ctx, res.Deletion.ID); d.FinishedAt == nil {
+		t.Fatalf("not finished: %+v", d)
+	}
+	if len(img.apps) != 1 || img.apps[0] != "blog" {
+		t.Fatalf("images deleted for %v", img.apps)
+	}
+}
+
 // Without a cluster (dry-run deployer) the deletion finishes in Delete.
 func TestDeletionDryRun(t *testing.T) {
 	st := testdb.Open(t)

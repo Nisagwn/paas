@@ -70,7 +70,7 @@ queued → building → deploying → ready
 - Web arayüzü (Go şablonları + htmx): app listesi, deploy geçmişi, rollback butonu
 - **Çıktı:** Demo edilebilir uçtan uca akış
 
-## Faz 6 — Altyapı kodu ve canlıya alma ✅ (kod hazır ve doğrulandı; henüz `apply` edilmedi)
+## Faz 6 — Altyapı kodu ve canlıya alma ✅ (`terraform apply` ile kuruldu ve canlıda kullanıldı: DuckDNS adı, t4g.small, eu-central-1b, GitHub App; AWS kredisini korumak için 2026-10-05'te `terraform destroy` ile kaldırıldı, geride kaynak kalmadı. Yeniden kurulum: [infra/README.md](../infra/README.md))
 - Terraform: VPC/SG, EC2 (t4g.medium), Elastic IP, Route 53 kayıtları, ECR, IAM
 - k3s kurulumu (cloud-init), Traefik + cert-manager Helm kurulumu
 - Kontrol düzleminin kendisini kümeye deploy etme
@@ -314,6 +314,30 @@ queued → building → deploying → ready
 - Sıfıra ölçeklemenin küme geneli Deployment / Ingress listeleri uygulama namespace'lerinde tek tek yapılır; `kube-system` Role'üne Traefik pod'larını listeleme eklendi; kendi namespace'inde (`paas`) yönetilen nesne olmadığından orada Role yok
 - k3d'de: bağlamadan önce `app-*`'ta secret oluşturma `no`, sonra `yes`; `kube-system` / `default` / `paas`'ta secret ve deployment `no`; `kube-system`'de RoleBinding RBAC'te `yes` ama politika reddediyor; `admin` rolünü bağlama RBAC yükseltme denetimiyle, başka bir ServiceAccount'a bağlama politikayla reddedildi; etiketsiz ya da `app-*` dışı namespace oluşturma, `kube-system`'i etiketleme, `app-*` dışı namespace ve PV silme reddedildi; `baseline` ayrıcalıklı pod'u reddetti
 - **Çıktı:** ele geçirilmiş bir kontrol düzlemi artık tüm küme değil; yalnızca kendi uygulama namespace'lerinin içini yönetebilir
+
+### Faz 30 — İmaj saklama (migration 022) ✅ (birim testleri httptest sahte registry'ye karşı: çözümleme, digest'le silme, sayfalı etiket listesi, Basic ve Bearer kimlik doğrulama, silmesi kapalı registry; veritabanı testleri: digest paylaşımı, yarış kilitleri, serbest bırakılmış imajın yeniden kullanılmaması, revive; gerçek ECR'de ve registry:2'de deneme bekliyor)
+- Sorun: ECR yaşam döngüsü repo başına son 30 imajı tutuyordu; çok sayıda preview push'u, rollback hedefi olan hatta canlı bir
+  deploy'un imajını silebiliyor, pod yeniden planlanınca `ImagePullBackOff` oluyordu
+- Registry saklaması artık platformun saklamasını izler: temizlik (`internal/cleanup`) emekli / başarısız / iptal edilmiş bir deploy'un
+  küme nesnelerinden sonra imajını siler; tutulan (`queued`, `building`, `deploying`, `ready`) bir deploy aynı manifest'i gösteriyorsa
+  imaj kalır
+- Karar digest başına: `store.ReleaseImage` aynı repo + digest'i (ya da digest'siz aynı referansı) gösteren bütün satırları `FOR UPDATE`
+  kilitler, tutulan bir referans yoksa paylaşan bitmiş satırlara `image_released_at` yazar. `CopyDeployment` kaynağı `FOR SHARE`
+  okur ve serbest bırakılmış imajı yeniden kullanmaz (yeniden build); revive alanı sıfırlar. Silme başarısızsa deploy temizlenmiş
+  sayılmaz, sonraki turda tekrar denenir
+- Her deploy kendi etiketine itilir: `<app>:<sha>-<deploy id>`; aynı commit'in yeniden build'i başka bir deploy'un sabitlediği imajın
+  etiketini taşımaz, etiketsiz kalan manifest'leri hiçbir deploy göstermez
+- `internal/registry`: bağımlılıksız Docker Registry HTTP API v2 / OCI istemcisi (HEAD ile digest, `DELETE /v2/<repo>/manifests/<digest>`,
+  sayfalı `tags/list`), Basic (ECR) ve Bearer token (GHCR, Docker Hub, Harbor) meydan okumaları, kimlik bilgileri her çağrıda
+  `$DOCKER_CONFIG/config.json`'dan; `UNSUPPORTED` / 405 kalıcı sayılır (imaj kalır, uyarı)
+- Builder kipleri: `dryrun` hiçbir şey silmez; `docker` / `buildkit` yapılandırılmış registry'yi budar (`PAAS_IMAGE_GC=false` kapatır).
+  Yerel compose registry'sinde `REGISTRY_STORAGE_DELETE_ENABLED=true`
+- Proje silme (Faz 28) namespace'ten sonra projenin bütün imajlarını siler; ad ancak sonra serbest kalır
+- Terraform: uygulama repo'larının yaşam döngüsü yalnızca etiketsiz imajları `ecr_untagged_days` (7) gün sonra siler, sayı kuralı
+  yalnızca kontrol düzlemi repo'sunda; düğüm rolüne `ecr:BatchDeleteImage`. Şablon yeni repo'lara uygulanır; var olan repo'lar için
+  `aws ecr put-lifecycle-policy` (infra/README.md)
+- **Çıktı:** rollback hedefinin ve canlı deploy'un imajı preview trafiğinden bağımsız olarak çekilebilir kalır; emekli deploy'ların
+  imajları silinip registry'de yer açılır
 
 ## Sonraki aşamalar
 Faturalandırma, çok düğümlü küme (eklenti diskleri için ağ depolaması ya da S3 uyumlu yedek hedefi), Postgres için okuma kopyaları.

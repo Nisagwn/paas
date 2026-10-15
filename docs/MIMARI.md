@@ -77,7 +77,7 @@ Yanında üç yardımcı ikili vardır: `paas-cli` (komut satırı istemcisi), `
 |---|---|---|
 | PostgreSQL 16 | `infra/k8s/10-postgres.yaml`, namespace `paas` | Durum, kuyruk, loglar, outbox; `LISTEN/NOTIFY` ile canlı log ve bildirim uyandırma |
 | buildkitd (rootless) | `20-buildkitd.yaml` | İmaj derleme; kontrol düzlemi `buildctl` ile yerel bağlam gönderir |
-| Registry (ECR) | `infra/terraform/ecr.tf` | `<prefix>/<app>:<sha>` imajları; repo ilk push'ta şablondan oluşur |
+| Registry (ECR) | `infra/terraform/ecr.tf`, `internal/registry` | `<prefix>/<app>:<sha>-<deploy id>` imajları; repo ilk push'ta şablondan oluşur; artık tutulmayan deploy'ların imajlarını kontrol düzlemi siler (Faz 30) |
 | k3s | `cloud-init/bootstrap.sh` | Tek düğümlü Kubernetes; NetworkPolicy'leri gömülü kube-router uygular |
 | Traefik | k3s ile gelir, `05-traefik-config.yaml` | Ingress ve CRD sağlayıcısı, TLS, ForwardAuth, ağırlıklı servis, Prometheus metrikleri |
 | cert-manager | Helm, `40-tls.yaml`, `41-tls-wildcard.yaml` | Wildcard sertifika (DNS-01) ya da host başına sertifika (HTTP-01) |
@@ -110,7 +110,7 @@ Yanında üç yardımcı ikili vardır: `paas-cli` (komut satırı istemcisi), `
 5. **Build.** Önce, varsa, preview veritabanı kopyası istenir (build ile paralel yürür). Kontrol
    düzlemi commit'i **SHA ile** `git fetch --depth=1` çeker (token argv'ye değil git ortamına
    verilir), kök dizin ayarına göre projeyi algılar, gerekirse Dockerfile üretir ve `buildctl` ile
-   yerel bağlamı rootless buildkitd'ye gönderir. İmaj `<registry>/<app>:<sha>` olarak itilir ve
+   yerel bağlamı rootless buildkitd'ye gönderir. İmaj `<registry>/<app>:<sha>-<deploy id>` olarak itilir ve
    **digest'le sabitlenir** (`…@sha256:…`). Süreç kümesi (`paas.yaml` / `Procfile`) ve build süresi
    kaydedilir. Redeploy ve promote'ta imaj hazırdır; build atlanır.
 6. **Deploy.** Satır `deploying` olur. `internal/deploy` sırasıyla namespace'i (kota, LimitRange,
@@ -435,7 +435,8 @@ erDiagram
         text target "production | preview"
         text origin "git | redeploy | promote | hook"
         int generation
-        text image "registry/app:sha@sha256"
+        text image "registry/app:sha-id@sha256"
+        timestamptz image_released_at
         int attempts
         timestamptz heartbeat_at
         timestamptz sleeping_since
@@ -528,12 +529,14 @@ erDiagram
 | 019 | `notifications` | Kanallar, olaylar, outbox (`notification_deliveries`), tercihler, outbox tetikleyicisi |
 | 020 | `audit` | `audit_log` (terminal oturumları; tuş vuruşu ve çıktı saklanmaz) |
 | 021 | `app_deletion` | `apps.deleting_at`, `app_deletions`; denetim kaydı uygulamadan uzun yaşar |
+| 022 | `image_retention` | `deployments.image_released_at`: imajı registry'den silinen deploy'lar (redeploy bu imajı yeniden kullanmaz) |
 
 **Proje silme** üç tekrar edilebilir adımdır (`internal/appdelete`): (1) tek transaction'da
 `app_deletions` satırı ve `deleting_at`; kuyruktakiler iptal, sürenlere iptal isteği; (2) hiçbir
 deploy çalışmadığında uygulama satırı silinir ve her şey `CASCADE` ile gider; satırlar kümeden
 önce silinir ki hiçbir döngü nesneleri yeniden yaratmasın; (3) namespace ve tutulan PV'ler
-silinir, namespace yok olunca `finished_at` yazılır. Aynı ad ancak bundan sonra tekrar
+silinir, ardından projenin registry'deki bütün imajları silinir (Faz 30), sonra `finished_at`
+yazılır. Aynı ad ancak bundan sonra tekrar
 alınabilir; yeni proje eski namespace'le karşılaşmaz.
 
 ---
@@ -729,8 +732,8 @@ flowchart TB
             sg["Security group<br/>80/443 herkese · 22/6443 admin_cidrs"]
             ec2["EC2 t4g.medium (arm64) · Ubuntu<br/>gp3 40 GiB şifreli · Elastic IP<br/>IMDSv2, hop limit 1"]
         end
-        iam["IAM instance rolü<br/>ECR push/pull · Route 53 değişikliği"]
-        ecr["ECR<br/>paas-control-plane + paas/&lt;app&gt;<br/>(push'ta şablondan, son 30 imaj)"]
+        iam["IAM instance rolü<br/>ECR push/pull/silme · Route 53 değişikliği"]
+        ecr["ECR<br/>paas-control-plane + paas/&lt;app&gt;<br/>(push'ta şablondan; etiketsiz imajlar 7 gün sonra)"]
         r53["Route 53<br/>A &lt;domain&gt; · A *.&lt;domain&gt; → EIP"]
     end
     duck["DuckDNS (alternatif)<br/>ad EIP'e elle yönlendirilir"]
@@ -792,14 +795,36 @@ oturumlar.
 eklenti yedekleri de aynı düğümde durur. Düğüm kaybı veri kaybıdır; düğüm dışı yedek yoktur.
 `local-path` PVC genişletemez.
 
+**İmaj saklama (Faz 30).** Registry, platformun tuttuğu deploy'ların imajlarını tutar; kör bir
+sayı sınırı yoktur. Her deploy kendi etiketine itilir (`<app>:<sha>-<deploy id>`), böylece aynı
+commit'in yeniden build'i başka bir deploy'un digest'le sabitlediği imajın etiketini taşımaz.
+Temizleyici (`internal/cleanup`) emekliye ayrılan, başarısız ya da iptal edilen bir deploy'un küme
+nesnelerini sildikten sonra imajını da siler: `store.ReleaseImage` aynı manifest'i (aynı repo +
+aynı digest; imaj yeniden kullanan redeploy/promote ve aynı digest'i üreten build'ler bunu
+paylaşır) gösteren bütün satırları `FOR UPDATE` ile kilitler; tutulan (`queued`, `building`,
+`deploying`, `ready`: canlı, rollback hedefi, etkin preview) bir deploy hâlâ onu gösteriyorsa imaj
+kalır, göstermiyorsa paylaşan bütün bitmiş satırlara `image_released_at` yazılır ve manifest
+Docker Registry HTTP API v2 / OCI üzerinden digest'le silinir (`DELETE
+/v2/<repo>/manifests/<digest>`, `internal/registry`). `CopyDeployment` kaynağı `FOR SHARE` ile
+okur ve serbest bırakılmış bir imajı yeniden kullanmaz, commit'i yeniden build eder; iki işlemden
+hangisi önce commit ederse diğeri onu görür. Registry silmesi başarısız olursa deploy temizlenmiş
+sayılmaz ve bir sonraki taramada yeniden denenir. Proje silindiğinde repo'nun bütün etiketleri
+silinir. ECR'de uygulama repo'larının yaşam döngüsü kuralı yalnızca **etiketsiz** imajları
+`ecr_untagged_days` (7) gün sonra siler: ezilen build önbelleği ve imajı kaydedilmeden çöken bir
+build'in itişi; bir index'in alt manifest'leri index durdukça silinmez. Kimlik bilgisi builder'ın
+kullandığı Docker config'idir (`$DOCKER_CONFIG/config.json`, AWS'de `paas-ecr-auth` zamanlayıcısı
+yeniler); rolün `ecr:BatchDeleteImage` izni vardır. Bilinen sınırlar: silme kapalı bir registry
+(`registry:2` varsayılanı, k3d registry'si) `UNSUPPORTED` döner; imaj kalır, uyarı loglanır.
+`registry:2` disk alanını ancak `registry garbage-collect` ile geri verir. Credential helper
+(`credsStore`) kullanan Docker config'leri okunmaz (yalnızca satır içi `auths`).
+`PAAS_IMAGE_GC=false` silmeyi kapatır.
+
 **Diğer sınırlar.**
 
 - Web süreci deploy başına tek kopyadır (elle ölçeklenmez); yatay ölçek worker süreçleriyle
   sınırlıdır.
 - Her hazır deploy bir pod tutar; maliyet kota, saklama politikası ve sıfıra ölçeklemeyle
   sınırlanır.
-- ECR yaşam döngüsü repo başına son 30 imajı tutar; çok sayıda preview push'u, hâlâ rollback
-  hedefi olan eski bir deploy'un imajını silebilir ve o pod yeniden planlanırsa imaj çekilemez.
 - Durumsuz oturumlar tek tek iptal edilemez (rol ve askıya alma her istekte okunduğu için
   yetki kaybı anında etkilidir; oturumun kendisi süresi dolana kadar geçerlidir).
 - Env anahtarı Kubernetes Secret'ında durur, KMS ile sarılmaz.
@@ -826,6 +851,7 @@ eklenti yedekleri de aynı düğümde durur. Düğüm kaybı veri kaybıdır; d�
 | Standart Ingress, CRD yalnızca gerektiğinde | Tipli client-go, test edilebilir, ingress denetleyicisinden bağımsız | Canary ve ForwardAuth Traefik'e bağlıdır |
 | Tek etiketli host'lar + wildcard sertifika | Tek sertifika tüm deploy ve alias'ları kapsar, Let's Encrypt sınırlarına takılmaz | Kontrol düzlemi apex'te; uygulama adları alt alan adlarıyla çakışmamalı |
 | SHA ile fetch, digest'le sabitlenen imaj | Kuyrukta beklerken gelen push build'i değiştiremez; etiket ezilse de çalışan imaj aynı | — |
+| Registry saklaması deploy saklamasını izler (Faz 30), sayı sınırı yok | Rollback hedefi ya da canlı deploy'un imajı preview push'larıyla silinemez; emekli deploy'ların imajları silinip yer açılır; karar digest başına verilir | Kontrol düzlemi registry'de silme yetkisi taşır; silme kapalı registry'lerde imajlar birikir |
 | Rootless BuildKit, kontrol düzleminden ayrı pod | Build ayrıcalıksız çalışır; kontrol düzlemi salt okunur kalır | Ayrı bir bileşen ve önbellek diski |
 | Tek Go ikilisi, döngüler aynı süreçte | Dağıtımı ve gözlemlemesi tek parça; durum veritabanında olduğu için süreç yeniden başlatılabilir | Bazı döngüler tek kopya varsayar (§9) |
 | Uzun eklenti işleri deterministik adlı Job'lar | Tekrar çalışan adım ikinci iş başlatmaz; çökme sonrası kaldığı yerden sürer | Sonuçlar pod sonlandırma mesajından okunur |

@@ -17,9 +17,14 @@ services:
       interval: 2s
       retries: 15
 
-  # Local image registry; images are pushed as localhost:5000/<app>:<sha>.
+  # Local image registry; images are pushed as localhost:5000/<app>:<sha>-<id>.
+  # Deletes are enabled so the cleanup can remove the images of retired
+  # deployments (Faz 30); the space is freed by
+  # `docker compose exec registry registry garbage-collect /etc/docker/registry/config.yml`.
   registry:
     image: registry:2
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     ports:
       - "5000:5000"
       # buildkitd shares this network namespace (see below), so its port is

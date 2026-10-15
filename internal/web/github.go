@@ -26,8 +26,9 @@ import (
 //     github.com/apps/<slug>/installations/new?state=…
 //  2. The user picks repositories; GitHub redirects to the App's Setup URL,
 //     /github/setup?installation_id=…&setup_action=install|update&state=….
-//     That is a cross-site navigation, so the SameSite=Strict session cookie
-//     is not sent; the signed state says who started it and for which team.
+//     That is a cross-site navigation; the SameSite=Lax session cookie comes
+//     along with this top-level GET, but the flow does not rely on it: the
+//     signed state says who started it and for which team.
 //  3. Knowing an installation id proves nothing, so /github/setup runs the
 //     GitHub OAuth authorization (PKCE, same App, no prompt when the user has
 //     signed in with it before). The OAuth state, PKCE verifier, installation,

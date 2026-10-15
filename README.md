@@ -420,6 +420,8 @@ docs/               kullanım kılavuzu, mimari, rapor, ölçümler, arıza sena
 | 26 | Bildirimler |
 | 27 | Tarayıcıdan terminal |
 | 28 | Proje silme |
+| 29 | En az yetki RBAC: kontrol düzlemi yalnızca kendi `app-*` namespace'lerinde yazabilir |
+| 30 | İmaj saklama: registry, platformun tuttuğu deploy'ları izler |
 | Sonra | Faturalandırma, çok düğümlü küme, S3 uyumlu yedek hedefi, Postgres okuma kopyaları |
 
 Her fazın kapsamı ve doğrulama durumu: [docs/PHASES.md](docs/PHASES.md).

@@ -1,7 +1,7 @@
 // Package build turns a commit into a container image in a registry:
 //
 //	shallow clone at the exact SHA → detect project type → (generate
-//	Dockerfile) → BuildKit build → push <registry>/<app>:<sha>
+//	Dockerfile) → BuildKit build → push <registry>/<app>:<sha>-<id>
 //
 // Every line of output is streamed into the deployment's log.
 package build
@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,9 +80,15 @@ func (b *Builder) Check() error {
 	return nil
 }
 
-// ImageName is where the image of a commit is pushed: <registry>/<app>:<sha>.
-func (b *Builder) ImageName(app, sha string) string {
-	return strings.TrimSuffix(b.Registry, "/") + "/" + app + ":" + sha
+// ImageName is where the image of a deployment is pushed:
+// <registry>/<app>:<sha>-<deployment id>. Faz 30: one tag per deployment, so
+// rebuilding a commit (a redeploy without the image, a promotion that
+// builds) never moves the tag away from an image another deployment pins by
+// digest. A manifest only loses its tag when the same deployment pushes
+// again (a retry after a crash before the image was recorded), and then
+// nothing references it; the registry may expire untagged manifests.
+func (b *Builder) ImageName(app, sha string, id int64) string {
+	return strings.TrimSuffix(b.Registry, "/") + "/" + app + ":" + sha + "-" + strconv.FormatInt(id, 10)
 }
 
 // Build clones the commit, detects the project under the root directory
@@ -155,7 +162,7 @@ func (b *Builder) build(ctx context.Context, d store.Deployment, s store.BuildSe
 	}
 
 	// 3. Build and push
-	image = b.ImageName(d.AppName, d.CommitSHA)
+	image = b.ImageName(d.AppName, d.CommitSHA, d.ID)
 	spec := Spec{
 		ContextDir: contextDir,
 		Dockerfile: dockerfile,

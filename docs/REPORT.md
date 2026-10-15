@@ -151,12 +151,22 @@ Hazır olma beklenirken `CrashLoopBackOff`, `ImagePullBackOff` ya da kota aşım
 zaman aşımı beklenmez; deployment hemen `failed` olur ve crash durumunda uygulamanın son log
 satırları hata mesajına eklenir.
 
-### 5.6 Standart Ingress (CRD değil)
+### 5.6 Standart Ingress, CRD yalnızca gerektiğinde
 
-Faz planında Traefik `IngressRoute` öngörülmüştü; uygulamada standart
-`networking.k8s.io/v1 Ingress` seçildi. Traefik ikisini de destekler; standart Ingress CRD
-gerektirmez, client-go ile tipli ve test edilebilirdir, başka bir ingress controller ile de
-çalışır. TLS bölümünde `secretName` verilmez; Traefik varsayılan sertifika olarak cert-manager'ın
+Faz planında her şey için Traefik `IngressRoute` öngörülmüştü; deploy ve alias adresleri için
+standart `networking.k8s.io/v1 Ingress` seçildi: CRD gerektirmez, client-go ile tipli ve test
+edilebilirdir, başka bir ingress controller ile de çalışır. Standart Ingress'in ifade edemediği
+yerlerde Traefik CRD'leri (`traefik.io/v1alpha1`, dinamik client ile) kullanılır:
+
+- **Canary (Faz 21):** production adresi yayın sırasında iki deploy arasında ağırlıklı bölünür;
+  bunun için bir `TraefikService` (ağırlıklı servis) ve ona yönlenen bir `IngressRoute` yazılır.
+- **Deploy koruması (Faz 24):** korunan uygulamaların route'larına ForwardAuth yapan bir
+  `Middleware` bağlanır.
+- **Kontrol düzlemi:** apex alan adındaki arayüz/API route'u (`31-control-plane.yaml`) bir
+  `IngressRoute`'tur; HTTP→HTTPS yönlendirmesi (`Middleware` + `IngressRoute`, `40-tls.yaml`) ve
+  wildcard sertifikanın varsayılan `TLSStore`'u (`41-tls-wildcard.yaml`) da Traefik CRD'leridir.
+
+Bunların bedeli, canary ve korumanın Traefik'e bağlı olmasıdır. TLS bölümünde `secretName` verilmez; Traefik varsayılan sertifika olarak cert-manager'ın
 ürettiği wildcard sertifikayı sunar. Tüm host'lar tek etiketli olduğu için (`<sha7>-<app>.<domain>`)
 tek bir `*.domain` sertifikası hepsini kapsar ve Let's Encrypt hız sınırlarına takılınmaz.
 
@@ -166,6 +176,10 @@ tek bir `*.domain` sertifikası hepsini kapsar ve Let's Encrypt hız sınırlar�
   yeni N deployment'ı rollback hedefi olarak tutulur; alias'ı kalmamış preview'ler TTL sonra
   `retired` olur ve nesneleri silinir. Rollback ile temizlik aynı anda olursa `FOR SHARE`
   kilidi rollback'i korur.
+- **İmaj saklama (Faz 30):** registry, tutulan deploy'ların imajlarını tutar; sayı sınırı yoktur.
+  Emekliye ayrılan bir deploy'un imajı, tutulan hiçbir deploy aynı digest'i göstermiyorsa registry
+  API'siyle silinir (karar digest başına; imaj yeniden kullanan redeploy'lar aynı manifest'i paylaşır).
+  ECR'de yalnızca etiketsiz imajlar yaşam döngüsü kuralıyla sona erer.
 - **Branch silinmesi / PR kapanması:** preview alias'ı hemen kalkar.
 - **Çökme sonrası kurtarma:** worker çalıştığı iş için heartbeat yazar. Heartbeat'i duran iş
   yeniden kuyruğa alınır (en fazla 2 deneme). Eski worker hâlâ yaşıyorsa heartbeat'i
@@ -192,7 +206,7 @@ yazmak hem riskli hem gereksiz olurdu.
 | Başkasının GitHub App kurulumunu sahiplenme | Kurulum ancak taze bir kullanıcı token'ıyla (PKCE) `GET /user/installations` onu listeliyorsa ve token, akışı başlatan platform kullanıcısının hesabına aitse bir ekibe bağlanır; ekip ve kullanıcı 30 dakikalık imzalı state'te; kullanıcı ekipte member+ olmalı; başka ekibe bağlı kurulumu taşımak orada da member+ ister |
 | OAuth akışında CSRF / kod çalınması | 10 dakikalık imzalı `state` çerezi (sabit zamanlı karşılaştırma), PKCE S256; GitHub erişim token'ı saklanmaz |
 | Son owner'ın kaybı | Ekip satırı kilitlenerek üye değişikliği yapılır; son owner düşürülemez/çıkarılamaz |
-| Web arayüzünde oturum çalınması / CSRF | Durumsuz, HMAC imzalı `HttpOnly` + `SameSite=Strict` çerez; oturuma bağlı CSRF token'ı; Origin kontrolü; açık yönlendirme engeli |
+| Web arayüzünde oturum çalınması / CSRF | Durumsuz, HMAC imzalı `HttpOnly` + `SameSite=Lax` çerez (TLS'te `Secure`; Strict değil, çünkü GitHub'dan App kurulumu / girişten dönüş siteler arası bir gezinmedir); CSRF'e karşı asıl koruma her güvenli olmayan istekte oturuma bağlı HMAC CSRF token'ı (form alanı ya da `X-CSRF-Token`) ve Origin / Referer'ın aynı host olması denetimidir, Lax ikinci katmandır; açık yönlendirme engeli |
 | XSS | `html/template` otomatik kaçışlama; istek başına nonce'lu sıkı CSP |
 | Sırların sızması | Env değerleri API'den ve arayüzden asla okunmaz; deploy anında değişmez Secret; GitHub token'ı argv/log'a yazılmaz; altyapı sırları Terraform state'ine girmez |
 | Kötü niyetli uygulama | Root olmayan pod, yetkiler düşürülmüş, seccomp; uygulamalar arası ağ yasak; kota ve limitler |
@@ -239,14 +253,15 @@ Ayrıntılar ve yeniden üretme komutları: [MEASUREMENTS.md](MEASUREMENTS.md).
 
 Açıkça belirtilmesi gerekenler:
 
-- **Yerel gerçek kümede doğrulandı, AWS'de henüz değil.** k3d (k3s v1.35, Traefik, NetworkPolicy)
+- **Yerel gerçek kümede ve AWS'de çalıştırıldı.** k3d (k3s v1.35, Traefik, NetworkPolicy)
   üzerinde uçtan uca çalıştırıldı: deploy, üç tür adres, trafik altında kesintisiz rollback
   (1 000 istek, 0 hata), bozuk commit'te hızlı başarısızlık, temizlik, branch silme, pod logları
   ([MEASUREMENTS.md §4](MEASUREMENTS.md#4-gerçek-küme-k3d-yerel)). k3s ağ politikasının readiness
   probe'larına izin verdiği ve Traefik'in standart Ingress'leri sunduğu böylece doğrulandı.
-  Terraform yapılandırması doğrulandı ama `apply` edilmedi; AWS'de doğrulanacaklar: TLS ile
-  wildcard sertifikanın varsayılan olarak uygulanması, ECR'a ilk push'ta repo oluşturma
-  izinleri, kubelet ECR kimlik bilgisi sağlayıcısı, arm64 build süreleri.
+  Terraform ile AWS'de `apply` edildi ve canlıda kullanıldı (t4g.small, eu-central-1b, DuckDNS adı
+  ve host başına HTTP-01 sertifikası, ECR'a create-on-push, kubelet ECR kimlik bilgisi sağlayıcısı,
+  GitHub App); AWS kredisini korumak için 2026-10-05'te `terraform destroy` ile kaldırıldı. Route 53
+  ile wildcard sertifika (DNS-01) yolu canlıda denenmedi; arm64 build süreleri kayda geçmedi.
 - **Ölçümler dizüstü bilgisayarda alındı;** hedef sunucuda (arm64, 2 vCPU) tekrar alınmalı.
   Kubernetes'teki pod hazır olma süresi ve uygulama trafiği kapasitesi henüz ölçülmedi.
 - **Tek düğüm:** Postgres ve build cache düğümün diskinde; düğüm kaybı veri kaybıdır.
@@ -256,7 +271,8 @@ Açıkça belirtilmesi gerekenler:
   `redis:7-alpine` üzerinde çalıştırıldı; eklentilerin Kubernetes nesneleri (StatefulSet, PVC,
   NetworkPolicy, Job'lar) için uçtan uca küme koşusu başlatıldı ve ilk bulguyu düzeltti (kopya
   işinin NetworkPolicy gecikmesine karşı sunucuyu beklemesi), ama tamamlandığı henüz kayda
-  geçmedi. Faz 15 sahte GitHub'a karşı test edildi; gerçek bir GitHub App ile denenmedi.
+  geçmedi. Faz 15 sahte GitHub'a karşı test edildi ve AWS kurulumunda gerçek bir GitHub App ile
+  kullanıldı.
 - **Tek kontrol düzlemi kopyası varsayılır;** çok kopyada yönlendirme senkronları arasında
   kısa yarışlar olabilir (uzlaştırma döngüsü düzeltir). Yayın denetleyicisi (Faz 21) ve eklenti
   döngüsü (Faz 22) `FOR UPDATE SKIP LOCKED` kiralama ve compare-and-set ile çok kopyada güvenlidir.
@@ -283,9 +299,9 @@ aktivatörüyle), env şifreleme (Faz 10), ekip bazlı yetkilendirme (Faz 13), �
 yönetilen veritabanı (Faz 22, RDS yerine küme içinde), Dockerfile frontend'inin sabitlenmesi (Faz 14)
 ve daha fazla dil / framework (Faz 9, 16) yapıldı. Kalanlar:
 
-1. AWS'de `terraform apply` ile kurulum, uçtan uca doğrulama ve ölçümlerin hedef sunucuda
-   (arm64, 2 vCPU) tekrarı; pod hazır olma süresi ve uygulama trafiği kapasitesinin ölçülmesi.
-2. Faz 17, 19, 20 ve 22'nin gerçek kümede uçtan uca koşusu; Faz 15'in gerçek bir GitHub App ile denenmesi.
+1. AWS kurulumunun yeniden açılıp ölçümlerin hedef sunucuda (arm64, 2 vCPU) tekrarı; pod hazır
+   olma süresi ve uygulama trafiği kapasitesinin ölçülmesi; Route 53 + wildcard sertifika yolunun denenmesi.
+2. Faz 17, 19, 20 ve 22'nin gerçek kümede uçtan uca koşusu.
 3. Env şifreleme anahtarının KMS ile sarılması (zarf şifreleme).
 4. Çok düğümlü küme: eklenti diskleri için ağ depolaması ve S3 uyumlu yedek hedefi.
 5. Postgres eklentileri için okuma kopyaları; faturalandırma.
