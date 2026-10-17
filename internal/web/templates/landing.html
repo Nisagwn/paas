@@ -1,0 +1,332 @@
+{{/* Karşılama sayfası: GET / without a session (landing.go). Works without JS. */}}
+{{define "title"}}paas · Git push'la, saniyeler içinde canlıda{{end}}
+{{define "meta"}}{{$d := .Data}}
+<meta name="description" content="Git tabanlı uygulama platformu: GitHub reposunu bağla, her push otomatik build ve deploy olsun; her branch'e önizleme adresi, anında geri alma, yönetilen veritabanı ve kademeli yayın. Arayüz Türkçe.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="paas">
+<meta property="og:locale" content="tr_TR">
+<meta property="og:title" content="paas · Git push'la, saniyeler içinde canlıda">
+<meta property="og:description" content="Her push kendi HTTPS adresinde değişmez bir deploy olur. Branch önizlemeleri, anında geri alma, yönetilen Postgres ve Redis, canary yayın.">
+{{with $d.PublicURL}}<meta property="og:url" content="{{.}}/">
+<link rel="canonical" href="{{.}}/">{{end}}
+<meta name="twitter:card" content="summary">
+{{end}}
+{{define "head"}}<style>
+main { max-width: 1120px; }
+.lp section { scroll-margin-top: 72px; }
+.lp h2 { font-size: 28px; letter-spacing: -.02em; margin: 0 0 8px; }
+.lp .lead { color: var(--muted); font-size: 16px; margin: 0 0 32px; max-width: 620px; }
+.lp-sec { padding: 64px 0 0; }
+.lp-eyebrow { display: inline-block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--accent); margin: 0 0 8px; }
+
+/* Hero */
+.lp-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; padding: 48px 0 16px; }
+.lp-hero h1 { font-size: 48px; line-height: 1.08; letter-spacing: -.035em; margin: 0 0 16px; }
+.lp-hero h1 em { font-style: normal; color: var(--accent); }
+.lp-hero .lead { font-size: 18px; margin-bottom: 24px; }
+.lp-cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.lp-note { margin: 12px 0 0; color: var(--muted); font-size: 13px; }
+.lp-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+.lp-pill b { color: var(--ok); font-weight: 600; }
+
+/* Terminal */
+.term { background: var(--code-bg); color: var(--code-text); border-radius: var(--radius); border: 1px solid var(--border);
+  font: 13px/1.7 var(--mono); overflow: hidden; }
+.term-bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.term-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--code-muted); opacity: .5; }
+.term-bar span { margin-left: 8px; color: var(--code-muted); font-size: 12px; }
+.term pre { margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-all; font: inherit; }
+.term .p { color: var(--code-muted); }
+.term .s { color: var(--code-step); }
+.term .m { color: var(--code-muted); }
+.term .ok { color: var(--code-ok); font-weight: 600; }
+.term .u { color: var(--code-text); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Steps */
+ol.lp-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
+  counter-reset: step; }
+.lp-steps li { padding: 20px; position: relative; }
+.lp-steps .ic { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 8px;
+  background: var(--run-bg); color: var(--run); margin-bottom: 14px; }
+.lp-steps .n { position: absolute; top: 20px; right: 20px; font: 600 12px var(--mono); color: var(--muted); }
+.lp-steps h3, .lp-feat h3 { font-size: 15px; margin: 0 0 6px; }
+.lp-steps p, .lp-feat p { margin: 0; color: var(--muted); font-size: 14px; }
+.lp-steps code { font-size: 12px; overflow-wrap: anywhere; }
+
+/* Features */
+ul.lp-feat { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.lp-feat li { padding: 20px; }
+.lp-feat .ic { display: block; color: var(--text); margin-bottom: 12px; }
+
+/* Comparison */
+.lp-cmp { overflow-x: auto; }
+.lp-cmp table { min-width: 560px; }
+.lp-cmp th[scope=row] { font-size: 14px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; width: 34%; }
+.lp-cmp td { font-size: 14px; color: var(--muted); }
+.lp-cmp td.yes { color: var(--text); }
+.lp-cmp .mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; margin-right: 8px;
+  font-size: 11px; font-weight: 700; vertical-align: -3px; }
+.lp-cmp .yes .mark { background: var(--ok-bg); color: var(--ok); }
+.lp-cmp .part .mark { background: var(--idle-bg); color: var(--idle); }
+.lp-cmp thead th:nth-child(2) { color: var(--text); }
+
+/* Architecture */
+.lp-arch { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 32px; align-items: center; }
+.lp-arch figure { margin: 0; padding: 12px; }
+.lp-arch img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.lp-arch figcaption { margin-top: 8px; }
+.lp-arch ul { margin: 0 0 20px; padding: 0; list-style: none; display: grid; gap: 14px; }
+.lp-arch li { padding-left: 20px; position: relative; }
+.lp-arch li::before { content: ""; position: absolute; left: 0; top: 8px; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+
+/* Plans */
+.lp-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.lp-plan { padding: 24px; display: flex; flex-direction: column; gap: 12px; }
+.lp-plan.featured { border-color: var(--accent); box-shadow: inset 0 3px 0 var(--accent); }
+.lp-plan h3 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+.lp-plan > p { margin: 0; color: var(--muted); font-size: 14px; min-height: 42px; }
+.lp-plan dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; font-size: 14px; flex: 1; }
+.lp-plan dt { color: var(--muted); }
+.lp-plan dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.lp-plan .btn { justify-content: center; }
+
+/* FAQ */
+.lp-faq { max-width: 760px; }
+.lp-faq details.section { margin-top: 0; border-bottom: 1px solid var(--border); }
+.lp-faq details.section:first-child { border-top: 1px solid var(--border); }
+.lp-faq details.section > summary { padding: 16px 0; font-size: 15px; }
+.lp-faq details.section > .body { padding: 0 0 16px 18px; color: var(--muted); }
+.lp-faq .body p { margin: 0; }
+
+/* Final CTA */
+.lp-final { margin-top: 64px; padding: 48px 24px; text-align: center; }
+.lp-final h2 { margin-bottom: 8px; }
+.lp-final p { color: var(--muted); margin: 0 auto 24px; max-width: 480px; }
+.lp-final .lp-cta { justify-content: center; }
+
+@media (max-width: 720px) {
+  .lp-hero { grid-template-columns: 1fr; gap: 32px; padding: 24px 0 0; }
+  .lp-hero h1 { font-size: 34px; }
+  .lp-hero .lead { font-size: 16px; }
+  .lp h2 { font-size: 24px; }
+  .lp-sec { padding-top: 48px; }
+  ol.lp-steps { grid-template-columns: 1fr; }
+  .lp-arch { grid-template-columns: 1fr; }
+  .lp-final { padding: 32px 16px; margin-top: 48px; }
+  .lp-cta .btn { flex: 1; justify-content: center; }
+}
+@media (min-width: 721px) and (max-width: 960px) {
+  ol.lp-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>{{end}}
+{{define "content"}}{{$d := .Data}}
+<div class="lp">
+
+<section class="lp-hero" aria-labelledby="hero-title">
+  <div>
+    <p class="lp-pill"><b aria-hidden="true">●</b> Branch önizlemeleri, anında geri alma, yönetilen veritabanı</p>
+    <h1 id="hero-title">Git push'la, <em>saniyeler içinde canlıda.</em></h1>
+    <p class="lead">GitHub reposunu bağla; her commit kendi HTTPS adresinde çalışan, değişmez bir deploy olsun. Sunucu, Dockerfile ya da YAML yazmadan.</p>
+    <div class="lp-cta">
+      {{if $d.Signup}}
+      <a class="btn primary big" href="/signup">Ücretsiz başla <span aria-hidden="true">→</span></a>
+      <a class="btn big" href="/login">Giriş yap</a>
+      {{else}}
+      <a class="btn primary big" href="/login">Giriş yap <span aria-hidden="true">→</span></a>
+      {{end}}
+    </div>
+    <p class="lp-note">{{if $d.Signup}}GitHub hesabınla kaydol; kredi kartı istenmez.{{else}}Kayıtlar şu an davetle. Davet aldıysan GitHub hesabınla giriş yap.{{end}}</p>
+  </div>
+  <figure class="term" role="img" aria-label="Terminal örneği: git push sonrası build, deploy ve {{$d.AppURL}} adresinde canlı">
+    <div class="term-bar" aria-hidden="true"><i></i><i></i><i></i><span>~/blog</span></div>
+<pre aria-hidden="true"><span class="p">$</span> git push origin main
+<span class="m">Enumerating objects: 12, done.</span>
+<span class="s">paas</span>  push alındı · main · 3f9c2a1
+<span class="s">paas</span>  Next.js algılandı, Dockerfile üretildi
+<span class="s">paas</span>  build tamam <span class="m">(38 sn)</span>
+<span class="s">paas</span>  deploy hazır · sağlık kontrolü geçti
+<span class="ok">✓ Canlı</span>   <span class="u">{{$d.AppURL}}</span>
+<span class="m">  commit  {{$d.CommitURL}}</span></pre>
+  </figure>
+</section>
+
+<section id="nasil-calisir" class="lp-sec" aria-labelledby="nasil-title">
+  <p class="lp-eyebrow">Nasıl çalışır</p>
+  <h2 id="nasil-title">Repodan canlı adrese dört adım</h2>
+  <p class="lead">Kurulum bir kez yapılır; sonrası yalnızca <code>git push</code>.</p>
+  <ol class="lp-steps">
+    <li class="card">
+      <span class="ic" aria-hidden="true"><svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></span>
+      <span class="n" aria-hidden="true">01</span>
+      <h3>GitHub ile giriş yap</h3>
+      <p>Şifre yok; ilk girişte kişisel ekibin kendiliğinden kurulur.</p>
+    </li>
+    <li class="card">
+      <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h12v15H6a2 2 0 0 0-2 2z"/><path d="M4 20a2 2 0 0 0 2 2h12v-4"/><path d="M9 8h5M9 11h3"/></svg></span>
+      <span class="n" aria-hidden="true">02</span>
+      <h3>Repoyu seç</h3>
+      <p>GitHub App'i kur, yalnızca izin verdiğin repoları seç; proje tek tıkla oluşur.</p>
+    </li>
+    <li class="card">
+      <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-12 6"/></svg></span>
+      <span class="n" aria-hidden="true">03</span>
+      <h3>Push'la, gerisi otomatik</h3>
+      <p>Her push build ve deploy olur; her branch kendi önizleme adresini alır: <code>{{trimScheme $d.PreviewURL}}</code></p>
+    </li>
+    <li class="card">
+      <span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></span>
+      <span class="n" aria-hidden="true">04</span>
+      <h3>Geri al, domain bağla</h3>
+      <p>Önceki bir sürüme tek tıkla, build'siz dön; kendi alan adını otomatik TLS ile bağla.</p>
+    </li>
+  </ol>
+</section>
+
+<section id="ozellikler" class="lp-sec" aria-labelledby="ozellik-title">
+  <p class="lp-eyebrow">Özellikler</p>
+  <h2 id="ozellik-title">Uygulamanı çalıştırmak için gereken her şey</h2>
+  <p class="lead">Statik siteden WebSocket sunucusuna, worker'dan veritabanına kadar aynı akış.</p>
+  <ul class="lp-feat">
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>
+      <h3>Her dil, her framework</h3><p>Next.js, Vite, Go, Django, Rails, Java ve daha fazlası algılanır; varsa kendi Dockerfile'ın kullanılır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-12 6"/></svg>
+      <h3>Branch önizlemeleri</h3><p>Her branch kendi adresinde; PR'a "Preview hazır" yorumu ve commit durumu yazılır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg>
+      <h3>Değişmez deploy, anında geri alma</h3><p>Her commit kalıcı adresinde durur; production bir takma ad olduğu için geri alma milisaniyeler sürer.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg>
+      <h3>Worker, cron, WebSocket</h3><p><code>paas.yaml</code> ile aynı imajdan arka plan işleri, zamanlanmış görevler ve kalıcı bağlantılar.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>
+      <h3>Yönetilen Postgres ve Redis</h3><p>Tek tıkla eklenir; her önizleme production verisinin, istersen anonimleştirilmiş, kendi kopyasıyla çalışır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/></svg>
+      <h3>Kademeli yayın</h3><p>Yeni sürüm önce trafiğin bir payını alır; hata oranı ya da gecikme bozulursa kendiliğinden geri alınır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <h3>Deploy koruması</h3><p>Önizlemeler yalnızca ekibe, ortak şifreyle ya da paylaşım bağlantısıyla açılır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>
+      <h3>Önizlemede yorum</h3><p>Ekip sayfanın tam noktasına yorum bırakır; yorumlar PR'a da yazılır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>
+      <h3>Bildirimler</h3><p>Deploy, production değişikliği ve geri alma; Slack, Discord, e-posta ya da imzalı webhook ile.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg>
+      <h3>Tarayıcıdan terminal</h3><p>Çalışan konteynerde kabuk; kubeconfig gerekmez, her oturum denetim kaydına yazılır.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.5a5 5 0 0 1 5 5.5"/></svg>
+      <h3>Ekipler ve roller</h3><p>Owner, member ve viewer rolleri; kişisel API token'ları ve komut satırı aracı.</p></li>
+    <li class="card"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+      <h3>Türkçe arayüz</h3><p>Ekranlar, hata mesajları ve belgeler Türkçe; kullanım koşulları ve KVKK metni hazır.</p></li>
+  </ul>
+</section>
+
+<section id="neden" class="lp-sec" aria-labelledby="neden-title">
+  <p class="lp-eyebrow">Neden paas?</p>
+  <h2 id="neden-title">Fonksiyon değil, uygulama çalıştırır</h2>
+  <p class="lead">Tipik serverless platformlar istek başına kısa süren fonksiyonlar için tasarlanır. paas her deploy'u sürekli çalışan bir konteyner olarak işletir.</p>
+  <div class="card lp-cmp">
+    <table>
+      <caption class="sr-only">paas ile tipik bir serverless platformun karşılaştırması</caption>
+      <thead><tr><th scope="col"><span class="sr-only">Özellik</span></th><th scope="col">paas</th><th scope="col">Tipik serverless platform</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Uzun süre çalışan sunucular ve worker'lar</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Web, worker, cron ve WebSocket süreçleri</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>İstek başına fonksiyon, süre sınırıyla</td></tr>
+        <tr><th scope="row">Dahili veritabanı, önizleme başına kopya</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Postgres ve Redis, branch başına kopya</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>Çoğunlukla ayrı bir hizmetten</td></tr>
+        <tr><th scope="row">Kademeli yayın ve otomatik geri alma</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Metriklere bakarak kendiliğinden</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>Çoğunlukla elle ya da ek ürünle</td></tr>
+        <tr><th scope="row">Çalışan uygulamada terminal</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Tarayıcıdan, denetim kayıtlı</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>Kalıcı bir kabuk yok</td></tr>
+        <tr><th scope="row">Türkçe arayüz ve KVKK</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Arayüz, belgeler ve gizlilik metni</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>Genellikle İngilizce</td></tr>
+        <tr><th scope="row">Kendi sunucuna kurulum</th>
+          <td class="yes"><span class="mark" aria-hidden="true">✓</span>Tek Go ikilisi, k3s kümesinde</td>
+          <td class="part"><span class="mark" aria-hidden="true">–</span>Yalnızca sağlayıcının bulutunda</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="mimari" class="lp-sec" aria-labelledby="mimari-title">
+  <p class="lp-eyebrow">Mimari</p>
+  <h2 id="mimari-title">Her parçası belli, davranışı öngörülebilir</h2>
+  <p class="lead">Her push aynı yolu izler: webhook, kuyruk, build, Kubernetes, alias.</p>
+  <div class="lp-arch">
+    <figure class="card">
+      <img src="/static/mimari.svg" width="960" height="650" loading="lazy"
+        alt="Genel mimari: geliştirici GitHub'a push eder; webhook Traefik üzerinden kontrol düzlemine gelir. Kontrol düzlemi PostgreSQL'i kuyruk ve durum için kullanır, imajı BuildKit ile derleyip registry'ye iter ve uygulamanın namespace'inde değişmez deploy'lar oluşturur.">
+      <figcaption class="muted small">Kontrol düzlemi, PostgreSQL, BuildKit, Traefik ve uygulama namespace'leri.</figcaption>
+    </figure>
+    <div>
+      <ul>
+        <li><strong>Tek Go ikilisi.</strong> API, web arayüzü, webhook alıcısı, build worker'ları ve arka plan döngüleri aynı süreçte.</li>
+        <li><strong>PostgreSQL tek doğruluk kaynağı.</strong> Kuyruk, deploy durumu ve canlı loglar orada; küme sürekli veritabanına uydurulur.</li>
+        <li><strong>Yalıtılmış uygulamalar.</strong> Her proje kendi namespace'inde, kota, NetworkPolicy ve root olmayan kullanıcıyla çalışır.</li>
+      </ul>
+      <a class="btn" href="https://github.com/Nisagwn/paas/blob/main/docs/MIMARI.md" target="_blank" rel="noopener">Mimari belgesini oku ↗<span class="sr-only"> (yeni sekmede açılır)</span></a>
+    </div>
+  </div>
+</section>
+
+<section id="planlar" class="lp-sec" aria-labelledby="plan-title">
+  <p class="lp-eyebrow">Planlar</p>
+  <h2 id="plan-title">Bu sunucunun planları</h2>
+  {{if $d.Enforced}}
+  <p class="lead">Limitler bu kurulumun ayarlarından okunur. Her yeni ekip Hobby ile başlar; Pro ve Sınırsız planlarını platform yöneticisi atar.</p>
+  <div class="lp-plans">
+    {{range $d.Plans}}
+    <article class="card lp-plan{{if eq .Name "pro"}} featured{{end}}" aria-labelledby="plan-{{.Name}}">
+      <h3 id="plan-{{.Name}}">{{.Label}}</h3>
+      <p>{{.Note}}</p>
+      <dl>{{range .Rows}}<dt>{{index . 0}}</dt><dd>{{index . 1}}</dd>{{end}}</dl>
+      {{if $d.Signup}}
+      <a class="btn{{if eq .Name "hobby"}} primary{{end}}" href="/signup">{{if eq .Name "hobby"}}Ücretsiz başla{{else}}Kaydol{{end}}<span class="sr-only"> ({{.Label}} planı)</span></a>
+      {{else}}
+      <a class="btn" href="/login">Giriş yap<span class="sr-only"> ({{.Label}} planı)</span></a>
+      {{end}}
+    </article>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="card pad">
+    <p style="margin:0">Bu sunucuda plan limiti uygulanmıyor: her ekip proje, deploy ve veritabanı sayısında sınırsız çalışır; yalnızca küme kotası geçerlidir.</p>
+  </div>
+  {{end}}
+  {{if not $d.Signup}}<p class="lp-note"><strong>Kayıtlar şu an davetle.</strong> Bir ekip sahibi seni eklediyse <a href="/login">giriş yap</a>.</p>{{end}}
+</section>
+
+<section id="sss" class="lp-sec" aria-labelledby="sss-title">
+  <p class="lp-eyebrow">SSS</p>
+  <h2 id="sss-title">Sık sorulan sorular</h2>
+  <div class="lp-faq">
+    <details class="section"><summary>Ücretli mi?</summary>
+      <div class="body"><p>Bu sunucuda ödeme alınmıyor. Her ekip Hobby planıyla başlar; daha yüksek limitler gerekirse platform yöneticisi ekibini Pro ya da Sınırsız plana alır.</p></div></details>
+    <details class="section"><summary>Hangi dilleri ve framework'leri destekliyor?</summary>
+      <div class="body"><p>Repoda Dockerfile varsa o kullanılır. Yoksa Node (Next.js, Vite, Nuxt, SvelteKit, Astro, Remix, NestJS…), Go, Python (Django, FastAPI, Flask), Ruby (Rails, Rack), Java (Maven, Gradle) ve statik siteler algılanır, Dockerfile platform tarafından üretilir. Monorepo kök dizini ve build / start komutları proje başına ayarlanır.</p></div></details>
+    <details class="section"><summary>Kendi alan adımı bağlayabilir miyim?</summary>
+      <div class="body"><p>Evet. Proje ayarlarından alan adını ekle, gösterilen CNAME (kök alan adı için TXT ve A) kaydını oluştur. Doğrulanınca Let's Encrypt sertifikası otomatik alınır; alan adı production'ı izler, geri alma da onu taşır.</p></div></details>
+    <details class="section"><summary>Verilerim nerede tutuluyor?</summary>
+      <div class="body"><p>Uygulamaların, veritabanların ve loglar bu platformu işletenin sunucularında durur; ortam değişkenleri şifreli saklanır. Hangi kişisel verilerin neden işlendiği <a href="/privacy">gizlilik politikasında</a>, KVKK'ya göre anlatılır.</p></div></details>
+    <details class="section"><summary>Repom özel (private) olabilir mi?</summary>
+      <div class="body"><p>Evet. GitHub App yalnızca kurulumda seçtiğin repolara erişir ve kodu kısa ömürlü token'larla, commit SHA'sıyla çeker; repoların herkese açık olması gerekmez.</p></div></details>
+    <details class="section"><summary>Kendi sunucuma kurabilir miyim?</summary>
+      <div class="body"><p>Evet. paas tek bir Go ikilisi ve PostgreSQL ile k3s üzerinde çalışır; yerelde k3d ile, bulutta hazır Terraform tanımlarıyla kurulur. Adımlar <a href="https://github.com/Nisagwn/paas#readme" target="_blank" rel="noopener">README'de ↗<span class="sr-only"> (yeni sekmede açılır)</span></a>.</p></div></details>
+  </div>
+</section>
+
+<section class="card lp-final" aria-labelledby="final-title">
+  <h2 id="final-title">İlk deploy'un bir push uzağında</h2>
+  <p>{{if $d.Signup}}GitHub hesabınla kaydol, reponu seç, push'la.{{else}}Kayıtlar şu an davetle. Davet aldıysan GitHub hesabınla giriş yap.{{end}}</p>
+  <div class="lp-cta">
+    {{if $d.Signup}}
+    <a class="btn primary big" href="/signup">Ücretsiz başla <span aria-hidden="true">→</span></a>
+    <a class="btn big" href="/login">Giriş yap</a>
+    {{else}}
+    <a class="btn primary big" href="/login">Giriş yap <span aria-hidden="true">→</span></a>
+    {{end}}
+  </div>
+</section>
+
+</div>
+{{end}}

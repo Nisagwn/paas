@@ -201,7 +201,7 @@ func TestPagesAndRollback(t *testing.T) {
 
 	// Logging out ends the session.
 	u.post("/logout", url.Values{"csrf": {csrf}}, "self")
-	if code, _, _ := u.get("/"); code != http.StatusSeeOther {
-		t.Fatalf("after logout: %d, want redirect to login", code)
+	if code, body, _ := u.get("/"); code != 200 || !strings.Contains(body, `id="hero-title"`) || strings.Contains(body, "/logout") {
+		t.Fatalf("after logout: %d, want the landing page", code)
 	}
 }

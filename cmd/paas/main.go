@@ -136,7 +136,7 @@ func run(log *slog.Logger) error {
 	// Faz 13: users, teams and GitHub login.
 	sessions, authn, ghLogin := newAuth(cfg, st, log)
 	ui := &web.Server{
-		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, Scheme: scheme,
+		Store: st, Router: apiRouter, Sessions: sessions, Domain: cfg.Domain, PublicURL: cfg.PublicURL, Scheme: scheme,
 		RuntimeLogs: runtimeLogs != nil, Log: log, Domains: verifier, Auth: authn, GitHub: ghLogin,
 	}
 	// Faz 24: deployment protection (login page here, verify in the API).
