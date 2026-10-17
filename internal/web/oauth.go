@@ -115,5 +115,5 @@ func (s *Server) githubCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) loginFailed(w http.ResponseWriter, r *http.Request, status int, code string) {
-	s.render(w, r, status, "login", "Giriş yap", s.loginData("/"), loginErrors[code])
+	s.render(w, r, status, "login", "Giriş yap", s.loginView("/", code), loginErrors[code])
 }
