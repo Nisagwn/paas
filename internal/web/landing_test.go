@@ -56,14 +56,16 @@ func TestLandingAnonymous(t *testing.T) {
 		`href="/terms"`, `href="/privacy"`, `https://github.com/Nisagwn/paas"`,
 		`<figure class="term" data-play`, `aria-hidden="true"><svg`)
 	mustNotContain(t, "landing (signup closed)", body, `href="/signup"`, "/logout", "Yeni proje", "og:url",
-		`href="#planlar"`, "/static/mimari.svg", "<details", "<table")
+		`href="#planlar"`, "/static/mimari.svg")
+	mustContain(t, "landing comparison and FAQ", body, `id="neden"`, "<table", `<caption class="sr-only">`,
+		`id="sss"`, "<details><summary>Ücretli mi?</summary>", "Kendi sunucuma kurabilir miyim?")
 
-	// Exactly one h1; five sections at most; six feature cards; two header links at most.
+	// Exactly one h1; seven sections at most; six feature cards; two header links at most.
 	if n := strings.Count(body, "<h1"); n != 1 {
 		t.Errorf("%d h1 elements, want 1", n)
 	}
-	if n := strings.Count(body, "<section"); n > 5 {
-		t.Errorf("%d sections, want at most 5", n)
+	if n := strings.Count(body, "<section"); n > 7 {
+		t.Errorf("%d sections, want at most 7", n)
 	}
 	feat := body[strings.Index(body, `<ul class="lp-feat">`):]
 	if n := strings.Count(feat[:strings.Index(feat, "</ul>")], "<li"); n != 6 {

@@ -106,6 +106,33 @@ ul.lp-feat { list-style: none; margin: 0; padding: 0; display: grid; grid-templa
 .lp-final h2 { margin-bottom: 32px; }
 .lp-final .lp-note a { color: var(--text); font-weight: 600; }
 
+/* Comparison */
+.lp-cmp { max-width: 880px; margin: 0 auto; padding: 0; border-radius: 14px; overflow-x: auto; }
+.lp-cmp table { width: 100%; min-width: 560px; border-collapse: collapse; }
+.lp-cmp th, .lp-cmp td { padding: 16px 20px; text-align: left; border-bottom: 1px solid var(--border); font-size: 15px; }
+.lp-cmp tbody tr:last-child th, .lp-cmp tbody tr:last-child td { border-bottom: 0; }
+.lp-cmp thead th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.lp-cmp thead th.us { color: var(--accent); }
+.lp-cmp th[scope=row] { font-weight: 600; color: var(--text); width: 36%; text-transform: none; letter-spacing: 0; font-size: 15px; }
+.lp-cmp td { color: var(--muted); }
+.lp-cmp td.us { color: var(--text); background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.lp-cmp .mark { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; margin-right: 10px;
+  font-size: 11px; font-weight: 700; vertical-align: -3px; background: var(--idle-bg); color: var(--idle); }
+.lp-cmp td.us .mark { background: var(--ok-bg); color: var(--ok); }
+
+/* FAQ */
+.lp-faq { max-width: 760px; margin: 0 auto; }
+.lp-faq details { border-bottom: 1px solid var(--border); }
+.lp-faq details:first-child { border-top: 1px solid var(--border); }
+.lp-faq summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; gap: 16px;
+  padding: 20px 0; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq summary::after { content: "+"; color: var(--muted); font-weight: 400; font-size: 22px; line-height: 1; transition: transform .2s ease; }
+.lp-faq details[open] summary::after { transform: rotate(45deg); }
+.lp-faq summary:hover { color: var(--accent); }
+.lp-faq p { margin: 0 0 20px; color: var(--muted); max-width: 680px; }
+@media (prefers-reduced-motion: reduce) { .lp-faq summary::after { transition: none; } }
+
 @media (max-width: 960px) {
   ul.lp-feat { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -129,6 +156,8 @@ ul.lp-feat { list-style: none; margin: 0; padding: 0; display: grid; grid-templa
   .lp-proof dl > div { padding: 32px 16px; }
   .lp-proof dl > div + div { border-left: 0; border-top: 1px solid var(--border); }
   .lp-final { margin-top: 64px; padding: 56px 16px; }
+  .lp-cmp th, .lp-cmp td { padding: 12px 14px; font-size: 14px; }
+  .lp-faq summary { font-size: 16px; padding: 16px 0; }
 }
 </style>{{end}}
 {{define "content"}}{{$d := .Data}}
@@ -202,6 +231,39 @@ ul.lp-feat { list-style: none; margin: 0; padding: 0; display: grid; grid-templa
   <p class="lp-more"><a href="{{$d.Repo}}/blob/main/docs/MIMARI.md" target="_blank" rel="noopener">Nasıl çalışır? Mimariyi oku ↗<span class="sr-only"> (yeni sekmede açılır)</span></a></p>
 </section>
 
+<section id="neden" class="lp-sec" aria-labelledby="neden-title">
+  <div class="lp-head">
+    <h2 id="neden-title">Fonksiyon değil, uygulama çalıştırır</h2>
+    <p>Serverless platformlar kısa süren fonksiyonlar için tasarlanır; paas her deploy'u sürekli çalışan bir konteyner olarak işletir.</p>
+  </div>
+  <div class="card lp-cmp">
+    <table>
+      <caption class="sr-only">paas ile tipik bir serverless platformun karşılaştırması</caption>
+      <thead><tr><th scope="col"><span class="sr-only">Özellik</span></th><th scope="col" class="us">paas</th><th scope="col">Tipik serverless platform</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Uzun süre çalışan süreçler</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Web, worker, cron, WebSocket</td>
+          <td><span class="mark" aria-hidden="true">–</span>Süre sınırlı fonksiyonlar</td></tr>
+        <tr><th scope="row">Veritabanı</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Dahili; her önizlemeye kopya</td>
+          <td><span class="mark" aria-hidden="true">–</span>Ayrı bir hizmetten</td></tr>
+        <tr><th scope="row">Kademeli yayın</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Metriklere göre otomatik geri alma</td>
+          <td><span class="mark" aria-hidden="true">–</span>Elle ya da ek ürünle</td></tr>
+        <tr><th scope="row">Canlı uygulamada terminal</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Tarayıcıdan, denetim kayıtlı</td>
+          <td><span class="mark" aria-hidden="true">–</span>Kalıcı kabuk yok</td></tr>
+        <tr><th scope="row">Dil ve mevzuat</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Türkçe arayüz, KVKK metinleri</td>
+          <td><span class="mark" aria-hidden="true">–</span>Genellikle İngilizce</td></tr>
+        <tr><th scope="row">Kurulum yeri</th>
+          <td class="us"><span class="mark" aria-hidden="true">✓</span>Kendi sunucun ya da bulutun</td>
+          <td><span class="mark" aria-hidden="true">–</span>Yalnızca sağlayıcının bulutu</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <section class="lp-proof" aria-labelledby="proof-title">
   <h2 id="proof-title" class="sr-only">Ölçülen sonuçlar</h2>
   <dl>
@@ -210,6 +272,24 @@ ul.lp-feat { list-style: none; margin: 0; padding: 0; display: grid; grid-templa
     <div><dt>Geri alma sırasında, 1.000 istekte</dt><dd>0 hata</dd></div>
   </dl>
   <p class="src">Yerel k3s kümesinde ölçüldü · <a href="{{$d.Repo}}/blob/main/docs/MEASUREMENTS.md" target="_blank" rel="noopener">Ölçümler ↗<span class="sr-only"> (yeni sekmede açılır)</span></a></p>
+</section>
+
+<section id="sss" class="lp-sec" aria-labelledby="sss-title">
+  <div class="lp-head"><h2 id="sss-title">Sık sorulan sorular</h2></div>
+  <div class="lp-faq">
+    <details><summary>Ücretli mi?</summary>
+      <p>Bu sunucuda ödeme alınmıyor. Her ekip Hobby planıyla başlar; daha yüksek limitler gerekirse platform yöneticisi ekibini Pro ya da Sınırsız plana alır.</p></details>
+    <details><summary>Hangi dilleri destekliyor?</summary>
+      <p>Repoda Dockerfile varsa o kullanılır. Yoksa Node (Next.js, Vite, Nuxt, SvelteKit, Astro, Remix, NestJS…), Go, Python (Django, FastAPI, Flask), Ruby (Rails), Java (Maven, Gradle) ve statik siteler algılanır, Dockerfile platform tarafından üretilir.</p></details>
+    <details><summary>Kendi alan adımı bağlayabilir miyim?</summary>
+      <p>Evet. Proje ayarlarından alan adını ekle, gösterilen CNAME (kök alan adı için TXT ve A) kaydını oluştur. Doğrulanınca HTTPS sertifikası otomatik alınır; alan adı production'ı izler, geri alma da onu taşır.</p></details>
+    <details><summary>Repom özel (private) olabilir mi?</summary>
+      <p>Evet. GitHub App yalnızca kurulumda seçtiğin repolara erişir ve kodu kısa ömürlü token'larla, yalnızca push edilen commit'i çekerek alır.</p></details>
+    <details><summary>Verilerim nerede tutuluyor?</summary>
+      <p>Uygulamaların, veritabanların ve loglar bu platformu işletenin sunucularında durur; ortam değişkenleri şifreli saklanır. Ayrıntılar <a href="/privacy">gizlilik politikasında</a>.</p></details>
+    <details><summary>Kendi sunucuma kurabilir miyim?</summary>
+      <p>Evet. paas tek bir Go ikilisi ve PostgreSQL ile k3s üzerinde çalışır; yerelde k3d ile, bulutta hazır Terraform tanımlarıyla kurulur. Adımlar <a href="{{$d.Repo}}#readme" target="_blank" rel="noopener">README'de ↗<span class="sr-only"> (yeni sekmede açılır)</span></a>.</p></details>
+  </div>
 </section>
 
 <section class="card lp-final" aria-labelledby="final-title">
