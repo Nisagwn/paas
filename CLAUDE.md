@@ -33,6 +33,7 @@ Tüm token'lar tek yerde: `internal/web/templates/layout.html` içindeki `<style
   --run: #0a5bd6; --run-bg: #e8f0fe; --idle: #666; --idle-bg: #f0f0f0;
   --warn: #9a5b00; --warn-bg: #fff4e0; --chart-req: #2f6fde; --chart-err: #d03b3b; --grid: #ececec;
   --hover: #f4f4f5; --shadow: 0 6px 20px rgba(0,0,0,.08);
+  --code-muted: #8b8b93; --code-ok: #4ade80; --code-step: #8ab4ff;
   --radius: 10px; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) { :root { /* aynı adlar, koyu değerler */ } }
@@ -52,6 +53,7 @@ Tüm token'lar tek yerde: `internal/web/templates/layout.html` içindeki `<style
 | `--warn`, `--warn-bg` | Uyarı, Bozulmuş sağlık | warning |
 | `--idle`, `--idle-bg` | Pasif, İptal, trafik yok | neutral |
 | `--code-bg`, `--code-text` | Log panelleri (temadan bağımsız koyu) | code |
+| `--code-muted`, `--code-ok`, `--code-step` | Koyu kod paneli içinde ikincil metin, başarı, adım vurgusu (iki temada aynı) | code-secondary |
 | `--chart-req`, `--chart-err`, `--grid` | SVG grafik serileri ve ızgara | chart |
 | `--hover` | Menü öğesi / üst menü bağlantısı üzerine gelince zemin | surface-hover |
 | `--shadow` | Açılır menü gölgesi (koyu temada daha koyu) | elevation |
@@ -117,6 +119,7 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `.flash .help` | Hata kutusunun altında "ne yapmalı" satırı + bağlantı |
 | `.error-page` (`.code`, `.actions`) | Hata / yönlendirme kartı |
 | `.auth-card`, `.btn.block`, `.divider` | Giriş kartı, tam genişlik buton, "ya da" ayırıcı |
+| `footer.site-public` (`nav`) | Oturumsuz sayfaların alt bilgisi: marka solda; Kullanım koşulları, Gizlilik, GitHub sağda. Oturumsuz üst menü: karşılama sayfasında bölüm bağlantıları (`nav.primary`), sağda "Giriş yap" ve açık kayıtta "Kaydol" (`page.Signup`) |
 | `.btn.small`, `.btn.danger`, `button:disabled` | Bağlantı-buton küçük/tehlikeli varyantı; devre dışı görünüm |
 | `.flash.warn` | Uyarı kutusu (`.flash.ok` / `.flash.err` yanında) |
 | `.meter` (`> span` genişlik %, `.warn`, `.full`) | Limit / kullanım çubuğu; `role="progressbar"` + `aria-valuenow` ile kullan |
@@ -130,7 +133,7 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 
 ### 3.2 Şablon parçaları (`{{define}}` / `{{template}}`)
 
-- `templates/layout.html` → `"layout"`: iskelet, üst menü, flash mesajları; sayfa `"content"` (ve isteğe bağlı `"head"`) bloğunu tanımlar. Hatayı kendi kartında gösteren sayfa `"flash"` bloğunu yeniden tanımlar (boş gövde Go'da yok sayılır; bkz. `login.html`, `error.html`).
+- `templates/layout.html` → `"layout"`: iskelet, üst menü, flash mesajları; sayfa `"content"` (ve isteğe bağlı `"head"`) bloğunu tanımlar. `<head>` için ayrıca `"title"` (tam `<title>` metni) ve `"meta"` (description, Open Graph, canonical) blokları var; örnek `landing.html`. Hatayı kendi kartında gösteren sayfa `"flash"` bloğunu yeniden tanımlar (boş gövde Go'da yok sayılır; bkz. `login.html`, `error.html`).
 - `templates/partials.html` → `apphead` (proje başlığı + sekmeler), `depbadges`, `depcommit`, `recent`, `deployments`, `env`, `domains`.
 - `templates/processes.html`, `templates/rollout.html` → `processes`, `rollout` parçaları.
 - Parçalar hem tam sayfada hem htmx yanıtında kullanılır; her ikisi de `.Data` ve `.CSRF` taşıyan bir değer alır.
@@ -185,7 +188,7 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 
 ## 5. Varlıklar (asset) ve ikonlar
 
-- **Görsel dosyası yok.** `static/` dizini, CDN, görsel optimizasyon hattı yoktur. Dış kaynak olarak yalnızca htmx unpkg'den yüklenir.
+- **Tek görsel dosyası:** `internal/web/static/mimari.svg` (`docs/images/mimari-genel.svg`'nin kopyası, `GET /static/mimari.svg` ile `image/svg+xml` olarak sunulur; `TestArchitectureImageInSync` eşitliğini denetler). CDN ve görsel optimizasyon hattı yoktur. Dış kaynak olarak yalnızca htmx unpkg'den yüklenir.
 - **Favicon:** `layout.html` içinde data-URI SVG üçgen.
 - **CSP** (`web.go` `securityHeaders`): `default-src 'self'; script-src 'nonce-…' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:`.
   - Her `<script>` etiketi `nonce="{{.Nonce}}"` taşımalı; `onclick=` gibi inline handler **çalışmaz**.

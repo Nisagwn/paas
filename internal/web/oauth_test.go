@@ -210,7 +210,7 @@ func TestGitHubLogin(t *testing.T) {
 	if code, body := stranger.signIn("stranger"); code != http.StatusForbidden || !strings.Contains(body, "giriş izni yok") {
 		t.Fatalf("stranger: %d", code)
 	}
-	if code, _, _ := stranger.get("/"); code != http.StatusSeeOther {
+	if code, body, _ := stranger.get("/"); code != 200 || strings.Contains(body, "/logout") {
 		t.Fatalf("stranger got a session: %d", code)
 	}
 	if _, err := u.st.UserByLogin(ctx, "stranger"); err == nil {

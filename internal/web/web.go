@@ -47,6 +47,9 @@ type Server struct {
 	Router   api.Router
 	Sessions *auth.Sessions
 	Domain   string
+	// PublicURL is where the UI is reachable (PAAS_PUBLIC_URL); the landing
+	// page uses it for its Open Graph and canonical links. Empty omits them.
+	PublicURL string
 	// Scheme of app links; empty means "https".
 	Scheme string
 	// RuntimeLogs shows the runtime log panel (Kubernetes deployer only).
@@ -146,7 +149,7 @@ func (s *Server) Handler() http.Handler {
 		s.Auth = &auth.Authenticator{Store: s.Store, Sessions: s.Sessions, Log: s.Log}
 	}
 	for _, p := range []string{"login", "apps", "app", "deployment", "error", "teams", "team", "tokens", "redirect", "import",
-		"deploys", "analytics", "settings", "databases", "review", "usage", "admin", "terms", "privacy"} {
+		"deploys", "analytics", "settings", "databases", "review", "usage", "admin", "terms", "privacy", "landing"} {
 		s.pages[p] = template.Must(template.New("").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/partials.html", "templates/processes.html", "templates/rollout.html", "templates/"+p+".html"))
 	}
@@ -162,7 +165,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.limitSignIn(s.login))
 	mux.Handle("POST /logout", s.authed(s.logout))
-	mux.Handle("GET /{$}", s.authed(s.appsPage))
+	mux.HandleFunc("GET /{$}", s.home(s.authed(s.appsPage))) // landing page without a session (landing.go)
+	mux.HandleFunc("GET /static/mimari.svg", architectureSVG)
 	mux.Handle("POST /apps", s.authed(s.createApp))
 	mux.Handle("GET /apps/{name}", s.authed(s.appPage))
 	// Faz 16–19 screens: the app's tabs (app.go, controls.go, analytics.go). The
@@ -334,6 +338,9 @@ type page struct {
 	// Page is the template name; Nav the header of signed-in pages (nav.go).
 	Page string
 	Nav  navData
+	// Signup: anyone may create an account (PAAS_OPEN_SIGNUP); the signed-out
+	// header shows "Kaydol" only then.
+	Signup bool
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name, title string, data any, errMsg string) {
@@ -348,6 +355,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	p.Me, p.LoggedIn = auth.From(r.Context())
 	p.PlatformAdmin = p.LoggedIn && s.Auth.PlatformAdmin(p.Me)
 	p.Page = name
+	p.Signup = s.openSignup()
 	if p.LoggedIn {
 		p.Nav = s.nav(r, p.Me)
 	}
