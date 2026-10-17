@@ -156,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 	s.pages["domains"] = partials.Lookup("domains")
 	s.pages["processes"] = partials.Lookup("processes")
 	s.protectionTemplates() // Faz 24
+	s.authTemplates()       // sign-in and sign-up pages (signup.go)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -209,6 +210,7 @@ func (s *Server) Handler() http.Handler {
 	// Faz 13: GitHub login, teams and personal tokens (oauth.go, users.go).
 	mux.HandleFunc("GET /auth/github", s.limitSignIn(s.githubStart))
 	mux.HandleFunc("GET /auth/github/callback", s.limitSignIn(s.githubCallback))
+	mux.HandleFunc("GET /signup", s.signupPage) // signup.go
 	mux.Handle("GET /teams", s.authed(s.teamsPage))
 	mux.Handle("POST /teams", s.authed(s.createTeam))
 	mux.Handle("GET /teams/{slug}", s.authed(s.teamPage))
@@ -437,51 +439,11 @@ func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error
 
 // ---- login ----
 
-func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.Auth.Session(r); err == nil {
-		http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
-		return
-	}
-	s.render(w, r, http.StatusOK, "login", "Giriş yap", s.loginData(safeNext(r.URL.Query().Get("next"))),
-		loginErrors[r.URL.Query().Get("error")])
-}
-
-// loginData selects the login method: GitHub, or the token form in dev mode.
-func (s *Server) loginData(next string) map[string]any {
-	return map[string]any{"Next": next, "GitHub": s.GitHub != nil, "TokenLogin": s.Auth.TokenLogin()}
-}
-
-func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	next := safeNext(r.PostFormValue("next"))
-	if !s.Auth.TokenLogin() {
-		http.Error(w, "token ile giriş kapalı: GitHub ile giriş yap", http.StatusNotFound)
-		return
-	}
-	if !auth.SameOrigin(r) {
-		http.Error(w, "başka siteden gelen giriş isteği reddedildi", http.StatusForbidden)
-		return
-	}
-	if !s.Sessions.CheckToken(strings.TrimSpace(r.PostFormValue("token"))) {
-		s.Log.Warn("web: failed login", "remote", r.RemoteAddr)
-		s.render(w, r, http.StatusUnauthorized, "login", "Giriş yap", s.loginData(next), "Geçersiz API token'ı.")
-		return
-	}
-	s.Sessions.Issue(w, r)
-	http.Redirect(w, r, next, http.StatusSeeOther)
-}
+// The sign-in and sign-up pages live in login.go and signup.go.
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	s.Sessions.Clear(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
-}
-
-// safeNext only allows local paths, so ?next= cannot redirect off-site.
-func safeNext(next string) string {
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
-		return "/"
-	}
-	return next
 }
 
 // ---- deployment detail ----

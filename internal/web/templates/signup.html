@@ -1,0 +1,55 @@
+{{define "head"}}{{template "authhead" .}}<style>
+.auth-card.signup { max-width: 460px; }
+</style>{{end}}
+{{define "content"}}{{$d := .Data}}
+<div class="card auth-card signup">
+  {{template "authbrand"}}
+  {{if not $d.GitHub}}
+  <h1>Hesap oluştur</h1>
+  <div class="flash warn" role="status">
+    <p><strong>Geliştirme modu:</strong> bu sunucuda GitHub ile giriş ayarlı değil, bu yüzden yeni hesap açılamaz.</p>
+    {{if $d.TokenLogin}}<p class="help">Sunucunun <code>PAAS_API_TOKEN</code> değeriyle platform yöneticisi olarak girebilirsin. Herkese açık kayıt için README'deki “GitHub App kurulumu” adımlarını uygula.</p>
+    {{else}}<p class="help">Token ile giriş de kapalı. Platform yöneticisi README'deki “GitHub App kurulumu” adımlarını uygulamalı ya da <code>PAAS_API_TOKEN</code>'ı açmalı.</p>{{end}}
+  </div>
+  {{if $d.TokenLogin}}<a class="btn primary big block" href="/login">Token ile giriş yap →</a>{{end}}
+
+  {{else if $d.OpenSignup}}
+  <h1>Hesap oluştur</h1>
+  <p class="sub">GitHub hesabınla kaydol; sana ait kişisel bir ekip hemen hazır olur. Repo bağla, push et, her branch'e önizleme adresi al.</p>
+  {{with $d.Plan}}
+  <div class="auth-plan">
+    <p class="k">Kişisel ekibin · {{$d.PlanName}} planı</p>
+    <ul aria-label="{{$d.PlanName}} planı limitleri">{{range .}}<li>{{.}}</li>{{end}}</ul>
+  </div>
+  {{end}}
+  <a class="btn primary big block" href="/auth/github?next={{$d.Next}}">{{template "ghicon"}} GitHub ile kaydol</a>
+  {{with $d.MinAge}}<p class="muted small auth-note">Herkese açık kayıt için GitHub hesabının en az {{.}} önce açılmış olması gerekir. Bir ekibe davet edilen hesaplar bu kurala takılmaz.</p>{{end}}
+
+  {{else}}
+  <h1>Kayıtlar şu an davetle</h1>
+  <p class="sub">Bu platformda yeni hesaplar davetle açılır. Bir ekip sahibi GitHub kullanıcı adını ekibine eklediğinde aynı GitHub hesabıyla giriş yaparsın; hesabın ilk girişte açılır.</p>
+  {{if $d.Orgs}}<p class="muted small">Platform yöneticisinin izin verdiği GitHub kuruluşlarının üyeleri davet beklemeden girebilir.</p>{{end}}
+  <a class="btn primary big block" href="/auth/github?next={{$d.Next}}">{{template "ghicon"}} GitHub ile giriş yap</a>
+  <p class="muted small auth-note">Davet bekliyorsan ekip sahibine GitHub kullanıcı adını ilet.</p>
+  {{end}}
+
+  {{if $d.GitHub}}
+  <section class="auth-what" aria-labelledby="what-next">
+    <h2 id="what-next">Ne olacak?</h2>
+    <ol class="auth-steps">
+      <li><div><strong>GitHub hesabınla doğrulanırsın</strong>
+        <span>paas şifre tutmaz. GitHub kullanıcı adını, adını ve profil fotoğrafının adresini kaydeder; GitHub'ın verdiği erişim token'ı yalnızca giriş sırasında kullanılır, saklanmaz.{{if $d.OrgCheck}} Kuruluş üyeliğini doğrulamak için <code>read:org</code> izni istenir.{{end}}</span></div></li>
+      <li><div><strong>Repo erişimini sonra sen seçersin</strong>
+        {{if $d.App}}<span>Giriş repolarına erişim vermez. İlk projeni eklerken GitHub App'i kurar, hangi repoların görüneceğini GitHub'da seçersin; seçimi istediğin zaman değiştirebilirsin.</span>
+        {{else}}<span>Giriş repolarına erişim vermez. Repoyu ilk projeni eklerken bağlarsın.</span>{{end}}</div></li>
+      <li><div><strong>Kodun yalnızca build için çekilir</strong>
+        {{if $d.App}}<span>Her deploy'da yalnızca push edilen commit, GitHub App'in kısa ömürlü kurulum token'ıyla salt okunur olarak çekilir. Build bitince kaynak kod sunucudan silinir; geriye çalışan imaj kalır.</span>
+        {{else}}<span>Her deploy'da yalnızca push edilen commit çekilir. Build bitince kaynak kod sunucudan silinir; geriye çalışan imaj kalır.</span>{{end}}</div></li>
+    </ol>
+  </section>
+  {{end}}
+
+  <p class="auth-alt">Zaten hesabın var mı? <a href="/login">Giriş yap</a></p>
+  {{if $d.GitHub}}{{template "authlegal" "Kaydolarak"}}{{end}}
+</div>
+{{end}}
