@@ -166,7 +166,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /login", s.limitSignIn(s.login))
 	mux.Handle("POST /logout", s.authed(s.logout))
 	mux.HandleFunc("GET /{$}", s.home(s.authed(s.appsPage))) // landing page without a session (landing.go)
-	mux.HandleFunc("GET /static/mimari.svg", architectureSVG)
 	mux.Handle("POST /apps", s.authed(s.createApp))
 	mux.Handle("GET /apps/{name}", s.authed(s.appPage))
 	// Faz 16–19 screens: the app's tabs (app.go, controls.go, analytics.go). The

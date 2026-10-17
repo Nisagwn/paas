@@ -119,7 +119,7 @@ Bileşenler iki katmandan oluşur; Storybook veya ayrı bir doküman sitesi yokt
 | `.flash .help` | Hata kutusunun altında "ne yapmalı" satırı + bağlantı |
 | `.error-page` (`.code`, `.actions`) | Hata / yönlendirme kartı |
 | `.auth-card`, `.btn.block`, `.divider` | Giriş kartı, tam genişlik buton, "ya da" ayırıcı |
-| `footer.site-public` (`nav`) | Oturumsuz sayfaların alt bilgisi: marka solda; Kullanım koşulları, Gizlilik, GitHub sağda. Oturumsuz üst menü: karşılama sayfasında bölüm bağlantıları (`nav.primary`), sağda "Giriş yap" ve açık kayıtta "Kaydol" (`page.Signup`) |
+| `footer.site-public` (`nav`) | Oturumsuz sayfaların alt bilgisi: marka solda; Kullanım koşulları, Gizlilik, GitHub sağda. Oturumsuz üst menü: karşılama sayfasında en çok iki bölüm bağlantısı (`nav.primary`, 720px altında gizli), sağda "Giriş yap" ve açık kayıtta "Kaydol" (`page.Signup`) |
 | `.btn.small`, `.btn.danger`, `button:disabled` | Bağlantı-buton küçük/tehlikeli varyantı; devre dışı görünüm |
 | `.flash.warn` | Uyarı kutusu (`.flash.ok` / `.flash.err` yanında) |
 | `.meter` (`> span` genişlik %, `.warn`, `.full`) | Limit / kullanım çubuğu; `role="progressbar"` + `aria-valuenow` ile kullan |
@@ -182,13 +182,13 @@ Görüntülenen her değer bunlardan geçmeli — Figma'daki örnek metni kopyal
 - **Inline `style="…"`**: mevcut kodda yalnızca tek seferlik yerleşim ayarı için (margin, `flex:0`, `grid-column:1/-1`) kullanılır. Renk gerekiyorsa `style="color:var(--err)"` gibi **token** ile. Tekrar eden inline stil görürsen sınıfa çevir.
 - **Koyu tema:** otomatik, `prefers-color-scheme` ile. Manuel tema anahtarı yok. Yeni renk = iki tema değeri.
 - **Responsive:** tek kırılım `@media (max-width: 720px)` → `.hide-sm` gizlenir, tablo hücre boşluğu 8px olur. Izgaralar `repeat(auto-fit, minmax(…, 1fr))` ile, satırlar `flex-wrap: wrap` ile kendiliğinden uyum sağlar. Sayfaya özel ek kırılım gerekirse o sayfanın `head` bloğuna (review: 1000px).
-- **Hareket:** yalnızca `@keyframes pulse` (devam eden durum noktası) ve `details` okunun `transform .15s` dönüşü. Figma'daki karmaşık animasyonları CSS geçişleriyle ve ölçülü uygula.
+- **Hareket:** yalnızca `@keyframes pulse` (devam eden durum noktası) ve `details` okunun `transform .15s` dönüşü. Karşılama sayfası ayrıca kart üzerine gelince hafif yükselme ve terminal satırlarının sırayla belirmesini (nonce'lu script, `prefers-reduced-motion`'da kapalı, JS yokken tüm satırlar görünür) kullanır. Figma'daki karmaşık animasyonları CSS geçişleriyle ve ölçülü uygula.
 
 ---
 
 ## 5. Varlıklar (asset) ve ikonlar
 
-- **Tek görsel dosyası:** `internal/web/static/mimari.svg` (`docs/images/mimari-genel.svg`'nin kopyası, `GET /static/mimari.svg` ile `image/svg+xml` olarak sunulur; `TestArchitectureImageInSync` eşitliğini denetler). CDN ve görsel optimizasyon hattı yoktur. Dış kaynak olarak yalnızca htmx unpkg'den yüklenir.
+- **Görsel dosyası yok:** arayüz görselleri inline SVG ve CSS'tir (karşılama sayfasının parıltısı dahil, `color-mix` ile token'lardan). Mimari diyagramı yalnızca belgelerde (`docs/images/`), GitHub bağlantısıyla gösterilir. CDN ve görsel optimizasyon hattı yoktur. Dış kaynak olarak yalnızca htmx unpkg'den yüklenir.
 - **Favicon:** `layout.html` içinde data-URI SVG üçgen.
 - **CSP** (`web.go` `securityHeaders`): `default-src 'self'; script-src 'nonce-…' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:`.
   - Her `<script>` etiketi `nonce="{{.Nonce}}"` taşımalı; `onclick=` gibi inline handler **çalışmaz**.

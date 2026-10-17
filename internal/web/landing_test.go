@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -15,7 +14,6 @@ import (
 	"github.com/nisagwn/paas/internal/auth"
 	"github.com/nisagwn/paas/internal/github"
 	"github.com/nisagwn/paas/internal/plans"
-	"github.com/nisagwn/paas/internal/store"
 	"github.com/nisagwn/paas/internal/testdb"
 	"github.com/nisagwn/paas/internal/web"
 )
@@ -48,14 +46,33 @@ func TestLandingAnonymous(t *testing.T) {
 		t.Fatalf("GET /: %d, want the landing page", code)
 	}
 	mustContain(t, "landing", body,
-		"saniyeler içinde canlıda</title>", `<meta name="description"`,
-		`id="hero-title"`, `id="nasil-calisir"`, `id="ozellikler"`, `id="neden"`, `id="mimari"`, `id="planlar"`, `id="sss"`,
-		`href="#nasil-calisir"`, `href="#ozellikler"`, `href="#planlar"`, // header section links
-		`href="/login"`, `https://blog.paas.test`, `yeni-tasarim-blog.paas.test`, // the configured domain
-		`src="/static/mimari.svg"`, `docs/MIMARI.md`, "Kayıtlar şu an davetle",
-		"Bu sunucuda plan limiti uygulanmıyor", `href="/terms"`, `href="/privacy"`, `https://github.com/Nisagwn/paas"`,
-		"<details", "Kendi sunucuma kurabilir miyim?")
-	mustNotContain(t, "landing (signup closed)", body, `href="/signup"`, "/logout", "Yeni proje", "og:url")
+		"saniyeler içinde canlıda</title>", `<meta name="description"`, `<meta property="og:title"`,
+		`id="hero-title"`, `id="nasil-calisir"`, `id="ozellikler"`, `id="proof-title"`, `id="final-title"`,
+		`href="#nasil-calisir">Nasıl çalışır</a>`, `href="#ozellikler">Özellikler</a>`, // header section links
+		`<a class="btn small primary" href="/login">Giriş yap</a>`,
+		`<a class="btn primary big" href="/login">Giriş yap`, "Kayıtlar şu an davetle.",
+		`https://blog.paas.test`, `yeni-tasarim-blog.paas.test`, // the configured domain
+		`docs/MIMARI.md`, `docs/MEASUREMENTS.md`, "Bu sunucuda plan limiti uygulanmıyor",
+		`href="/terms"`, `href="/privacy"`, `https://github.com/Nisagwn/paas"`,
+		`<figure class="term" data-play`, `aria-hidden="true"><svg`)
+	mustNotContain(t, "landing (signup closed)", body, `href="/signup"`, "/logout", "Yeni proje", "og:url",
+		`href="#planlar"`, "/static/mimari.svg", "<details", "<table")
+
+	// Exactly one h1; five sections at most; six feature cards; two header links at most.
+	if n := strings.Count(body, "<h1"); n != 1 {
+		t.Errorf("%d h1 elements, want 1", n)
+	}
+	if n := strings.Count(body, "<section"); n > 5 {
+		t.Errorf("%d sections, want at most 5", n)
+	}
+	feat := body[strings.Index(body, `<ul class="lp-feat">`):]
+	if n := strings.Count(feat[:strings.Index(feat, "</ul>")], "<li"); n != 6 {
+		t.Errorf("%d feature cards, want 6", n)
+	}
+	nav := body[strings.Index(body, `aria-label="Sayfa bölümleri"`):]
+	if n := strings.Count(nav[:strings.Index(nav, "</nav>")], "<a "); n > 2 {
+		t.Errorf("%d header section links, want at most 2", n)
+	}
 
 	// CSP: every script carries the request's nonce; no inline handlers, no external images or styles.
 	m := regexp.MustCompile(`'nonce-([^']+)'`).FindStringSubmatch(h.Get("Content-Security-Policy"))
@@ -63,13 +80,16 @@ func TestLandingAnonymous(t *testing.T) {
 		t.Fatal("no nonce in CSP")
 	}
 	tags := scriptTag.FindAllString(body, -1)
-	if len(tags) == 0 {
-		t.Fatal("no script tags")
+	if len(tags) < 3 { // htmx, the layout script, the terminal player
+		t.Fatalf("%d script tags, want the landing script too", len(tags))
 	}
 	for _, tag := range tags {
 		if !strings.Contains(html.UnescapeString(tag), `nonce="`+m[1]+`"`) {
 			t.Errorf("script without the request nonce: %s", tag)
 		}
+	}
+	if !strings.Contains(body, `matchMedia("(prefers-reduced-motion: reduce)")`) {
+		t.Error("terminal player ignores prefers-reduced-motion")
 	}
 	if s := inlineOn.FindString(body); s != "" {
 		t.Errorf("inline event handler: %s", s)
@@ -86,7 +106,12 @@ func TestLandingAnonymous(t *testing.T) {
 	// Other public pages keep the signed-out header without the section links.
 	_, body, _ = u.get("/terms")
 	mustContain(t, "terms", body, `href="/login"`)
-	mustNotContain(t, "terms", body, `href="#planlar"`, `href="/signup"`)
+	mustNotContain(t, "terms", body, `href="#ozellikler"`, `href="/signup"`)
+
+	// The architecture image lives in the documentation only.
+	if code, _, h := u.get("/static/mimari.svg"); code == http.StatusOK || h.Get("Content-Type") == "image/svg+xml" {
+		t.Errorf("GET /static/mimari.svg: %d %q, want no image", code, h.Get("Content-Type"))
+	}
 }
 
 func TestLandingSignedIn(t *testing.T) {
@@ -120,17 +145,9 @@ func TestLandingSignedIn(t *testing.T) {
 // newUI is another browser (empty cookie jar) on the same server.
 func newUI(u *ui) *ui { return &ui{t: u.t, st: u.st, srv: u.srv, client: newClient()} }
 
-func TestLandingPlansAndOpenSignup(t *testing.T) {
-	catalog := plans.DefaultCatalog()
-	hobby := catalog[store.PlanHobby]
-	hobby.Projects, hobby.BuildMinutes, hobby.Memory = 7, 1234, "3Gi"
-	catalog[store.PlanHobby] = hobby
-	pro := catalog[store.PlanPro]
-	pro.DeploymentsPerDay = 4321
-	catalog[store.PlanPro] = pro
-
+func TestLandingOpenSignup(t *testing.T) {
 	u := landingServer(t, func(s *web.Server) {
-		s.Plans = &plans.Guard{Store: s.Store, Catalog: catalog}
+		s.Plans = &plans.Guard{Store: s.Store, Catalog: plans.DefaultCatalog()}
 		s.PublicURL = "https://paas.example.com/"
 		s.GitHub = &auth.GitHubLogin{App: &github.OAuthApp{ClientID: "cid"}, OpenSignup: true}
 	})
@@ -140,47 +157,22 @@ func TestLandingPlansAndOpenSignup(t *testing.T) {
 	}
 	mustContain(t, "landing (open signup)", body,
 		`<a class="btn small primary" href="/signup">Kaydol</a>`, `<a class="btn small" href="/login">Giriş yap</a>`,
-		`href="/signup">Ücretsiz başla`,
-		`<meta property="og:url" content="https://paas.example.com/">`, `<link rel="canonical" href="https://paas.example.com/">`,
-		`id="plan-hobby"`, `id="plan-pro"`, `id="plan-unlimited"`, ">Hobby<", ">Pro<", ">Sınırsız<",
-		"<dt>Proje</dt><dd>7</dd>", "<dd>1.234 dk</dd>", "<dd>3 GiB</dd>", "<dt>Günlük deploy</dt><dd>4.321</dd>",
-		"<dt>Proje</dt><dd>Sınırsız</dd>")
-	mustNotContain(t, "landing (open signup)", body, "<dt>Proje</dt><dd>10</dd>")
+		`<a class="btn primary big" href="/signup">Ücretsiz başla`, `<a class="btn big" href="/login">Giriş yap</a>`,
+		`Hobby planı ücretsiz · <a href="/signup">Limitleri gör`,
+		`<meta property="og:url" content="https://paas.example.com/">`, `<link rel="canonical" href="https://paas.example.com/">`)
 	mustNotContain(t, "landing (open signup)", body, "Kayıtlar şu an davetle", "plan limiti uygulanmıyor")
 
-	// The same plans with sign-up closed point to the login page.
+	// The limits the landing page links to are listed on /signup.
+	_, body, _ = u.get("/signup")
+	mustContain(t, "signup", body, "Hobby planı limitleri")
+
+	// Plans with sign-up closed point to the login page.
 	u = landingServer(t, func(s *web.Server) {
-		s.Plans = &plans.Guard{Store: s.Store, Catalog: catalog}
+		s.Plans = &plans.Guard{Store: s.Store, Catalog: plans.DefaultCatalog()}
 		s.GitHub = &auth.GitHubLogin{App: &github.OAuthApp{ClientID: "cid"}}
 	})
 	_, body, _ = u.get("/")
-	mustContain(t, "landing (invite only)", body, "Kayıtlar şu an davetle", "<dd>1.234 dk</dd>",
-		`<a class="btn small primary" href="/login">Giriş yap</a>`, `href="/login">Giriş yap<span class="sr-only"> (Hobby planı)`)
+	mustContain(t, "landing (invite only)", body, "Kayıtlar şu an davetle", "Hobby planı ücretsiz.",
+		`<a class="btn small primary" href="/login">Giriş yap</a>`, `<a class="btn primary big" href="/login">Giriş yap`)
 	mustNotContain(t, "landing (invite only)", body, `href="/signup"`)
-}
-
-func TestArchitectureImage(t *testing.T) {
-	u := setup(t)
-	code, body, h := u.get("/static/mimari.svg")
-	if code != http.StatusOK || h.Get("Content-Type") != "image/svg+xml" || !strings.Contains(body, "<svg") {
-		t.Fatalf("GET /static/mimari.svg: %d %q", code, h.Get("Content-Type"))
-	}
-	if h.Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("image without nosniff")
-	}
-}
-
-// TestArchitectureImageInSync: the embedded copy matches the documentation's image.
-func TestArchitectureImageInSync(t *testing.T) {
-	doc, err := os.ReadFile("../../docs/images/mimari-genel.svg")
-	if err != nil {
-		t.Skip("docs not present:", err)
-	}
-	embedded, err := os.ReadFile("static/mimari.svg")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(bytes.ReplaceAll(doc, []byte("\r\n"), []byte("\n")), bytes.ReplaceAll(embedded, []byte("\r\n"), []byte("\n"))) {
-		t.Fatal("internal/web/static/mimari.svg differs from docs/images/mimari-genel.svg; copy it again")
-	}
 }
