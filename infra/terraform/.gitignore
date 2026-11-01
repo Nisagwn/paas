@@ -5,3 +5,6 @@
 terraform.tfvars
 crash.log
 kubeconfig-*.yaml
+tfplan
+*.tfstate
+*.tfstate.*
