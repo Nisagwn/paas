@@ -109,8 +109,8 @@ Bu koşu iki hata buldu ve düzeltildi: crash mesajı yalnızca stack trace'in s
 
 | | |
 |---|---|
-| Go kaynak kodu | ~6 600 satır (testler hariç) |
-| Test kodu | ~3 750 satır, 79 test fonksiyonu |
+| Go kaynak kodu | ~47 700 satır, `cmd/` + `internal/` (testler hariç; ilk sürümde ~6 600) |
+| Test kodu | ~27 400 satır, 474 test fonksiyonu (ilk sürümde ~3 750 / 79; sayılar Faz 30 sonrası) |
 | Veritabanı testleri | gerçek PostgreSQL'e karşı (`make test`) |
 | Kubernetes testleri | client-go fake clientset |
 | Gerçek build testleri | `make test-build`: üç örnek gerçekten build edilir, çalıştırılır, HTTP yanıtı kontrol edilir |

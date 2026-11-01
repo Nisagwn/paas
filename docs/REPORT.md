@@ -214,7 +214,8 @@ yazmak hem riskli hem gereksiz olurdu.
 
 ## 7. Test ve doğrulama
 
-- **317 test fonksiyonu**, ~18 000 satır test kodu (ilk sürümde 79 / ~3 750; sayılar Faz 22 sonrası).
+- **474 test fonksiyonu**, ~27 400 satır test kodu (ilk sürümde 79 / ~3 750; Faz 22 sonrasında 317 / ~18 000;
+  sayılar Faz 30 sonrası).
 - Veritabanı testleri gerçek PostgreSQL'e karşı çalışır; eşzamanlılık (8 worker × 50 iş),
   idempotentlik, alias'ın yalnızca ileri gitmesi, rollback/temizlik yarışı, çökme kurtarması.
 - Kubernetes katmanı client-go fake clientset ile: nesnelerin doğruluğu, idempotentlik,
