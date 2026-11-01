@@ -10,15 +10,18 @@ değişmez bir deploy olur. Go ile yazıldı, Kubernetes (k3s) üzerinde çalı�
   Dockerfile platform tarafından üretilir. Monorepo kök dizini ve build / start komutları proje başına ayarlanır.
 - **Branch başına preview:** her branch `<branch>-<app>.<domain>` adresini alır; PR'a "Preview hazır" yorumu ve
   commit status'u yazılır, branch silinince preview de kalkar.
-- **Değişmez deploy'lar, anında rollback:** her commit `<sha7>-<app>.<domain>` adresinde kalıcıdır; production yalnızca
-  bir takma addır, rollback build'siz ve milisaniyeler içinde olur. Preview'i yeniden build etmeden production'a taşıma,
+- **Değişmez deploy'lar, anında rollback:** her commit `<sha7>-<app>.<domain>` adresinde değişmeden durur (saklama
+  politikası süresince: production branch'inin son `PAAS_KEEP_PRODUCTION` = 5 hazır deploy'u, alias'sız preview'ler
+  `PAAS_PREVIEW_TTL` = 72 saat); production yalnızca bir takma addır, saklanan bir deploy'a rollback build'siz olur ve
+  API tarafı milisaniyeler sürer (ölçüm: [MEASUREMENTS.md §3](docs/MEASUREMENTS.md)). Preview'i yeniden build etmeden production'a taşıma,
   yeniden deploy, iptal ve deploy hook'ları da var.
 - **Web dışı süreçler:** `paas.yaml` ile aynı imajdan worker'lar, cron işleri ve kalıcı WebSocket sunucuları; rollback
   onları da eski sürüme taşır.
 - **Yönetilen PostgreSQL / Redis:** tek tıkla eklenir, `DATABASE_URL` / `REDIS_URL` deploy'lara kendiliğinden girer;
   her preview branch'i production veritabanının (istenirse anonimleştirilmiş) kendi kopyasıyla çalışır. Günlük yedek ve
   geri yükleme dahil.
-- **Kademeli yayın (canary):** yeni production önce trafiğin bir payını alır, 5xx oranı ve p95 gecikmesi mevcut
+- **Kademeli yayın (canary):** proje ayarından açılır (varsayılan mod `instant`, yani anında yayın); açıkken yeni
+  production önce trafiğin bir payını alır (varsayılan %10 → %50 → %100, adım 5 dk), 5xx oranı ve p95 gecikmesi mevcut
   production ile karşılaştırılır; bozulursa kendiliğinden geri alınır.
 - **Deploy koruması:** deploy ve preview adresleri yalnızca ekibe, ortak şifreyle ya da paylaşım bağlantısıyla açılır;
   CI için otomasyon anahtarı.
@@ -45,7 +48,8 @@ ortam değişkenleri, otomatik temizlik ve çökme sonrası kurtarma vardır. He
   `Ingress` yazılır → pod hazır olunca production / preview alias'ları taşınır → GitHub'a commit status ve PR yorumu gider.
 - **Traefik** tüm adresleri yönlendirir (wildcard ya da host başına TLS, cert-manager); canary için ağırlıklı servis,
   koruma için ForwardAuth kullanılır.
-- Kullanıcı uygulamaları ayrı namespace'lerde, kota, `NetworkPolicy` ve root olmayan kullanıcıyla çalışır.
+- Kullanıcı uygulamaları ayrı namespace'lerde, kota, gelen trafiği sınırlayan `NetworkPolicy` (giden trafik
+  sınırlanmaz) ve root olmayan kullanıcıyla çalışır.
 
 Ayrıntılı mimari: [docs/MIMARI.md](docs/MIMARI.md)
 
@@ -380,7 +384,7 @@ docs/               kullanım kılavuzu, mimari, rapor, ölçümler, arıza sena
 |---|---|
 | [docs/KULLANIM.md](docs/KULLANIM.md) | Özellik kılavuzu: ayar değişkenleri, alan adları, preview'ler, rollback, süreçler, canary, veritabanları, koruma, yorumlar, bildirimler, terminal, planlar, silme, CLI, API tablosu |
 | [docs/MIMARI.md](docs/MIMARI.md) | Ayrıntılı mimari |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Bağlam ve konteyner diyagramları, deploy / rollback akışları, durum makinesi, veri modeli |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Eski adres; içerik (diyagramlar, akışlar, veri modeli) artık [docs/MIMARI.md](docs/MIMARI.md)'de |
 | [docs/REPORT.md](docs/REPORT.md) | Teknik rapor: tasarım kararları, güvenlik, test, ölçümler |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Kuyruk ölçeklenmesi, build süreleri, rollback gecikmesi, sıfıra ölçekleme |
 | [docs/FAILURE-SCENARIOS.md](docs/FAILURE-SCENARIOS.md) | Arıza senaryoları, beklenen davranış ve testleri |
@@ -424,4 +428,7 @@ docs/               kullanım kılavuzu, mimari, rapor, ölçümler, arıza sena
 | 30 | İmaj saklama: registry, platformun tuttuğu deploy'ları izler |
 | Sonra | Faturalandırma, çok düğümlü küme, S3 uyumlu yedek hedefi, Postgres okuma kopyaları |
 
-Her fazın kapsamı ve doğrulama durumu: [docs/PHASES.md](docs/PHASES.md).
+Her fazın kapsamı ve doğrulama durumu: [docs/PHASES.md](docs/PHASES.md). Not: fazların bir kısmı yalnızca birim,
+veritabanı ve sahte (fake) istemci testleriyle doğrulandı; gerçek kümede ya da gerçek dış serviste (GitHub App,
+Slack / SMTP, ECR, AWS) denemesi bekleyenler PHASES.md'de faz başlığında yazılıdır. Repoda otomatik CI hattı
+(ör. GitHub Actions) yoktur; testler yerelde çalıştırılır.
